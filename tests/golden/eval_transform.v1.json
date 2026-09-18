@@ -4,7 +4,7 @@
   "version": "v1",
   "dataset": "chexpert",
   "tolerance": 1e-06,
-  "generated_at": "2026-09-18T10:49:36Z",
+  "generated_at": "2026-09-18T10:54:01Z",
   "source": {
     "repo": "/home/akiba/workspace/fairness",
     "commit": "da317a71894a3420db9015f1d02c6b7f97d43cf3",
@@ -163,6 +163,29 @@
         "max": 2.640000104904175,
         "mean": 0.23085899651050568,
         "std": 1.2912732362747192
+      }
+    },
+    {
+      "name": "checkerboard_downscaled",
+      "description": "実データと同じ pad + 縮小の経路。市松模様で縮小時の折り返しに感度を持たせる",
+      "image": {
+        "png_base64": "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",
+        "mode": "RGB",
+        "width": 600,
+        "height": 400
+      },
+      "expected": {
+        "shape": [
+          3,
+          224,
+          224
+        ],
+        "dtype": "float32",
+        "sha256": "e3eb68dacac965804f17ea1cab48c5707ef45a280da079aef2f460c36fd46626",
+        "min": -1.158917784690857,
+        "max": 1.5942485332489014,
+        "mean": 0.15202338993549347,
+        "std": 0.42678388953208923
       }
     }
   ]
