@@ -1,0 +1,33 @@
+default_language_version:
+  python: python3
+
+repos:
+  # 事故防止・基本衛生
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: debug-statements
+      - id: detect-private-key
+      - id: check-added-large-files
+
+  # Python: lint + import整理 + formatter
+  # rev は pyproject.toml の ruff と必ず揃える。ずれると `make format`（この hook）と
+  # エディタ / agent の `uv run ruff format` が別基準で整形し合い、差分が消えなくなる。
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.14.10
+    hooks:
+      # Lint（自動修正あり）
+      - id: ruff-check
+        args: [--fix]
+      # フォーマット（ruff-format）
+      - id: ruff-format
+
+  # Notebook の出力を消す（研究では便利）
+  - repo: https://github.com/kynan/nbstripout
+    rev: 0.7.1
+    hooks:
+      - id: nbstripout
