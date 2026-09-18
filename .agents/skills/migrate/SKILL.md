@@ -5,7 +5,7 @@ allowed-tools: Bash(uv:*) Bash(git:*) Bash(cat:*) Bash(ls:*) Bash(grep:*) Bash(f
 ---
 
 移植元は `/home/akiba/workspace/fairness`（以下 旧 repo）。**読み取り専用**。
-方針の根拠と実測値は [rationale.md](rationale.md) を参照する。
+方針の根拠と実測値は [rationale.md](rationale.md)、現在地と未決事項は [progress.md](progress.md) を参照する。
 
 ## 目的と完了条件
 
