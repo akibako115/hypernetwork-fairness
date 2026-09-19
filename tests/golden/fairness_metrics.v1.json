@@ -132,7 +132,11 @@
       "expected": {
         "val/sex/Eodds": 0.375,
         "val/sex/Eopp0": 0.25,
-        "val/sex/Eopp1": 0.5
+        "val/sex/Eopp1": 0.5,
+        "val/sex/auroc_gap": 0.25,
+        "val/sex/bacc_gap": 0.375,
+        "val/sex/worst_group_auroc": 0.5,
+        "val/sex/worst_group_bacc": 0.5
       }
     },
     {
@@ -274,7 +278,11 @@
       "expected": {
         "val/sex/Eodds": 0.375,
         "val/sex/Eopp0": 0.25,
-        "val/sex/Eopp1": 0.5
+        "val/sex/Eopp1": 0.5,
+        "val/sex/auroc_gap": 0.25,
+        "val/sex/bacc_gap": 0.375,
+        "val/sex/worst_group_auroc": 0.5,
+        "val/sex/worst_group_bacc": 0.5
       }
     },
     {
@@ -396,7 +404,11 @@
       "expected": {
         "val/sex/Eodds": 0.2499999850988388,
         "val/sex/Eopp0": 0.1666666865348816,
-        "val/sex/Eopp1": 0.3333333134651184
+        "val/sex/Eopp1": 0.3333333134651184,
+        "val/sex/auroc_gap": 0.16666662693023682,
+        "val/sex/bacc_gap": 0.25,
+        "val/sex/worst_group_auroc": 0.5,
+        "val/sex/worst_group_bacc": 0.5833333730697632
       }
     },
     {
@@ -532,9 +544,17 @@
         "val/age_group/Eodds": 0.8333333283662796,
         "val/age_group/Eopp0": 1.0,
         "val/age_group/Eopp1": 0.6666666567325592,
+        "val/age_group/auroc_gap": 1.0,
+        "val/age_group/bacc_gap": 0.5,
+        "val/age_group/worst_group_auroc": 0.0,
+        "val/age_group/worst_group_bacc": 0.5,
         "val/sex/Eodds": 0.375,
         "val/sex/Eopp0": 0.25,
-        "val/sex/Eopp1": 0.5
+        "val/sex/Eopp1": 0.5,
+        "val/sex/auroc_gap": 0.25,
+        "val/sex/bacc_gap": 0.375,
+        "val/sex/worst_group_auroc": 0.5,
+        "val/sex/worst_group_bacc": 0.5
       }
     },
     {
@@ -653,7 +673,12 @@
           }
         }
       ],
-      "expected": {}
+      "expected": {
+        "val/sex/auroc_gap": null,
+        "val/sex/bacc_gap": null,
+        "val/sex/worst_group_auroc": null,
+        "val/sex/worst_group_bacc": null
+      }
     },
     {
       "name": "binary_group_without_negatives",
@@ -774,7 +799,11 @@
       "expected": {
         "val/sex/Eodds": null,
         "val/sex/Eopp0": null,
-        "val/sex/Eopp1": 0.0
+        "val/sex/Eopp1": 0.0,
+        "val/sex/auroc_gap": null,
+        "val/sex/bacc_gap": null,
+        "val/sex/worst_group_auroc": null,
+        "val/sex/worst_group_bacc": null
       }
     },
     {
@@ -1071,7 +1100,11 @@
       "expected": {
         "val/eval_group/Eodds": 0.25,
         "val/eval_group/Eopp0": 0.25,
-        "val/eval_group/Eopp1": 0.25
+        "val/eval_group/Eopp1": 0.25,
+        "val/eval_group/auroc_gap": 0.0,
+        "val/eval_group/bacc_gap": 0.0,
+        "val/eval_group/worst_group_auroc": 0.375,
+        "val/eval_group/worst_group_bacc": 0.625
       }
     }
   ]

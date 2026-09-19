@@ -73,29 +73,38 @@ metrics・transform ともに意図的な改変を入れて検出率を測って
 
 ## 次にやること
 
-### step 2 の残り: split の意味の golden
-
-`DATA_FOLDER=/data` が必要。固定する対象:
-
-- 各 split の行数
-- `image` 集合の hash（順序非依存）
-- `target` の分布
-- 必須列集合（`src/data/splits.py:required_split_columns` の結果）
-
-実体は `/data/chexpert/splits/{train,val,test}.csv`。
-config の `cv_splits_dir` は `${paths.data_dir}/chexpert/splits` を指す
-（`/data/chexpert/cv_splits/fold_*` は**使われていない**。混同しないこと）。
-
-cohort sidecar の schema golden は step 3 の cohort 移植と同時の方が自然なので、
-ここでは作らない判断にしてある。
-
 ### step 3 以降
 
 SKILL.md の「移植の順序」 3〜7 のとおり。step 3 は
 models → data → callbacks → module → configs → run 記録 → cohorts → scripts の順に、
 **1 回 1 単位・対話的**に進める。
 
+`hypernet_e2e` の model は以下を移植済み: ResNet、MetadataEncoder、HyperLinear、
+Spatial LoRA block / network、model utils。data 側は `attribute_utils.py` / `splits.py` /
+`transform_utils.py` / `dataset.py` を移植済み。評価 transform は project の preflight で golden と
+bit 単位照合し、学習 transform は乱数を含むため構成のみ照合する。通常の `datamodule.py` は
+移植済み。Callbacks は全体性能ログと公平性ログを移植済み。`module.py` は通常の `TaskLoss`、
+単段 fit、Spatial LoRA のデータ依存初期化までを実装済み。cohort sidecar・GroupDRO objective・
+`TextProgressLogger` は、現時点の e2e スコープ外として保留する。CheXpert の ResNet / Spatial LoRA、
+ERM / inverse-weighted loss / inverse-frequency sampling の Hydra preset は移植済み。`run_record.py` は
+新規 run directory、解決済み config、train/val manifest、golden preflight、成功/失敗状態を記録する。
+`run.py` は inverse class weight を train split から解決し、Hydra の自動 output を
+使わずに 1 回の Lightning fit を行う。scalar callback metrics は `metrics/fit.json` と `run.json` に記録する。
+CheXpert の Spatial LoRA は、モデル入力に `sex` / `race` / `ethnicity` /
+`frontal_lateral` / `ap_pa` / `age` を使い、公平性ログには raw age から作る
+`age_group_65` を加えた `sex` / `race` / `ethnicity` / `age_group_65` を使う。
+この設定で 1 train batch・1 validation batch の最小 fit が完走した。
+e2e の cohort artifact と GroupDRO objective は、現時点のスコープ外として保留する。
+
+e2e の生成物は `projects/hypernet_e2e/runs/<run-id>/` が所有する。`data/chexpert` は
+固定入力だけを置き、cohort は生成 run の `artifacts/cohorts/` に保存する。詳細な出力契約は
+`projects/hypernet_e2e/docs/run-artifacts.md` に固定した。
+
 ## 未決事項
+
+- **split の golden は作らない。** `attribute_names` は設定で変わるため、fixture CSV に対する
+  `splits.py` の単体テストで列契約を検証する。実データの行数・画像集合 hash・target 分布は
+  run 記録の data manifest に残し、データ更新を意図的に追跡する。
 
 - **`class_imbalance` と `two_stage` をどこに置くか。** 現時点で
   `hypernet_e2e` / `hypernet_iterative` の 2 project しか決めていない。

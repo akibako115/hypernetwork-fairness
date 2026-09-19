@@ -150,6 +150,7 @@ checkpoints/*.pth
 /remote_logs/
 /run_logs/
 /wandb/
+/projects/*/runs/
 .env
 .envrc
 .direnv/

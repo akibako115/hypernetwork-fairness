@@ -1,0 +1,32 @@
+_target_: projects.hypernet_e2e.data.datamodule.ImageDataModule
+data_dir: ${paths.data_dir}/chexpert/images
+cv_splits_dir: ${paths.data_dir}/chexpert/splits
+num_classes: 2
+batch_size: 128
+num_workers: 8
+pin_memory: true
+persistent_workers: true
+prefetch_factor: 2
+train_sampling: uniform
+standardize_continuous: true
+
+attribute_names:
+  categorical: [sex, race, ethnicity, frontal_lateral, ap_pa]
+  continuous: [age]
+
+attribute_spec:
+  categorical_cardinalities: [2, 6, 2, 2, 2]
+  continuous_dim: 1
+
+fairness_attribute_names:
+  categorical: [sex, race, ethnicity, age_group_65]
+
+fairness_age_groups:
+  age_group_65:
+    source: age
+    boundaries: [65]
+
+train_transform:
+  _target_: projects.hypernet_e2e.data.transform_utils.train_transforms_chexpert
+val_transform:
+  _target_: projects.hypernet_e2e.data.transform_utils.val_transforms_chexpert
