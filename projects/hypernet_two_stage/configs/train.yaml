@@ -1,0 +1,24 @@
+# @package _global_
+defaults:
+  - callbacks: default
+  - logger: none
+  - paths: default
+  - trainer: gpu
+  - experiment: resnet_chexpert_inverse_weighted_loss
+  - _self_
+
+project: hypernet_two_stage
+task_name: train
+seed: 12345
+tags: []
+
+# run.py が一意な run directory を予約してから設定する。config 単体では出力しない。
+run_dir: null
+
+# Hydra 固有の outputs/ は使わず、run.py が予約する project 内 runs/ だけへ保存する。
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+  job:
+    chdir: false

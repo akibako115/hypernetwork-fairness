@@ -1,0 +1,8 @@
+# @package _global_
+defaults:
+  - /model: resnet50
+  - _base_chexpert
+  - _self_
+
+experiment_name: resnet-chexpert
+tags: [chexpert, resnet50, erm]

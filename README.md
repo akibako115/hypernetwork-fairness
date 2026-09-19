@@ -9,10 +9,11 @@
 | project | 責務 | 現在地 |
 | --- | --- | --- |
 | [`hypernet_e2e`](projects/hypernet_e2e/README.md) | 1 回の fit で完結する hypernetwork 系学習と性能比較 | model / data / callbacks / Lightning module / configs / run 記録 / 学習起動を実装済み。cohort と GroupDRO は保留 |
+| [`hypernet_two_stage`](projects/hypernet_two_stage/README.md) | Stage 1 ResNet から凍結した Stage 2 Spatial LoRA へ引き継ぐ二段学習 | 骨格・artifact 契約を整備中 |
 | `hypernet_iterative` | run 中に複数 stage を進める反復学習 | 未着手 |
 
-`two_stage` の配置は未決です。現時点では project を作らず、学習過程の実装を読む段階で
-`hypernet_e2e` に含めるかを判断します。
+two-stage は checkpoint を引き継ぐ固定2段の workflow を持つため、単段の `hypernet_e2e` と
+cohort を反復更新する `hypernet_iterative` のどちらにも含めません。
 
 ## 再現性の境界
 

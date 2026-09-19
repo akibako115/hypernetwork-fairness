@@ -100,16 +100,20 @@ e2e の生成物は `projects/hypernet_e2e/runs/<run-id>/` が所有する。`da
 固定入力だけを置き、cohort は生成 run の `artifacts/cohorts/` に保存する。詳細な出力契約は
 `projects/hypernet_e2e/docs/run-artifacts.md` に固定した。
 
+two-stage は `projects/hypernet_two_stage/` として独立させる。Stage 1 の最良
+`val/auroc` checkpoint を入力に、共有 backbone / classifier を凍結した Stage 2 Spatial LoRA を
+学習する固定2段の workflow を持つ。ResNet、MetadataEncoder、HyperLinear、Spatial LoRA、model utility
+に加え、CheXpert data、callbacks、Lightning module、Hydra configs、workflow、学習 CLI を移植済みである。
+各 stage を1 train batch・1 validation batch に制限した CheXpert 最小実行が完走した。cohort の再生成や
+任意回数の反復は持たない。
+
 ## 未決事項
 
 - **split の golden は作らない。** `attribute_names` は設定で変わるため、fixture CSV に対する
   `splits.py` の単体テストで列契約を検証する。実データの行数・画像集合 hash・target 分布は
   run 記録の data manifest に残し、データ更新を意図的に追跡する。
 
-- **`class_imbalance` と `two_stage` をどこに置くか。** 現時点で
-  `hypernet_e2e` / `hypernet_iterative` の 2 project しか決めていない。
-  両者とも「学習前に条件が確定する 1 fit」なので e2e に寄せられるが、
-  独立 project にする選択肢も残っている
+- **`class_imbalance` をどこに置くか。** `hypernet_e2e` に含めるか、独立 project にするかは未決。
 - **過去ログの棚卸し**（ユーザーの指示で延期）。実測: logs 63GB。
   内訳は checkpoint 71GB（hardlink 済み）・`final_features.npz` 13GB（再生成可能）・
   **代替不能な metadata 207MB**。demographic の 96 run には checkpoint が無い。

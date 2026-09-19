@@ -1,0 +1,4 @@
+# @package _global_
+defaults:
+  - spatial_lora_chexpert
+  - _self_

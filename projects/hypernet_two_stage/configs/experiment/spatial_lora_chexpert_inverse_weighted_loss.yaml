@@ -1,0 +1,7 @@
+# @package _global_
+defaults:
+  - spatial_lora_chexpert
+  - _self_
+
+# run.py が train split の class frequency から loss_fn.class_weight を解決する。
+weighting: inverse

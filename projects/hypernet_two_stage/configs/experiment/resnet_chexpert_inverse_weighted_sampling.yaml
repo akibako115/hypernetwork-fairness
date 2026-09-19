@@ -1,0 +1,7 @@
+# @package _global_
+defaults:
+  - resnet_chexpert
+  - _self_
+
+data:
+  train_sampling: inverse_frequency

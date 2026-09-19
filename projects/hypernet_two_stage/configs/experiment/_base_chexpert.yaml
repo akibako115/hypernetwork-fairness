@@ -1,0 +1,16 @@
+# @package _global_
+defaults:
+  - /data: chexpert
+  - _self_
+
+dataset: chexpert
+weighting: none
+
+trainer:
+  max_epochs: 30
+
+data:
+  num_workers: 8
+  pin_memory: true
+  persistent_workers: true
+  prefetch_factor: 2
