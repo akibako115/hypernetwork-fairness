@@ -28,7 +28,9 @@ loss_fn:
   _target_: projects.hypernet_iterative.loss.TaskLoss
   class_weight: null
 use_attributes: true
-backbone_checkpoint_path: null
+# CheXpert の実験系列は ResNet-50 の ImageNet 重みから始める。旧 repo の iterative と
+# 同じ初期化であり、これを外すと 30 epoch の予算と warmup 2 epoch の cohort 品質が変わる。
+backbone_checkpoint_path: ${paths.checkpoints_dir}/resnet50_imagenet.pth
 warm_start_checkpoint_path: null
 freeze_backbone: false
 attribute_names: ${data.attribute_names}

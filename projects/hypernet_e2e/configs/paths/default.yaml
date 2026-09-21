@@ -1,2 +1,4 @@
 project_dir: projects/hypernet_e2e
 data_dir: data
+# ImageNet 事前学習の重みなど、run が生成しない固定入力の置き場所。
+checkpoints_dir: checkpoints

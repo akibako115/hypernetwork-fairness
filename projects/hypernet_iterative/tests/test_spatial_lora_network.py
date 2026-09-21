@@ -127,3 +127,66 @@ def test_initialize_with_attributes_is_a_no_op_without_modulation() -> None:
     )
 
     model.initialize_with_attributes({})
+
+
+def test_spatial_lora_resnet_loads_a_plain_resnet_state_dict_into_the_backbone() -> None:
+    """torchvision の ImageNet 重みは backbone 直下の素のキーを持つ。
+
+    自分の state_dict は `backbone.` 付きなので、接頭辞を補わないと 1 key も一致せず、
+    ランダム初期化のまま学習が進む。
+    """
+    backbone = ResNetBackbone(layers=[1, 1, 1, 1], block="Bottleneck")
+    model = SpatialLoRAResNet(
+        num_classes=2,
+        backbone=backbone,
+        metadata_encoder=_metadata_encoder(),
+        rank=2,
+        modulation_stages=["stage4", "fc"],
+        classifier_rank=2,
+    )
+    bare = {key: torch.full_like(value, 0.5) for key, value in backbone.state_dict().items()}
+
+    result = model.load_base_state_dict(bare)
+
+    assert len(result["loaded_keys"]) == len(bare)
+    assert result["unexpected_keys"] == []
+    assert torch.equal(model.backbone.conv1.weight, bare["conv1.weight"])
+
+
+def test_spatial_lora_resnet_loads_a_backbone_prefixed_state_dict_unchanged() -> None:
+    """1 段目の ResNet run の checkpoint は `backbone.` 付きで来る。二重に付けない。"""
+    backbone = ResNetBackbone(layers=[1, 1, 1, 1], block="Bottleneck")
+    model = SpatialLoRAResNet(
+        num_classes=2,
+        backbone=backbone,
+        metadata_encoder=_metadata_encoder(),
+        rank=2,
+        modulation_stages=["stage4", "fc"],
+        classifier_rank=2,
+    )
+    prefixed = {f"backbone.{key}": torch.full_like(value, 0.25) for key, value in backbone.state_dict().items()}
+
+    result = model.load_base_state_dict(prefixed)
+
+    assert len(result["loaded_keys"]) == len(prefixed)
+    assert result["unexpected_keys"] == []
+    assert torch.equal(model.backbone.conv1.weight, prefixed["backbone.conv1.weight"])
+
+
+def test_spatial_lora_resnet_does_not_push_its_own_keys_into_the_backbone() -> None:
+    """Spatial LoRA 固有のキーに `backbone.` を付けると、別の parameter を書き換える。"""
+    backbone = ResNetBackbone(layers=[1, 1, 1, 1], block="Bottleneck")
+    model = SpatialLoRAResNet(
+        num_classes=2,
+        backbone=backbone,
+        metadata_encoder=_metadata_encoder(),
+        rank=2,
+        modulation_stages=["stage4", "fc"],
+        classifier_rank=2,
+    )
+
+    result = model.load_base_state_dict({"metadata_encoder.unknown": torch.zeros(1)})
+
+    # モデルに無いキーは skipped に落ちる。backbone. を付けていたら別 parameter に化ける。
+    assert result["loaded_keys"] == []
+    assert result["skipped_keys"] == ["metadata_encoder.unknown"]

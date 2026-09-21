@@ -113,20 +113,30 @@ class SpatialLoRAResNet(nn.Module):
 
         shape の合うキーだけをコピーするため、LoRA generator は初期値のまま残る。
 
+        受け取る state dict は2つの形がある。torchvision の ImageNet 重みは backbone 直下の
+        素のキー（`conv1.weight`）を持ち、`ResNet` を包んだ run の checkpoint は
+        `backbone.conv1.weight` を持つ。自分の state_dict は後者なので、前者はここで接頭辞を
+        補う。補う対象は `backbone.<key>` が自分の state_dict に実在するものだけに限り、
+        Spatial LoRA 固有のキーを backbone 側へ誤って寄せない。
+
         Args:
             state_dict: ResNet 側の state dict。`fc.*` は共有分類層へ読み替える
 
         Returns:
             dict[str, list[str]]: loaded_keys / skipped_keys / missing_keys / unexpected_keys
         """
+        own_keys = set(self.state_dict())
+        spatial_state = {}
+        for key, value in state_dict.items():
+            backbone_key = f"backbone.{key}"
+            spatial_state[backbone_key if backbone_key in own_keys else key] = value
+
         # ResNet checkpoint の fc を、Spatial LoRA の共有分類層へ対応付ける。
-        spatial_state = dict(state_dict)
         if isinstance(self.fc, HyperLinearLayer):
             for parameter_name in ("weight", "bias"):
                 source_key = f"fc.{parameter_name}"
-                if source_key in state_dict:
-                    spatial_state[f"fc.base_linear.{parameter_name}"] = state_dict[source_key]
-                    spatial_state.pop(source_key, None)
+                if source_key in spatial_state:
+                    spatial_state[f"fc.base_linear.{parameter_name}"] = spatial_state.pop(source_key)
 
         # 互換する backbone と base classifier だけをコピーし、LoRA generator は初期値のまま残す。
         return load_compatible_state_dict(self, spatial_state)

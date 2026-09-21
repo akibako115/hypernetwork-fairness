@@ -22,7 +22,9 @@ loss_fn:
   class_weight: null
 
 use_attributes: false
-backbone_checkpoint_path: null
+# CheXpert の実験系列は ResNet-50 の ImageNet 重みから始める。これを外すとランダム初期化に
+# なる。backbone を別 run から引き継ぐ preset は、この既定を null で打ち消すこと。
+backbone_checkpoint_path: ${paths.checkpoints_dir}/resnet50_imagenet.pth
 freeze_backbone: false
 attribute_names: ${data.attribute_names}
 fairness_attribute_names: ${data.fairness_attribute_names}

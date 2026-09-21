@@ -15,4 +15,7 @@ experiment_name: spatial-lora-chexpert-from-resnet
 tags: [chexpert, spatial_lora_resnet50, two_stage]
 
 model:
+  # model 既定の ImageNet 重みをここで打ち消す。打ち消さないと、1 段目の checkpoint を
+  # 渡し忘れた run が「凍結した ImageNet backbone」で完走してしまい、2 段学習にならない。
+  backbone_checkpoint_path: null
   freeze_backbone: true
