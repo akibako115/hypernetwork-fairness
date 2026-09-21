@@ -4,6 +4,9 @@ from pathlib import Path
 
 from hydra import compose, initialize_config_dir
 from hydra.utils import instantiate
+from omegaconf import OmegaConf
+
+from projects.hypernet_iterative import workflow
 
 
 def _compose(*overrides: str):
@@ -68,3 +71,27 @@ def test_cohort_stage_can_select_each_supported_group_objective() -> None:
         assert config.model.loss_fn._target_.endswith(loss_name)
         assert config.model.loss_fn.num_groups == config.cohort.num_groups
         assert config.training_strategy.supports_warm_start is supports_warm_start
+
+
+def test_cohort_stage_config_matches_the_training_strategy_group_it_declares(tmp_path) -> None:
+    """parent が組み立てる loss_fn と、宣言側の config group を突き合わせる。
+
+    `cohort_stage_config` は step_size などの数値を自前で持つため、`configs/training_strategy/`
+    と二重定義になる。片方だけを変えたら落ちるように、ここで両者を比較する。
+    """
+    for strategy in ("group_dro", "group_dro_balanced", "uniform_group", "uniform_group_iterative"):
+        warmup = _compose(f"iteration.cohort_training_strategy={strategy}")
+        stage = workflow.cohort_stage_config(
+            warmup,
+            assignment_path=tmp_path / "assignments.parquet",
+            checkpoint_path=tmp_path / "reference.ckpt",
+            reference_id="warmup",
+        )
+        declared = _compose(
+            "experiment=spatial_lora_iterative_cohort_chexpert",
+            f"training_strategy={strategy}",
+        )
+
+        assert OmegaConf.to_container(stage.model.loss_fn, resolve=True) == OmegaConf.to_container(declared.model.loss_fn, resolve=True)
+        assert stage.training_strategy.supports_warm_start == declared.training_strategy.supports_warm_start
+        assert stage.training_strategy.uses_cohort_group_id == declared.training_strategy.uses_cohort_group_id
