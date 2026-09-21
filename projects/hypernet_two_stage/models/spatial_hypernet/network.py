@@ -3,7 +3,6 @@ from collections.abc import Mapping, Sequence
 
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader
 
 from ..resnet.network import ResNetBackbone
 from ..utils import compute_embedding_variance, load_compatible_state_dict
@@ -111,21 +110,29 @@ class SpatialLoRAResNet(nn.Module):
         for parameter in classifier.parameters():
             parameter.requires_grad = False
 
-    def initialize_with_dataloader(self, dataloader: DataLoader) -> None:
-        """metadata embedding の分散から B 生成器を初期化する。
+    def initialize_with_attributes(self, attributes: Mapping[str, torch.Tensor]) -> None:
+        """train split の metadata embedding の分散から B 生成器を初期化する。
 
         `LitModule.setup("fit")` が duck-typing で呼ぶ固定名フック。B 生成器の既定初期化は
         生成先 layer の fan_in を見ないため、ここで学習データ由来の Var(c) を使って
         base layer と同じ尺度へ揃える。A 生成器はゼロ初期化のまま触らない。
+        Var(c) は属性列だけで決まるので、画像を読む train DataLoader は受け取らない。
+        推定に使うのは train split 全行の素の分布である。`train_sampling=inverse_frequency` でも
+        resample 後の分布ではなく全行の分布から Var(c) を決める（`uniform` の場合は、全行を1周
+        していた旧実装と同じ値になる）。
+
+        Args:
+            attributes: train split 全行分の model 入力属性。`[n_rows, n_attributes]` の
+                `categorical` / `continuous` とそれぞれの `*_missing`
         """
         targets: list[SpatialLoRABottleneckAdapter | HyperLinearLayer] = [adapter for adapters in self.spatial_adapters.values() for adapter in adapters]
         if isinstance(self.fc, HyperLinearLayer):
             targets.append(self.fc)
         if not targets:
-            # 初期化対象が無ければ dataloader を1周する意味がない（film 側と同じ扱い）。
+            # 変調箇所が無ければ初期化する生成器も無い。
             return
 
-        var_input = compute_embedding_variance(self.metadata_encoder, dataloader)
+        var_input = compute_embedding_variance(self.metadata_encoder, attributes)
         for target in targets:
             target.initialize_from_variance(var_input)
         log.info(f"Initialized {len(targets)} Spatial LoRA B generators from Var(c)={var_input:.6f}")

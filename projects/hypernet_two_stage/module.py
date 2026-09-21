@@ -90,8 +90,8 @@ class LitModule(L.LightningModule):
             self.load_backbone_checkpoint(self.hparams.backbone_checkpoint_path)
         if self.hparams.freeze_backbone:
             self._freeze_backbone()
-        if hasattr(self.net, "initialize_with_dataloader"):
-            self.net.initialize_with_dataloader(self.trainer.datamodule.train_dataloader())
+        if hasattr(self.net, "initialize_with_attributes"):
+            self.net.initialize_with_attributes(self.trainer.datamodule.train_attributes())
         if self.hparams.compile:
             self.net = torch.compile(self.net)
 

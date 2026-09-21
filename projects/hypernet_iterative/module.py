@@ -96,8 +96,8 @@ class LitModule(L.LightningModule):
             self.load_backbone_checkpoint(self.hparams.backbone_checkpoint_path)
         if self.hparams.freeze_backbone:
             self._freeze_backbone()
-        if hasattr(self.net, "initialize_with_dataloader"):
-            self.net.initialize_with_dataloader(self.trainer.datamodule.train_dataloader())
+        if hasattr(self.net, "initialize_with_attributes"):
+            self.net.initialize_with_attributes(self.trainer.datamodule.train_attributes())
         # warm-start は optimizer / trainer state を復元せず、net の重みだけを引き継ぐ。
         # データ依存初期化より後に実行し、参照 run の net を最終状態とする。
         if self.hparams.warm_start_checkpoint_path is not None:

@@ -9,7 +9,7 @@ from lightning import LightningDataModule
 from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
 from torchvision.transforms import transforms
 
-from .attribute_utils import continuous_columns, standardize_continuous_columns, validate_attribute_spec
+from .attribute_utils import attribute_tensors, continuous_columns, standardize_continuous_columns, validate_attribute_spec
 from .dataset import ImageDataset
 from .evaluation_attributes import add_age_groups
 from .splits import Split
@@ -105,6 +105,17 @@ class ImageDataModule(LightningDataModule):
         if stage == "test":
             (test_df,) = self.standardized_dataframes("test")
             self.data_test = self._create_dataset(test_df, self.val_transform)
+
+    def train_attributes(self) -> dict[str, torch.Tensor]:
+        """train split 全行の model 入力属性を `[n_rows, n_attributes]` のテンソル辞書で返す。
+
+        データ依存の初期化（Spatial LoRA の Var(c) 推定など）が使う。`setup(stage="fit")` が
+        構築した Dataset の DataFrame をそのまま読むので、連続属性は標準化済みの値になる。
+        画像は読まない。
+        """
+        if self.data_train is None:
+            raise RuntimeError("train_attributes() を呼ぶ前に setup(stage='fit') を呼び出す必要がある")
+        return attribute_tensors(self.data_train.df, self.hparams.attribute_names)
 
     def _train_sampler(self) -> WeightedRandomSampler | None:
         """inverse-frequency sampling 時だけ class 頻度の逆数で重み付けした sampler を作る。"""

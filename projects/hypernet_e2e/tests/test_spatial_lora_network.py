@@ -94,3 +94,36 @@ def test_spatial_lora_resnet_rejects_invalid_modulation_stages(modulation_stages
             metadata_encoder=_metadata_encoder(),
             modulation_stages=modulation_stages,
         )
+
+
+def test_initialize_with_attributes_rescales_b_generators_without_touching_a() -> None:
+    """B 生成器だけが Var(c) で初期化され、A のゼロ初期化＝初期出力の一致は保たれる。"""
+    torch.manual_seed(0)
+    model = SpatialLoRAResNet(
+        num_classes=2,
+        backbone=ResNetBackbone(layers=[1, 1, 1, 1], block="Bottleneck"),
+        metadata_encoder=_metadata_encoder(),
+        rank=2,
+        modulation_stages=["stage4", "fc"],
+    )
+    adapter = model.spatial_adapters["stage4"][0].conv2_adapter
+    before = adapter.b_generator.weight.detach().clone()
+    images = torch.randn(2, 3, 64, 64)
+    baseline = model(images, _attributes())
+
+    model.initialize_with_attributes(_attributes(2))
+
+    assert not torch.equal(adapter.b_generator.weight, before)
+    assert torch.count_nonzero(adapter.a_generator.weight) == 0
+    assert torch.allclose(model(images, _attributes()), baseline)
+
+
+def test_initialize_with_attributes_is_a_no_op_without_modulation() -> None:
+    model = SpatialLoRAResNet(
+        num_classes=2,
+        backbone=ResNetBackbone(layers=[1, 1, 1, 1], block="Bottleneck"),
+        metadata_encoder=_metadata_encoder(),
+        modulation_stages=[],
+    )
+
+    model.initialize_with_attributes({})

@@ -124,3 +124,35 @@ def test_evaluation_attributes_keep_raw_age_groups_while_model_age_is_standardiz
     assert attributes["continuous"].item() == pytest.approx(0.35355338)
     assert attributes["evaluation_categorical"].tolist() == [[1, 0]]
     assert attributes["evaluation_categorical_missing"].tolist() == [[False, False]]
+
+
+def test_train_attributes_cover_every_train_row_without_reading_images(tmp_path: Path) -> None:
+    """Var(c) の推定は属性列だけで決まる。画像を消しても train_attributes は成立する。"""
+    image_dir, split_dir = _write_fixture(tmp_path)
+    dm = _datamodule(image_dir, split_dir)
+    dm.setup("fit")
+    for image in image_dir.iterdir():
+        image.unlink()
+
+    attributes = dm.train_attributes()
+
+    assert attributes["categorical"].tolist() == [[0], [1], [0]]
+    assert attributes["categorical_missing"].tolist() == [[False], [False], [False]]
+    assert attributes["continuous"].squeeze(1).tolist() == pytest.approx([20.0, 40.0, 20.0])
+
+
+def test_train_attributes_use_the_standardized_continuous_values(tmp_path: Path) -> None:
+    dm = _datamodule(*_write_fixture(tmp_path), standardize_continuous=True)
+    dm.setup("fit")
+
+    values = dm.train_attributes()["continuous"].squeeze(1)
+
+    assert values.mean().item() == pytest.approx(0.0, abs=1e-6)
+    assert values.tolist() == pytest.approx([-0.70710678, 1.41421356, -0.70710678])
+
+
+def test_train_attributes_require_the_fit_datasets(tmp_path: Path) -> None:
+    dm = _datamodule(*_write_fixture(tmp_path))
+
+    with pytest.raises(RuntimeError, match="setup"):
+        dm.train_attributes()
