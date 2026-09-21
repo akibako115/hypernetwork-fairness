@@ -11,6 +11,7 @@
 | [`hypernet_e2e`](projects/hypernet_e2e/README.md) | 1 回の fit で完結する hypernetwork 系学習と性能比較 | model / data / callbacks / Lightning module / configs / run 記録 / 学習起動を実装済み。cohort と GroupDRO は保留 |
 | [`hypernet_two_stage`](projects/hypernet_two_stage/README.md) | Stage 1 ResNet から凍結した Stage 2 Spatial LoRA へ引き継ぐ二段学習 | 骨格・artifact 契約を整備中 |
 | [`hypernet_iterative`](projects/hypernet_iterative/docs/run-artifacts.md) | run 中に複数 stage を進める反復学習 | warmup、cohort 再生成、独立 stage process、artifact・preflight 記録まで実装済み。実データの最小 end-to-end run も確認済み |
+| [`foundation_linear_probe`](projects/foundation_linear_probe/README.md) | 凍結済み foundation model の特徴と線形プローブによる公平性比較 | ResNet50・DINOv2・RAD-DINO の特徴抽出、線形 probe、群別指標の PoC |
 
 two-stage は checkpoint を引き継ぐ固定2段の workflow を持つため、単段の `hypernet_e2e` と
 cohort を反復更新する `hypernet_iterative` のどちらにも含めません。

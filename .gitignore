@@ -151,6 +151,7 @@ checkpoints/*.pth
 /run_logs/
 /wandb/
 /projects/*/runs/
+/projects/foundation_linear_probe/outputs/
 .env
 .envrc
 .direnv/
