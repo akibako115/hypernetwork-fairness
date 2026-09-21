@@ -153,7 +153,8 @@ class RunRecorder:
         }
 
     def _write_preflight(self) -> None:
-        repository_root = Path(__file__).parents[2]
+        # runtime_paths.repository_root() と同じ解決（symlink 経由の起動でも同じ root を指す）。
+        repository_root = Path(__file__).resolve().parents[2]
         golden_dir = repository_root / "tests" / "golden"
         golden_files = sorted(golden_dir.glob("*.v*.json"))
         command = [sys.executable, "-m", "pytest", "projects/hypernet_e2e/tests", "-m", "preflight", "-q"]

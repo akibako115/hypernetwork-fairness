@@ -56,6 +56,9 @@ projects/hypernet_e2e/runs/
 `logs/` は人が追う実行ログ、`metrics/` は集計・比較に使う機械可読な metric を置く。
 現在の `run.py` は fit 終了後の scalar callback metrics を `metrics/fit.json` に保存する。
 有限でない metric は JSON の `null` として保存する。
+fairness metric の key 集合はデータ依存で変わる。ある属性で観測される群が 1 つしかない batch では
+`Eopp0` / `Eopp1` / `Eodds` が定義できず、その属性の key ごと出力されない。run をまたいで集計する
+側は、key の欠損を前提に書く。
 `checkpoints/` は ModelCheckpoint が出力し、`config.yaml` の `callbacks.model_checkpoint.dirpath` と一致する。
 
 ## 実行ログと experiment logger

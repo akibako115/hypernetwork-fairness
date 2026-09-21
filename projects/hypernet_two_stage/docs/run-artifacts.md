@@ -67,6 +67,10 @@ epoch ごとの metric は `logger` group が指す experiment logger が持つ�
 run は experiment logger を作らない。`metrics/fit.json` は fit 終了時点の値だけなので、学習曲線は
 experiment logger を、checkpoint に対応する値は `result.json` の `score` を正本とする。
 
+fairness metric の key 集合はデータ依存で変わる。ある属性で観測される群が 1 つしかない batch では
+`Eopp0` / `Eopp1` / `Eodds` が定義できず、その属性の key ごと出力されない。run をまたいで集計する
+側は、key の欠損を前提に書く。
+
 ## 制約
 
 - `runs/` は Git 管理しない。既存 run を上書き・再利用しない。
