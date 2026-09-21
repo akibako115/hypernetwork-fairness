@@ -60,7 +60,7 @@ ResNet を 1 段目、backbone と classifier を凍結した Spatial LoRA を 2
 uv run python -m projects.hypernet_e2e.run experiment=resnet_chexpert_erm
 ```
 
-2 段目は 1 段目の `checkpoints/` から best checkpoint の path を選び、
+2 段目は 1 段目の `run.json` の `checkpoints` から best checkpoint の path を選び、
 `model.backbone_checkpoint_path` に渡します。`from_resnet` preset が `freeze_backbone: true` を
 持つため、CLI で指定するのは checkpoint path だけです。
 
@@ -70,7 +70,9 @@ uv run python -m projects.hypernet_e2e.run \
   model.backbone_checkpoint_path=projects/hypernet_e2e/runs/<1段目 run-id>/checkpoints/<best>.ckpt
 ```
 
-段ごとに別 run なので、`trainer.max_epochs` のような設定は段ごとに独立して振れます。
+2 段目の `run.json` は、読み込んだ checkpoint の path・SHA-256 と、それを出力した run の ID を
+`parent_run` に記録します。1 段目の記録と SHA-256 が食い違う checkpoint は、fit を始めずに
+失敗させます。段ごとに別 run なので、`trainer.max_epochs` のような設定は段ごとに独立して振れます。
 
 ## 学習起動
 

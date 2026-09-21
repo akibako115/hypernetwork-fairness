@@ -17,9 +17,13 @@ class _Recorder:
         self.completed: dict[str, float] | None = None
         self.failed: BaseException | None = None
         self.loggers: list[dict[str, str]] | None = None
+        self.checkpoint_callbacks: list[object] | None = None
 
     def record_loggers(self, references: list[dict[str, str]]) -> None:
         self.loggers = list(references)
+
+    def record_checkpoints(self, callbacks: list[object]) -> None:
+        self.checkpoint_callbacks = list(callbacks)
 
     def succeed(self, metrics: dict[str, float]) -> None:
         self.completed = metrics
@@ -73,6 +77,7 @@ def test_run_fit_resolves_weights_fits_once_and_records_scalar_metrics(tmp_path:
     assert recorder.failed is None
     assert json.loads((run_dir / "metrics" / "fit.json").read_text()) == {"val/auroc": 0.75, "val/loss": 0.5}
     assert recorder.loggers == []
+    assert recorder.checkpoint_callbacks == []
     assert (run_dir / "logs" / "train.log").is_file()
 
 

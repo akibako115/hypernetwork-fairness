@@ -27,8 +27,9 @@ def run_fit(config: DictConfig) -> Path:
     ``weighting=inverse`` の場合、train split の target 頻度から class weight を計算して config に
     反映する。実行ログは ``logs/train.log``、epoch ごとの metric は ``logger`` group が指す
     experiment logger が持ち、fit に成功すれば最終の scalar callback metrics を
-    ``metrics/fit.json`` と ``run.json`` に保存する。既存 run の再開・test 実行・stage 制御は
-    この入口の責務に含めない。
+    ``metrics/fit.json`` と ``run.json`` に保存する。fit が出力した checkpoint は、2 段学習の
+    2 段目へ渡せるよう選択基準と SHA-256 付きで ``run.json`` に記録する。既存 run の再開・
+    test 実行・stage 制御はこの入口の責務に含めない。
     """
     normalize_runtime_paths(config)
     _resolve_inverse_class_weights(config)
@@ -52,6 +53,7 @@ def run_fit(config: DictConfig) -> Path:
 
             metrics = _scalar_metrics(trainer.callback_metrics)
             _write_metrics(recorder.run_dir / "metrics" / "fit.json", metrics)
+            recorder.record_checkpoints(callbacks)
         recorder.succeed(metrics)
     except BaseException as error:
         recorder.fail(error)

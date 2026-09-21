@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 import secrets
 import subprocess
@@ -27,11 +28,15 @@ class RunRecorder:
 
     ``prepare_fit`` は解決済み Hydra config を受け、既存 run を再利用せずに directory、
     config、train/val の data manifest、golden preflight を作成する。preflight が失敗した
-    場合も run は ``failed`` として残る。呼び出し側は fit が終わったら ``succeed``、例外時は
-    ``fail`` を一度だけ呼ぶ。run directory は ``projects/hypernet_e2e/runs`` 配下に限る。
+    場合も run は ``failed`` として残る。呼び出し側は fit が終わったら ``record_checkpoints`` と
+    ``succeed``、例外時は ``fail`` を一度だけ呼ぶ。run directory は
+    ``projects/hypernet_e2e/runs`` 配下に限る。
+
+    ``model.backbone_checkpoint_path`` を持つ run は 2 段学習の 2 段目なので、``prepare_fit`` が
+    読み込む checkpoint の来歴を ``parent_run`` に確定させる。
     """
 
-    schema_version = 1
+    schema_version = 2
 
     def __init__(self, run_dir: Path, run_record: dict[str, Any]) -> None:
         self.run_dir = run_dir
@@ -60,12 +65,15 @@ class RunRecorder:
                 "git_commit": cls._git_commit(),
                 "seed": resolved.get("seed"),
                 "loggers": [],
+                "parent_run": None,
+                "checkpoints": [],
                 "result_summary": None,
             },
         )
         try:
             for name in ("logs", "metrics", "checkpoints", "artifacts/cohorts"):
                 (run_dir / name).mkdir(parents=True, exist_ok=False)
+            recorder._run_record["parent_run"] = cls._parent_run(resolved)
             OmegaConf.save(config=config, f=run_dir / "config.yaml", resolve=True)
             recorder._write_json("run.json", recorder._run_record)
             recorder._write_data_manifest(resolved)
@@ -83,6 +91,16 @@ class RunRecorder:
         self._run_record["loggers"] = [dict(reference) for reference in references]
         self._write_json("run.json", self._run_record)
 
+    def record_checkpoints(self, callbacks: Sequence[Any]) -> None:
+        """fit が出力した checkpoint を、選択基準と SHA-256 付きの参照として記録する。
+
+        2 段学習の 2 段目は、この記録から backbone checkpoint の path を選ぶ。どの基準で選ばれた
+        checkpoint なのかが分からないと段の意味が決まらないので、``monitor`` と ``mode`` も残す。
+        checkpoint を出力していない callback は記録しない。
+        """
+        self._run_record["checkpoints"] = [reference for callback in callbacks if (reference := self._checkpoint_callback_reference(callback)) is not None]
+        self._write_json("run.json", self._run_record)
+
     def succeed(self, result_summary: Mapping[str, Any] | None = None) -> None:
         """成功した fit の終了時刻と JSON 化可能な結果要約を確定する。"""
         self._finish("succeeded", result_summary=result_summary)
@@ -90,6 +108,70 @@ class RunRecorder:
     def fail(self, error: BaseException) -> None:
         """失敗した fit の例外種別とメッセージを残して状態を確定する。"""
         self._finish("failed", result_summary={"error_type": type(error).__name__, "error_message": str(error)})
+
+    @classmethod
+    def _parent_run(cls, config: Mapping[str, Any]) -> dict[str, Any] | None:
+        """2 段目 run が読み込む backbone checkpoint の来歴を確定する。
+
+        checkpoint の path は人が CLI で渡すので、どの run の出力かは path からしか辿れない。
+        ``<run-dir>/checkpoints/<name>.ckpt`` という配置を前提に親 run の ``run.json`` を読み、
+        run ID と、その run が記録した SHA-256 との一致を確かめる。記録と食い違う checkpoint で
+        学習を始めると、来歴だけが残って中身は別物という run になるため、ここで止める。
+        """
+        model = config.get("model")
+        if not isinstance(model, Mapping) or model.get("backbone_checkpoint_path") is None:
+            return None
+
+        path = Path(str(model["backbone_checkpoint_path"]))
+        if not path.is_file():
+            raise ValueError(f"backbone checkpoint が見つからない: {path}")
+        digest = cls._sha256_file(path)
+        record: dict[str, Any] = {"run_id": None, "backbone_checkpoint": {"path": str(path.resolve()), "sha256": digest}}
+
+        parent_record = path.parent.parent / "run.json"
+        if path.parent.name != "checkpoints" or not parent_record.is_file():
+            return record
+        parent = json.loads(parent_record.read_text())
+        record["run_id"] = parent.get("run_id")
+        recorded = cls._recorded_digest(parent, path)
+        if recorded is not None and recorded != digest:
+            raise RuntimeError(f"backbone checkpoint の SHA-256 が {parent_record} の記録と一致しない: {path}（記録 {recorded} / 実体 {digest}）")
+        return record
+
+    @staticmethod
+    def _recorded_digest(parent: Mapping[str, Any], path: Path) -> str | None:
+        """親 run の ``run.json`` が同じ checkpoint に対して残した SHA-256 を探す。"""
+        resolved = str(path.resolve())
+        for entry in parent.get("checkpoints") or []:
+            for reference in (entry.get("best"), entry.get("last")):
+                if reference and str(Path(str(reference["path"])).resolve()) == resolved:
+                    return str(reference["sha256"])
+        return None
+
+    @classmethod
+    def _checkpoint_callback_reference(cls, callback: Any) -> dict[str, Any] | None:
+        best_path = getattr(callback, "best_model_path", None)
+        if not best_path:
+            return None
+        last_path = getattr(callback, "last_model_path", None)
+        return {
+            "monitor": getattr(callback, "monitor", None),
+            "mode": getattr(callback, "mode", None),
+            "best": cls._checkpoint_reference(Path(best_path), cls._score(getattr(callback, "best_model_score", None))),
+            "last": cls._checkpoint_reference(Path(last_path), None) if last_path else None,
+        }
+
+    @classmethod
+    def _checkpoint_reference(cls, path: Path, score: float | None) -> dict[str, Any]:
+        return {"path": str(path), "score": score, "sha256": cls._sha256_file(path)}
+
+    @staticmethod
+    def _score(value: Any) -> float | None:
+        """checkpoint の選択スコアを JSON に書ける float へ落とす。"""
+        if value is None:
+            return None
+        numeric = float(value)
+        return numeric if math.isfinite(numeric) else None
 
     @staticmethod
     def _project_dir(config: Mapping[str, Any], project_dir: str | Path | None) -> Path:

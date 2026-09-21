@@ -49,7 +49,7 @@ projects/hypernet_e2e/runs/
 | path | 内容 |
 | --- | --- |
 | `config.yaml` | 実行時に解決済みの全設定。後から defaults をたどらず同じ入力を読める形で保存する。 |
-| `run.json` | `schema_version`、`run_id`、`kind`、状態、開始・終了時刻、Git commit、seed、experiment logger の参照、結果要約を持つ。`kind` は `fit` または `cohort_build`、状態は `running` / `succeeded` / `failed` とする。 |
+| `run.json` | `schema_version`、`run_id`、`kind`、状態、開始・終了時刻、Git commit、seed、experiment logger の参照、`parent_run`、`checkpoints`、結果要約を持つ。`kind` は `fit` または `cohort_build`、状態は `running` / `succeeded` / `failed` とする。 |
 | `data_manifest.json` | 使用した split の SHA-256、各 split の行数・画像集合 hash・target 分布、画像 root を持つ。実データ自体は複製しない。初回の `fit` は train / val を記録する。 |
 | `preflight.json` | 実行前に通した golden の版・hash・結果と、その時点の Git commit を持つ。 |
 
@@ -60,6 +60,20 @@ fairness metric の key 集合はデータ依存で変わる。ある属性で�
 `Eopp0` / `Eopp1` / `Eodds` が定義できず、その属性の key ごと出力されない。run をまたいで集計する
 側は、key の欠損を前提に書く。
 `checkpoints/` は ModelCheckpoint が出力し、`config.yaml` の `callbacks.model_checkpoint.dirpath` と一致する。
+
+## 段をまたぐ checkpoint の受け渡し
+
+2 段学習は run を 2 回起動して構成する。段の間を渡るのは checkpoint だけなので、その来歴を
+両側の `run.json` に残す。
+
+`checkpoints` は、fit が出力した checkpoint を出力元の callback ごとにまとめた配列である。
+各要素は選択基準の `monitor` と `mode`、および `best` と `last`（`path`・`score`・`sha256`）を持つ。
+`monitor` を伴わない記録では、どの基準で選ばれた checkpoint なのかが後から決まらない。
+
+`parent_run` は `model.backbone_checkpoint_path` を持つ run だけが持ち、読み込む checkpoint の
+`path` と `sha256`、およびそれを出力した run の `run_id` を持つ。checkpoint が
+`<run-dir>/checkpoints/` の外にある場合、`run_id` は `null` とする。親 run が同じ checkpoint に
+対して記録した `sha256` と実体が食い違う run は、fit を始めずに失敗させる。
 
 ## 実行ログと experiment logger
 
@@ -111,7 +125,8 @@ checkpoint に依存する recipe は、参照 checkpoint の path と SHA-256 �
 ## 実装済みの run 記録
 
 `run_record.py` の `RunRecorder.prepare_fit` が directory の予約、`config.yaml`、train / val の
-manifest、preflight の順に作成する。予約済みの `run_dir`、checkpoint 出力先、experiment logger の
-保存先と run 名は `config.yaml` にも反映する。呼び出し側は学習後に `succeed`、例外時に `fail` を呼び、
-既存 run を再開・上書きしない。`run.py` はこの recorder を使って model / data / callbacks /
+manifest、preflight の順に作成する。`model.backbone_checkpoint_path` を持つ run は、この時点で
+`parent_run` も確定する。予約済みの `run_dir`、checkpoint 出力先、experiment logger の
+保存先と run 名は `config.yaml` にも反映する。呼び出し側は学習後に `record_checkpoints` と
+`succeed`、例外時に `fail` を呼び、既存 run を再開・上書きしない。`run.py` はこの recorder を使って model / data / callbacks /
 trainer を作成し、1 回の Lightning `fit` を実行する。test、resume、stage 制御は行わない。
