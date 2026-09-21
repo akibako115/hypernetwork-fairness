@@ -6,3 +6,6 @@ defaults:
 
 experiment_name: resnet-chexpert-attribute-invariant
 tags: [chexpert, resnet50, attribute_invariant, dann]
+
+attribute_invariance:
+  enabled: true

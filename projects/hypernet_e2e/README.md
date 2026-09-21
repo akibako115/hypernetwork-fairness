@@ -126,7 +126,7 @@ uv run python -m projects.hypernet_e2e.run \
 GRL の学習時の属性損失だけでは不変性の証明にはならない。保持情報量は、凍結した第1段 backbone
 出力に対して、学習に使っていない独立の線形／MLP probe を train/validation split で学習・評価し、
 ERM の第1段と属性 AUC / accuracy / age MAE を比較して判定する。task AUROC と subgroup gap も
-同じ split で併記する。`model.attribute_adversary_weight` は task 性能とのトレードオフなので、
+同じ split で併記する。`model.loss_fn.attribute_adversary_weight` は task 性能とのトレードオフなので、
 少なくとも `0.01, 0.03, 0.1` を同一 seed 群で比較する。
 
 ## 学習起動

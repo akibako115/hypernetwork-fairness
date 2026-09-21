@@ -41,6 +41,7 @@ def run_fit(config: DictConfig) -> Path:
         BaseException: fit 中の例外はそのまま送出する。送出前に run を失敗として確定する。
     """
     normalize_runtime_paths(config)
+    _validate_attribute_invariance(config)
     _resolve_inverse_class_weights(config)
     recorder = RunRecorder.prepare_fit(config)
     try:
@@ -70,6 +71,28 @@ def run_fit(config: DictConfig) -> Path:
     return recorder.run_dir
 
 
+def _validate_attribute_invariance(config: DictConfig) -> None:
+    """属性不変化の第1段を ERM 以外の学習 strategy と併用させない。
+
+    Group DRO の Hydra override は model.loss_fn を直接差し替える。そのまま許すと属性不変
+    wrapper が静かに消えるため、fit 前に意図しない組み合わせを明示的に拒否する。
+
+    Args:
+        config: Hydra が合成した実行設定。
+
+    Returns:
+        None
+
+    Raises:
+        ValueError: 属性不変化を ERM 以外の strategy と組み合わせた場合。
+    """
+    invariance = config.get("attribute_invariance")
+    if not invariance or not invariance.get("enabled", False):
+        return
+    if config.training_strategy.name != "erm":
+        raise ValueError("attribute_invariance は training_strategy=erm でのみ利用できる")
+
+
 def _resolve_inverse_class_weights(config: DictConfig) -> None:
     """inverse weighting 時に train split から class weight を設定する。"""
     if config.get("weighting", "none") != "inverse":
@@ -78,7 +101,9 @@ def _resolve_inverse_class_weights(config: DictConfig) -> None:
     labels = [int(value) for value in frame["target"]]
     num_classes = int(config.data.num_classes)
     weights = _inverse_frequency_weights(labels, num_classes)
-    OmegaConf.update(config, "model.loss_fn.class_weight", weights, merge=False)
+    loss_target = str(OmegaConf.select(config, "model.loss_fn._target_", default=""))
+    path = "model.loss_fn.task_loss.class_weight" if loss_target.endswith("AttributeInvariantTaskLoss") else "model.loss_fn.class_weight"
+    OmegaConf.update(config, path, weights, merge=False)
 
 
 def _inverse_frequency_weights(labels: list[int], num_classes: int) -> list[float]:

@@ -10,8 +10,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
-from projects.hypernet_e2e.loss import ObjectiveInput, TaskLoss
-from projects.hypernet_e2e.models.attribute_adversary import AttributeAdversary, gradient_reverse
+from projects.hypernet_e2e.loss import AttributeInvariantTaskLoss, ObjectiveInput, TaskLoss
 from projects.hypernet_e2e.module import LitModule
 
 
@@ -24,6 +23,20 @@ class _Net(nn.Module):
 
     def forward(self, image: torch.Tensor, attributes=None) -> torch.Tensor:
         self.last_attributes = attributes
+        logits, _ = self.forward_with_features(image)
+        return logits
+
+    def forward_with_features(self, image: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        features = image.mean(dim=(1, 2, 3)).unsqueeze(-1)
+        return self.fc(features), features
+
+
+class _NoFeatureNet(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.fc = nn.Linear(1, 2)
+
+    def forward(self, image: torch.Tensor) -> torch.Tensor:
         return self.fc(image.mean(dim=(1, 2, 3)).unsqueeze(-1))
 
 
@@ -164,27 +177,29 @@ def test_freezing_the_backbone_requires_a_checkpoint_to_freeze() -> None:
         _module(freeze_backbone=True)
 
 
-def test_gradient_reverse_negates_only_the_backbone_gradient() -> None:
-    features = torch.tensor([[1.0, -2.0]], requires_grad=True)
-    weights = torch.tensor([[3.0, 4.0]])
-    (gradient_reverse(features, 0.5) * weights).sum().backward()
-
-    assert torch.equal(features.grad, -0.5 * weights)
-
-
-def test_attribute_adversary_ignores_missing_values_and_updates_its_parameters() -> None:
-    adversary = AttributeAdversary(feature_dim=2, categorical_cardinalities=[2], num_continuous=1, hidden_dim=3)
-    features = torch.randn(3, 2, requires_grad=True)
+def test_feature_requiring_loss_receives_features_and_its_parameters_enter_the_optimizer() -> None:
+    objective = AttributeInvariantTaskLoss(TaskLoss(), feature_dim=1, categorical_cardinalities=[2], hidden_dim=3)
+    module = _module(loss_fn=objective, optimizer=lambda params: torch.optim.SGD(params, lr=0.1))
+    module._trainer = SimpleNamespace(model=module)
     attributes = {
         "categorical": torch.tensor([[0], [1], [0]]),
         "categorical_missing": torch.tensor([[False], [True], [False]]),
-        "continuous": torch.tensor([[0.0], [0.3], [-0.2]]),
-        "continuous_missing": torch.tensor([[False], [True], [False]]),
+        "continuous": torch.empty(3, 0),
+        "continuous_missing": torch.empty(3, 0, dtype=torch.bool),
     }
+    batch = torch.randn(3, 3, 4, 4), attributes, torch.tensor([0, 1, 0])
 
-    loss = adversary(features, attributes)
-    loss.backward()
+    output = module.training_step(batch, 0)
+    optimizer = module.configure_optimizers()["optimizer"]
+    optimizer_parameters = {id(parameter) for group in optimizer.param_groups for parameter in group["params"]}
 
-    assert loss.requires_grad
-    assert features.grad is not None
-    assert all(parameter.grad is not None for parameter in adversary.parameters())
+    assert output["loss"].requires_grad
+    assert {id(parameter) for parameter in objective.attribute_adversary.parameters()} <= optimizer_parameters
+
+
+def test_feature_requiring_loss_rejects_a_net_without_feature_interface() -> None:
+    objective = AttributeInvariantTaskLoss(TaskLoss(), feature_dim=1, categorical_cardinalities=[2])
+    module = _module(net=_NoFeatureNet(), loss_fn=objective)
+
+    with pytest.raises(TypeError, match="forward_with_features"):
+        module.training_step(_batch(), 0)

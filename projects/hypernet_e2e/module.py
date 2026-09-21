@@ -26,9 +26,8 @@ class LitModule(L.LightningModule):
     名前を表す。
     train は ``loss_fn``、validation/test は実験条件をまたいで比較できる通常の
     cross-entropy を用いる。``use_attributes=True`` のときだけ attributes を net に渡す。
-    ``freeze_backbone=True`` は ``backbone_checkpoint_path`` を伴う必要がある。
-    ``attribute_adversary`` を指定すると、`net.forward_with_features` が返す backbone 表現へ
-    勾配反転型の属性予測損失を加える。
+    ``freeze_backbone=True`` は ``backbone_checkpoint_path`` を伴う必要がある。`loss_fn` が
+    ``requires_features=True`` を持つ場合だけ、net の `forward_with_features` から表現も取得する。
     """
 
     def __init__(
@@ -41,15 +40,13 @@ class LitModule(L.LightningModule):
         use_attributes: bool = False,
         backbone_checkpoint_path: str | None = None,
         freeze_backbone: bool = False,
-        attribute_adversary: nn.Module | None = None,
-        attribute_adversary_weight: float = 1.0,
         attribute_names: Mapping[str, Sequence[str]] | None = None,
         fairness_attribute_names: Mapping[str, Sequence[str]] | None = None,
     ) -> None:
         """モデル、目的関数、および単段 fit の初期化設定を保持する。
 
         Args:
-            net: logits、または attribute adversary 使用時は logits と特徴量を返す分類モデル。
+            net: logits、または特徴量を必要とする loss 使用時は logits と特徴量を返す分類モデル。
             loss_fn: `ObjectiveInput` から task loss を計算する目的関数。
             optimizer: trainable parameter を受けて optimizer を作る factory。
             scheduler: optimizer を受けて scheduler を作る任意の factory。
@@ -57,8 +54,6 @@ class LitModule(L.LightningModule):
             use_attributes: net の forward に属性辞書を渡すか。
             backbone_checkpoint_path: 初期化または第2段用に読む checkpoint の path。
             freeze_backbone: checkpoint 読み込み後に base model を凍結するか。
-            attribute_adversary: backbone 表現を属性不変化する任意の GRL 属性予測器。
-            attribute_adversary_weight: task loss に加える属性予測損失の重み。0 以上。
             attribute_names: model 入力属性の列名定義。
             fairness_attribute_names: 評価専用属性の列名定義。
 
@@ -66,7 +61,7 @@ class LitModule(L.LightningModule):
             None
 
         Raises:
-            ValueError: checkpoint 無しで backbone 凍結を指定した場合、または adversary 重みが負の場合。
+            ValueError: checkpoint 無しで backbone 凍結を指定した場合。
         """
         super().__init__()
         # backbone の重みは backbone_checkpoint_path からしか入らない。path 無しで凍結すると
@@ -74,16 +69,12 @@ class LitModule(L.LightningModule):
         # 見えてしまう。2 段目 run の設定ミスをここで止める。
         if freeze_backbone and backbone_checkpoint_path is None:
             raise ValueError("freeze_backbone=True には backbone_checkpoint_path が必要")
-        if attribute_adversary_weight < 0:
-            raise ValueError("attribute_adversary_weight は 0 以上である必要がある")
         # optimizer / scheduler factory は lambda や Hydra partial を取り得る。hparams に残すと
         # checkpoint に pickle され、load 側が同じ import を解決できることを要求してしまう。
         # ignore して実行中の module だけが保持し、Lightning のシリアライズ経路から切り離す。
-        self.save_hyperparameters(logger=False, ignore=["net", "loss_fn", "optimizer", "scheduler", "attribute_adversary"])
+        self.save_hyperparameters(logger=False, ignore=["net", "loss_fn", "optimizer", "scheduler"])
         self.net = net
         self.loss_fn = loss_fn
-        self.attribute_adversary = attribute_adversary
-        self.attribute_adversary_weight = attribute_adversary_weight
         self._optimizer_factory = optimizer
         self._scheduler_factory = scheduler
         self.use_attributes = use_attributes
@@ -137,15 +128,7 @@ class LitModule(L.LightningModule):
                 callback がこれを epoch 集計に使う。`loss` は backward 可能なまま返す
         """
         logits, preds, target, attributes, features = self._shared_step(batch)
-        task_loss = self.training_objective(ObjectiveInput(logits=logits, target=target, attributes=attributes))
-        loss = task_loss
-        if self.attribute_adversary is not None:
-            if features is None:
-                raise TypeError("attribute_adversary を使う net は forward_with_features を実装する必要がある")
-            adversary_loss = self.attribute_adversary(features, attributes)
-            loss = task_loss + self.attribute_adversary_weight * adversary_loss
-            self.log("train/task_loss", task_loss, on_step=False, on_epoch=True)
-            self.log("train/attribute_adversary_loss", adversary_loss, on_step=False, on_epoch=True)
+        loss = self.training_objective(ObjectiveInput(logits=logits, target=target, attributes=attributes, features=features))
         return self._step_output(loss, logits, preds, target, attributes, detach_loss=False)
 
     def validation_step(self, batch: tuple[Any, Mapping[str, torch.Tensor], torch.Tensor], batch_idx: int) -> dict[str, Any]:
@@ -244,7 +227,7 @@ class LitModule(L.LightningModule):
         return load_compatible_state_dict(self.net, state_dict, load_fc=load_fc)
 
     def configure_optimizers(self) -> dict[str, Any]:
-        """学習可能な net parameter から optimizer と任意 scheduler を構築する。
+        """学習可能な model / loss parameter から optimizer と任意 scheduler を構築する。
 
         Args:
             なし
@@ -274,7 +257,9 @@ class LitModule(L.LightningModule):
     def _shared_step(self, batch: tuple[Any, Mapping[str, torch.Tensor], torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, Mapping[str, torch.Tensor], torch.Tensor | None]:
         image, attributes, target = batch
         features = None
-        if self.attribute_adversary is not None and hasattr(self.net, "forward_with_features"):
+        if getattr(self.training_objective, "requires_features", False):
+            if not hasattr(self.net, "forward_with_features"):
+                raise TypeError("features を必要とする loss の net は forward_with_features を実装する必要がある")
             if self.use_attributes:
                 logits, features = self.net.forward_with_features(image, attributes)
             else:

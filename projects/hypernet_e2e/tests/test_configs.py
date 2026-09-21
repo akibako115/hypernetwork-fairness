@@ -6,6 +6,8 @@ import pytest
 from hydra import compose, initialize_config_dir
 from hydra.utils import instantiate
 
+from projects.hypernet_e2e.training import _validate_attribute_invariance
+
 
 @pytest.mark.parametrize("architecture", ["resnet_chexpert", "spatial_lora_chexpert"])
 @pytest.mark.parametrize("strategy", ["erm", "inverse_weighted_loss", "inverse_weighted_sampling"])
@@ -68,10 +70,22 @@ def test_attribute_invariant_stage1_and_its_stage2_preset_compose() -> None:
         stage1 = compose(config_name="train", overrides=["experiment=resnet_chexpert_attribute_invariant"])
         stage2 = compose(config_name="train", overrides=["experiment=spatial_lora_chexpert_from_attribute_invariant"])
 
-    assert stage1.model.attribute_adversary._target_.endswith("AttributeAdversary")
-    assert stage1.model.attribute_adversary.feature_dim == 2048
-    assert instantiate(stage1.model).attribute_adversary is not None
+    assert stage1.model.loss_fn._target_.endswith("AttributeInvariantTaskLoss")
+    assert stage1.model.loss_fn.feature_dim == 2048
+    assert instantiate(stage1.model).loss_fn.requires_features is True
     assert stage2.model.freeze_backbone is True
+
+
+def test_attribute_invariant_preset_rejects_group_dro_override() -> None:
+    config_dir = Path(__file__).parent.parent / "configs"
+    with initialize_config_dir(version_base="1.3", config_dir=str(config_dir)):
+        config = compose(
+            config_name="train",
+            overrides=["experiment=resnet_chexpert_attribute_invariant", "training_strategy=group_dro"],
+        )
+
+    with pytest.raises(ValueError, match="training_strategy=erm"):
+        _validate_attribute_invariance(config)
 
 
 @pytest.mark.parametrize(

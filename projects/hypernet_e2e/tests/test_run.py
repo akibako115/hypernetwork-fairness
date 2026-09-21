@@ -102,6 +102,25 @@ def test_inverse_frequency_weights_reject_missing_class_and_matches_old_normaliz
         training._inverse_frequency_weights([0, 0], 2)
 
 
+def test_inverse_weighting_targets_the_inner_task_loss_for_attribute_invariance(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    config.model.loss_fn = {
+        "_target_": "projects.hypernet_e2e.loss.AttributeInvariantTaskLoss",
+        "task_loss": {"class_weight": None},
+    }
+
+    training._resolve_inverse_class_weights(config)
+
+    assert config.model.loss_fn.task_loss.class_weight == [1.5, 0.5]
+
+
+def test_attribute_invariance_rejects_non_erm_strategy() -> None:
+    config = OmegaConf.create({"attribute_invariance": {"enabled": True}, "training_strategy": {"name": "group_dro"}})
+
+    with pytest.raises(ValueError, match="training_strategy=erm"):
+        training._validate_attribute_invariance(config)
+
+
 def test_scalar_metrics_writes_non_finite_values_as_json_null(tmp_path: Path) -> None:
     metrics = training._scalar_metrics({"finite": torch.tensor(0.75), "nan": torch.tensor(float("nan")), "infinity": float("inf")})
     path = tmp_path / "metrics.json"

@@ -3,11 +3,13 @@ import torch
 import torch.nn.functional as F
 
 from projects.hypernet_e2e.loss import (
+    AttributeInvariantTaskLoss,
     ClassBalancedGroupDROTaskLoss,
     GroupDROTaskLoss,
     ObjectiveInput,
     TaskLoss,
     UniformGroupTaskLoss,
+    _GradientReverse,
 )
 
 
@@ -34,6 +36,68 @@ def test_task_loss_uses_objective_input() -> None:
 def test_task_loss_rejects_invalid_class_weight(class_weight: list[float]) -> None:
     with pytest.raises(ValueError, match="class_weight"):
         TaskLoss(class_weight=class_weight)
+
+
+def test_gradient_reverse_negates_only_the_feature_gradient() -> None:
+    features = torch.tensor([[1.0, -2.0]], requires_grad=True)
+    weights = torch.tensor([[3.0, 4.0]])
+    (_GradientReverse.apply(features, 0.5) * weights).sum().backward()
+
+    assert torch.equal(features.grad, -0.5 * weights)
+
+
+def test_attribute_invariant_task_loss_combines_task_and_observed_attribute_losses() -> None:
+    objective = AttributeInvariantTaskLoss(
+        TaskLoss(),
+        feature_dim=2,
+        categorical_cardinalities=[2],
+        hidden_dim=2,
+        attribute_adversary_weight=0.5,
+    )
+    for parameter in objective.attribute_adversary.parameters():
+        parameter.data.zero_()
+    inputs = ObjectiveInput(
+        logits=torch.tensor([[2.0, 0.0], [0.0, 2.0]], requires_grad=True),
+        target=torch.tensor([0, 1]),
+        attributes={
+            "categorical": torch.tensor([[0], [1]]),
+            "categorical_missing": torch.zeros(2, 1, dtype=torch.bool),
+        },
+        features=torch.randn(2, 2, requires_grad=True),
+    )
+
+    loss = objective(inputs)
+
+    assert torch.allclose(loss, F.cross_entropy(inputs.logits, inputs.target) + 0.5 * torch.log(torch.tensor(2.0)))
+    loss.backward()
+    assert inputs.features.grad is not None
+
+
+def test_attribute_invariant_task_loss_requires_features() -> None:
+    objective = AttributeInvariantTaskLoss(TaskLoss(), feature_dim=2, categorical_cardinalities=[2])
+    inputs = ObjectiveInput(
+        logits=torch.randn(2, 2),
+        target=torch.tensor([0, 1]),
+        attributes={"categorical": torch.tensor([[0], [1]]), "categorical_missing": torch.zeros(2, 1, dtype=torch.bool)},
+    )
+
+    with pytest.raises(ValueError, match="features"):
+        objective(inputs)
+
+
+def test_attribute_invariant_task_loss_keeps_all_missing_batch_backwardable() -> None:
+    objective = AttributeInvariantTaskLoss(TaskLoss(), feature_dim=2, categorical_cardinalities=[2])
+    features = torch.randn(2, 2, requires_grad=True)
+    inputs = ObjectiveInput(
+        logits=torch.randn(2, 2, requires_grad=True),
+        target=torch.tensor([0, 1]),
+        attributes={"categorical": torch.tensor([[0], [1]]), "categorical_missing": torch.ones(2, 1, dtype=torch.bool)},
+        features=features,
+    )
+
+    objective(inputs).backward()
+
+    assert features.grad is not None
 
 
 def test_uniform_group_task_loss_averages_observed_group_losses() -> None:
