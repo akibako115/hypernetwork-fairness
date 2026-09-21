@@ -22,6 +22,13 @@ def validate_training_config(config: DictConfig) -> None:
         if not uses_cohort or not config.data.get("group_assignment_path"):
             raise ValueError(f"training_strategy={strategy.name} には cohort_definition と data.group_assignment_path が必要")
 
+    # ClassBalancedGroupDROTaskLoss は group loss を群内クラス平均へ置き換えて陽性率依存を
+    # 取り除く目的関数である。そこへ共通の class weight を掛けると陽性側の寄与が押し戻され、
+    # 置き換えの意味が消える。inverse weighting は experiment の既定値なので、組み合わせが
+    # 通ってしまうと使えない run が最後まで走り切る。
+    if strategy is not None and strategy.get("name") == "group_dro_balanced" and config.model.loss_fn.get("class_weight") is not None:
+        raise ValueError("training_strategy=group_dro_balanced は class_weight と併用できない（weighting=none で実行する）")
+
     warm_start_path = config.model.get("warm_start_checkpoint_path")
     if warm_start_path:
         if config.get("ckpt_path"):

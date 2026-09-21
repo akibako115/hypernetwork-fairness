@@ -69,6 +69,12 @@ callbacks/      # metrics、fairness、hidden cohort 指標、GroupDRO diagnosti
 | `iteration.cohort_training_strategy` | `group_dro` / `group_dro_balanced` / `uniform_group_iterative`（`uniform_group` は warm-start なし） |
 | `iteration.cohort_checkpoint_selection` | `global_auroc_bacc` / `hidden_min_auroc` |
 
+class weight は run 単位のつまみです。`weighting=inverse` を `workflow._resolve_inverse_class_weights()`
+が train split から1度だけ解決し、`cohort_stage_config()` が全 stage へそのまま配ります。stage ごとに
+別の重みを与える口はありません。`group_dro_balanced` は group loss を群内クラス平均へ置き換えて
+陽性率依存を取り除く目的関数なので、共通の class weight と併用できません（`weighting=none` で実行し、
+`validate_training_config()` が組み合わせを弾きます）。
+
 parent run が実際に使う cohort stage の設定は、`workflow.cohort_stage_config()` が warmup の
 解決済み config と `iteration.*` から組み立てます。`configs/training_strategy/`、
 `configs/cohort_definition/`、`configs/checkpoint_selection/` と

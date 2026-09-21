@@ -27,5 +27,6 @@
 
 `iteration.cohort_training_strategy` は `group_dro`、`group_dro_balanced`、`uniform_group_iterative`、
 `uniform_group` を選べる。`uniform_group` だけは warm-start を持たず、各 stage が backbone の初期化から
-やり直す。反復の対照には `uniform_group_iterative` を使う。
+やり直す。反復の対照には `uniform_group_iterative` を使う。`group_dro_balanced` は `weighting=none` と
+組み合わせる。
 `iteration.cohort_checkpoint_selection` は `global_auroc_bacc` または `hidden_min_auroc` を選べる。

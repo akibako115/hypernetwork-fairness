@@ -39,6 +39,25 @@ def test_validation_rejects_warm_start_for_unsupported_strategy(tmp_path) -> Non
         validate_training_config(config)
 
 
+def test_validation_rejects_class_weight_under_the_class_balanced_objective() -> None:
+    config = _config(
+        model={"warm_start_checkpoint_path": None, "loss_fn": {"class_weight": [0.201358, 1.798642]}},
+        training_strategy={"name": "group_dro_balanced", "uses_cohort_group_id": True, "supports_warm_start": True},
+    )
+
+    with pytest.raises(ValueError, match="class_weight と併用できない"):
+        validate_training_config(config)
+
+
+def test_validation_accepts_the_class_balanced_objective_without_class_weight() -> None:
+    config = _config(
+        model={"warm_start_checkpoint_path": None, "loss_fn": {"class_weight": None}},
+        training_strategy={"name": "group_dro_balanced", "uses_cohort_group_id": True, "supports_warm_start": True},
+    )
+
+    validate_training_config(config)
+
+
 def test_validation_requires_hidden_metric_producers_for_hidden_selection() -> None:
     config = _config(
         callbacks={},
