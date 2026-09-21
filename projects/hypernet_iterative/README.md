@@ -129,8 +129,10 @@ epoch ごとの metric は parent run が持つ 1 つの W&B run（project `fair
   `preflight.json` に残します。失敗した場合は fit を始めません。
 - 比較条件は preset として project 内に持たせます。存在しない条件を既存 preset へ override で
   無理に載せません。
-- 数値挙動に関わる既存コードを移植する際は、実装を整理・書き換えません。説明の追記は
-  許可しますが、挙動変更と同じ変更に混ぜません。docstring は日本語で書きます。
+- 数値挙動に関わる既存コードを移植する際は、実装を整理・書き換えません。
+
+実装側の規約（docstring・コメント、workflow の責務分担）は [AGENTS.md](AGENTS.md) を
+正本とします。
 
 `weighting: inverse` のとき、`workflow.py` が parent run を予約する前に train split の target
 頻度から class weight を解決し、warmup と全 cohort stage が同じ値を使います。
