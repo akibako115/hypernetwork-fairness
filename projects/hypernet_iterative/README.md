@@ -81,6 +81,11 @@ global AUROC のままで、差は補助保存される checkpoint です。
 | `global_auroc_bacc` | `val/bacc` 最良 |
 | `hidden_min_auroc` | `val/hidden_min_auroc`（worst-group AUROC）最良 |
 
+`stage.py` は `val/auroc` を monitor する checkpoint callback をちょうど 1 つ要求します。
+ここで選ばれた checkpoint が次 stage の warm-start と cohort 生成の参照になるため、monitor を
+差し替えた run や checkpoint callback を増やした run は、別基準の checkpoint が黙って使われる
+前に失敗します。
+
 ## 学習起動
 
 計画だけを確認するときは `dry_run=true` を付けます。fit は起こしません。
@@ -129,13 +134,6 @@ epoch ごとの metric は parent run が持つ 1 つの W&B run（project `fair
 
 `weighting: inverse` のとき、`workflow.py` が parent run を予約する前に train split の target
 頻度から class weight を解決し、warmup と全 cohort stage が同じ値を使います。
-
-## 既知の差分
-
-- 各 stage が `run.json` に載せる checkpoint は、`stage.py` が `best_model_path` を持つ先頭の
-  callback から取ります。monitor までは照合しないので、`callbacks.model_checkpoint` の monitor を
-  差し替えたり callback の並びを変えたりすると、別基準の checkpoint が次 stage の warm-start と
-  cohort の参照になります。
 
 ## テスト
 

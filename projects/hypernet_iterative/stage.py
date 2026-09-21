@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +15,9 @@ from hydra.utils import instantiate
 from omegaconf import OmegaConf
 
 from .validation import validate_training_config
+
+# 次 stage の warm-start と cohort 生成が参照する checkpoint の選択基準。
+_SELECTION_MONITOR = "val/auroc"
 
 
 def run(config_path: Path, result_path: Path) -> None:
@@ -34,7 +38,7 @@ def run(config_path: Path, result_path: Path) -> None:
     trainer = instantiate(config.trainer, callbacks=callbacks, logger=False, default_root_dir=str(stage_dir))
     trainer.fit(model=model, datamodule=data)
     metrics = {k: (_scalar(v)) for k, v in trainer.callback_metrics.items()}
-    checkpoint = next(callback for callback in callbacks if hasattr(callback, "best_model_path"))
+    checkpoint = _selected_checkpoint(callbacks)
     if not checkpoint.best_model_path or not checkpoint.last_model_path:
         raise RuntimeError("stage did not write best and last checkpoints")
     result_path.write_text(
@@ -46,6 +50,21 @@ def run(config_path: Path, result_path: Path) -> None:
         )
         + "\n"
     )
+
+
+def _selected_checkpoint(callbacks: Sequence[Any]) -> Any:
+    """`val/auroc` を monitor する checkpoint callback をちょうど1つ選ぶ。
+
+    ここで選ばれた checkpoint が次 stage の warm-start と cohort 生成の参照になる。
+    `best_model_path` を持つ先頭の callback を取ると、`callbacks.model_checkpoint.monitor` を
+    差し替えた run や callback の並びを変えた run で、別基準の checkpoint が黙って
+    `val/auroc` として記録されてしまう。stage の選択基準は workflow の契約なので、
+    monitor まで照合してから選ぶ。
+    """
+    selected = [callback for callback in callbacks if getattr(callback, "monitor", None) == _SELECTION_MONITOR and hasattr(callback, "best_model_path")]
+    if len(selected) != 1:
+        raise RuntimeError(f"stage には {_SELECTION_MONITOR} を monitor する checkpoint callback がちょうど1つ必要だが、{len(selected)} 個見つかった")
+    return selected[0]
 
 
 def _scalar(value: Any) -> float | None:
