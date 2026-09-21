@@ -1,0 +1,7 @@
+wandb:
+  _target_: lightning.pytorch.loggers.wandb.WandbLogger
+  project: fairness_hypernet_iterative
+  save_dir: null
+  name: null
+  log_model: false
+  tags: ${tags}

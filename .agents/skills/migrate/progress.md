@@ -115,11 +115,12 @@ two-stage は `projects/hypernet_two_stage/` として独立させる。Stage 1 
 各 stage を1 train batch・1 validation batch に制限した CheXpert 最小実行が完走した。cohort の再生成や
 任意回数の反復は持たない。
 
-`hypernet_iterative` は固定 cohort の単一 stage に必要な model / data / callbacks / module /
-configs を移植済み。cohort sidecar の train 被覆、binary hidden metric、warm-start と resume の
-組み合わせを検証する project-local validation を置いた。checkpoint 選択は global AUROC を主選択とし、
-BAcc および hidden-min-AUROC の補助 checkpoint を選べる config を移植済み。cohort 再生成、
-stage subprocess、run artifact、validation の workflow 呼び出しは未実装である。
+`hypernet_iterative` は warmup、checkpoint の metadata embedding に基づく cohort 再生成、独立 child
+process の cohort stage、stage 間 warm-start を実装済み。cohort artifact、全 split の data manifest、
+golden preflight、parent run の W&B / text log と stage result を parent run directory に記録する。
+cohort stage は GroupDRO / class-balanced GroupDRO / uniform group と global-AUROC+BAcc /
+hidden-min-AUROC checkpoint selection を設定から選べる。2026-09-21 に warmup 1 epoch、cohort 1 回、
+各 stage 1 train / val batch の CheXpert smoke run が成功した。
 
 ## 未決事項
 

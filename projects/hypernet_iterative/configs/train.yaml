@@ -1,7 +1,7 @@
 # @package _global_
 defaults:
   - callbacks: default
-  - logger: none
+  - logger: wandb
   - paths: default
   - trainer: gpu
   - experiment: spatial_lora_chexpert
@@ -11,6 +11,7 @@ project: hypernet_iterative
 task_name: train
 seed: 12345
 run_dir: null
+dry_run: false
 
 # workflow.py がこの計画を使い、warmup と各 cohort stage を独立 process で実行する。
 iteration:
@@ -19,6 +20,8 @@ iteration:
   stage_epochs: 2
   clusters: 10
   n_init: 50
+  cohort_training_strategy: group_dro
+  cohort_checkpoint_selection: global_auroc_bacc
 
 hydra:
   run:
