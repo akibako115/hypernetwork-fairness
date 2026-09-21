@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from types import SimpleNamespace
 
 import lightning as L
@@ -120,3 +121,26 @@ def test_trainer_runs_one_epoch_and_updates_the_classifier(tmp_path) -> None:
     trainer.fit(module, train_dataloaders=loader)
 
     assert not torch.equal(module.net.fc.weight, before)
+
+
+def test_setup_fails_when_the_backbone_checkpoint_matches_nothing(tmp_path) -> None:
+    """key が 1 つも一致しない部分ロードは、成功した run として残してはならない。"""
+    path = tmp_path / "unrelated.ckpt"
+    torch.save({"state_dict": {"net.unrelated.weight": torch.zeros(2, 2)}}, path)
+
+    module = _module(backbone_checkpoint_path=str(path))
+
+    with pytest.raises(RuntimeError, match="一致する parameter が 1 つも無い"):
+        module.setup("fit")
+
+
+def test_setup_logs_how_many_backbone_tensors_were_loaded(tmp_path, caplog) -> None:
+    source = _Net()
+    path = tmp_path / "backbone.ckpt"
+    torch.save({"state_dict": {f"net.{key}": value for key, value in source.state_dict().items()}}, path)
+
+    module = _module(net=_Net(), backbone_checkpoint_path=str(path))
+    with caplog.at_level(logging.INFO):
+        module.setup("fit")
+
+    assert "Loaded" in caplog.text

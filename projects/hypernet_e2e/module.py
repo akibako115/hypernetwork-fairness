@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
@@ -12,6 +13,8 @@ import torch.nn.functional as F
 
 from projects.hypernet_e2e.loss import ObjectiveInput
 from projects.hypernet_e2e.models.utils import load_compatible_state_dict
+
+log = logging.getLogger(__name__)
 
 
 class LitModule(L.LightningModule):
@@ -87,7 +90,8 @@ class LitModule(L.LightningModule):
         if stage != "fit":
             return
         if self.hparams.backbone_checkpoint_path is not None:
-            self.load_backbone_checkpoint(self.hparams.backbone_checkpoint_path)
+            result = self.load_backbone_checkpoint(self.hparams.backbone_checkpoint_path)
+            self._require_loaded_backbone(result, self.hparams.backbone_checkpoint_path)
         if self.hparams.freeze_backbone:
             self._freeze_backbone()
         if hasattr(self.net, "initialize_with_attributes"):
@@ -157,6 +161,25 @@ class LitModule(L.LightningModule):
             "target": target.detach(),
             "attributes": {key: value.detach() for key, value in attributes.items()},
         }
+
+    @staticmethod
+    def _require_loaded_backbone(result: Mapping[str, list[str]], checkpoint_path: str) -> None:
+        """部分ロードの結果を記録し、1 key も一致しなかった run を失敗させる。
+
+        backbone checkpoint は LoRA 生成器を持たないので部分一致が正常な状態である。ただし
+        key が 1 つも一致しない場合、ランダム初期化のまま学習が進み、artifact 上は成功した run
+        として残ってしまう。silent no-op をここで止める。
+        """
+        if not result["loaded_keys"]:
+            raise RuntimeError(f"backbone checkpoint と shape まで一致する parameter が 1 つも無い: {checkpoint_path}")
+        log.info(
+            "Loaded %d tensors from %s (skipped %d, missing %d, unexpected %d)",
+            len(result["loaded_keys"]),
+            checkpoint_path,
+            len(result["skipped_keys"]),
+            len(result["missing_keys"]),
+            len(result["unexpected_keys"]),
+        )
 
     def _freeze_backbone(self) -> None:
         if hasattr(self.net, "freeze_base_model"):

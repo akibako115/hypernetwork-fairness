@@ -1,5 +1,7 @@
 from pathlib import Path
+from types import SimpleNamespace
 
+import pytest
 from omegaconf import OmegaConf
 
 from projects.hypernet_two_stage import workflow
@@ -33,3 +35,23 @@ def test_workflow_passes_stage1_best_checkpoint_to_frozen_stage2(tmp_path: Path,
     assert stage2.model.loss_fn.class_weight == [1.0, 2.0]
     assert (run_dir / "run.json").is_file()
     assert (run_dir / "logs" / "train.log").is_file()
+
+
+def test_best_auroc_checkpoint_rejects_a_callback_monitoring_something_else() -> None:
+    """monitor を差し替えた run の checkpoint を best_val_auroc として記録させない。"""
+    auroc = SimpleNamespace(monitor="val/auroc", best_model_path="/tmp/best.ckpt")
+    loss = SimpleNamespace(monitor="val/loss", best_model_path="/tmp/loss.ckpt")
+
+    assert workflow._best_auroc_checkpoint([loss, auroc], "stage1") is auroc
+
+    with pytest.raises(RuntimeError, match="val/auroc を monitor"):
+        workflow._best_auroc_checkpoint([loss], "stage1")
+    with pytest.raises(RuntimeError, match="val/auroc を monitor"):
+        workflow._best_auroc_checkpoint([auroc, auroc], "stage1")
+
+
+def test_best_auroc_checkpoint_requires_a_written_checkpoint() -> None:
+    empty = SimpleNamespace(monitor="val/auroc", best_model_path="")
+
+    with pytest.raises(RuntimeError, match="best val/auroc checkpoint を出力"):
+        workflow._best_auroc_checkpoint([empty], "stage2")

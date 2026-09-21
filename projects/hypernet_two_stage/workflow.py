@@ -9,7 +9,7 @@ import secrets
 import subprocess
 import sys
 from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -99,9 +99,7 @@ def _run_stage(name: str, config: DictConfig, stage_dir: Path, run_id: str) -> d
         trainer.fit(model=model, datamodule=datamodule)
         metrics = _scalar_metrics(trainer.callback_metrics)
     _write_json(stage_dir / "metrics" / "fit.json", metrics)
-    checkpoint = next((callback for callback in callbacks if hasattr(callback, "best_model_path")), None)
-    if checkpoint is None or not checkpoint.best_model_path:
-        raise RuntimeError(f"{name} は best val/auroc checkpoint を出力する必要がある")
+    checkpoint = _best_auroc_checkpoint(callbacks, name)
     result = {
         "metrics": metrics,
         "loggers": references,
@@ -112,6 +110,21 @@ def _run_stage(name: str, config: DictConfig, stage_dir: Path, run_id: str) -> d
     }
     _write_json(stage_dir / "result.json", result)
     return result
+
+
+def _best_auroc_checkpoint(callbacks: Sequence[Any], name: str) -> Any:
+    """`val/auroc` を monitor する checkpoint callback をちょうど1つ選ぶ。
+
+    `best_model_path` を持つ先頭の callback を選ぶと、`callbacks.model_checkpoint.monitor` を
+    差し替えた run でも別基準の checkpoint が `best_val_auroc` として記録されてしまう。stage の
+    選択基準は workflow の契約なので、monitor まで照合してから選ぶ。
+    """
+    selected = [callback for callback in callbacks if getattr(callback, "monitor", None) == "val/auroc" and hasattr(callback, "best_model_path")]
+    if len(selected) != 1:
+        raise RuntimeError(f"{name} には val/auroc を monitor する checkpoint callback がちょうど1つ必要だが、{len(selected)} 個見つかった")
+    if not selected[0].best_model_path:
+        raise RuntimeError(f"{name} は best val/auroc checkpoint を出力する必要がある")
+    return selected[0]
 
 
 def _resolve_inverse_class_weights(config: DictConfig) -> None:
