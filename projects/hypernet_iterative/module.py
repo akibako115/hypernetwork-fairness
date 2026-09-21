@@ -11,8 +11,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .loss import ObjectiveInput
-from .models.utils import load_compatible_state_dict
+from projects.hypernet_iterative.loss import ObjectiveInput
+from projects.hypernet_iterative.models.utils import load_compatible_state_dict
 
 log = logging.getLogger(__name__)
 

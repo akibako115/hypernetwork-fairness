@@ -25,7 +25,7 @@ class SpatialLoRAResNet(nn.Module):
         rank: stage3/4 の `SpatialLoRAConv2` 生成器の低ランク次元。
         lora_alpha: stage3/4 の Spatial LoRA のスケール係数（`scale = lora_alpha / rank`）。
         modulation_stages: 変調を適用する箇所。`"stage3"` / `"stage4"` / `"fc"` の部分集合
-            （`film/` と同じ指定形式: `[]` / `["fc"]` / `["stage4"]` / `["stage3", "stage4"]` など）。
+            指定形式は `[]` / `["fc"]` / `["stage4"]` / `["stage3", "stage4"]` など。
             `"fc"` を含む場合、分類ヘッドは通常の `nn.Linear` ではなく `HyperLinearLayer` になる。
         classifier_rank: `"fc"` 変調時の `HyperLinearLayer` の低ランク次元。
         classifier_lora_alpha: `"fc"` 変調時の `HyperLinearLayer` のスケール係数。

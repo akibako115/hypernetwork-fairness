@@ -51,7 +51,7 @@ class SpatialLoRAConv2(nn.Module):
         nn.init.zeros_(self.a_generator.weight)
         nn.init.zeros_(self.a_generator.bias)
         # B 側の bias は condition に依らない定数カーネルになる。hypernetwork の初期化規約
-        # （Principled Weight Initialization for Hypernetworks / film 側と同じ）に合わせて
+        # （Principled Weight Initialization for Hypernetworks）に合わせて
         # ゼロから始め、初期の B を condition 経路だけで決める。学習可能なままにしておく。
         nn.init.zeros_(self.b_generator.bias)
 

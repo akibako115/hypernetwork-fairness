@@ -1,4 +1,4 @@
-"""CheXpert と PAD-UFES-20 の画像前処理を定義する。
+"""CheXpert の画像前処理を定義する。
 
 各 factory は PIL Image を受け取り、ImageNet 正規化済みの
 `torch.float32` tensor を返す transform を構築する。
@@ -66,41 +66,6 @@ def val_transforms_chexpert() -> transforms.Compose:
         [
             _pad_to_square,
             transforms.Resize((224, 224)),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
-        ]
-    )
-
-
-# 2. Padufes (MED-Fairの皮膚画像系と同じ拡張)
-def train_transforms_padufes() -> transforms.Compose:
-    """PAD-UFES-20 学習用 transform。
-
-    MEDFAIR（ys-zong/MEDFAIR）の 2D 画像 augmentation（Resize(256) -> RandomHorizontalFlip ->
-    RandomRotation(-15, 15) -> RandomCrop(224) -> ImageNet normalize）に合わせる。
-    PAD-UFES-20 の保護属性である Fitzpatrick skin type は皮膚の色調で定義されるため、
-    色調を変える ColorJitter(hue/saturation) は使わない。また画像サイズが 147px から
-    3096px まで大きくばらつき、元画像サイズに依存して挙動が不均一になる RandomResizedCrop
-    も避ける（詳細は docs/datasets/padufes20_preprocessing.md）。
-    """
-    return transforms.Compose(
-        [
-            transforms.Resize(256),
-            transforms.RandomHorizontalFlip(),
-            transforms.RandomRotation(15),
-            transforms.RandomCrop(224),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
-        ]
-    )
-
-
-def val_transforms_padufes() -> transforms.Compose:
-    """PAD-UFES-20 検証・テスト用 transform。train と同じ Resize(256) 基準で CenterCrop(224) する。"""
-    return transforms.Compose(
-        [
-            transforms.Resize(256),
-            transforms.CenterCrop(224),
             transforms.ToTensor(),
             transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
         ]
