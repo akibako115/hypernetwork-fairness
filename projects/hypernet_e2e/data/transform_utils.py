@@ -1,4 +1,4 @@
-"""CheXpert の画像前処理を定義する。
+"""CheXpert と ISIC 2019 の画像前処理を定義する。
 
 各 factory は PIL Image を受け取り、ImageNet 正規化済みの
 `torch.float32` tensor を返す transform を構築する。
@@ -78,6 +78,62 @@ def val_transforms_chexpert() -> transforms.Compose:
         [
             _pad_to_square,
             transforms.Resize((224, 224)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
+        ]
+    )
+
+
+# 2. ISIC 2019（dermoscopy）
+def train_transforms_isic2019() -> transforms.Compose:
+    """ISIC 2019 学習用 transform。
+
+    PAD-UFES-20 と同じ dermoscopy 向けの recipe（Resize(256) -> RandomHorizontalFlip ->
+    RandomRotation(15) -> RandomCrop(224) -> ImageNet normalize）を使う。
+
+    CheXpert 側の `_pad_to_square` は使わない。入力は黒縁を除去済みの画像であり、
+    そこへ余白を足し直すと除去した意味が無くなる。短辺を 256 に揃えてから切り出す。
+
+    回転の余白も既定の黒ではなく `IMAGENET_FILL` で埋める。黒で埋めると、除去したはずの
+    黒縁を augmentation が毎 epoch 描き直すことになる（既定の `fill=0` では黒画素の割合が
+    1.6% から 2.8% へ増える）。
+
+    **色を変える augmentation は使わない。**この実験は色恒常性を掛けていない画像を
+    意図的に選んでおり、撮影サイトと相関する色かぶりを交絡として残したまま評価する。
+    ColorJitter の hue/saturation を入れると、その交絡を augmentation 側で壊してしまう。
+    肌色を ITA で後から推定する余地を残す意味でも色は触らない。
+
+    Args:
+        なし
+
+    Returns:
+        transforms.Compose: PIL Image を ImageNet 正規化済み tensor へ変換する transform
+    """
+    return transforms.Compose(
+        [
+            transforms.Resize(256),
+            transforms.RandomHorizontalFlip(),
+            transforms.RandomRotation(15, fill=IMAGENET_FILL),
+            transforms.RandomCrop(224),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
+        ]
+    )
+
+
+def val_transforms_isic2019() -> transforms.Compose:
+    """ISIC 2019 検証・テスト用 transform。train と同じ Resize(256) 基準で CenterCrop(224) する。
+
+    Args:
+        なし
+
+    Returns:
+        transforms.Compose: PIL Image を ImageNet 正規化済み tensor へ変換する transform
+    """
+    return transforms.Compose(
+        [
+            transforms.Resize(256),
+            transforms.CenterCrop(224),
             transforms.ToTensor(),
             transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
         ]
