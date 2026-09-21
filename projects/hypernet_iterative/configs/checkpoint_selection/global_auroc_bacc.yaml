@@ -1,0 +1,23 @@
+# @package _global_
+checkpoint_selection:
+  name: global_auroc_bacc
+
+callbacks:
+  # 主選択は global AUROC、BAcc 最良は分析用に追加保存する。
+  model_checkpoint:
+    dirpath: null
+    filename: best_global_auroc_{epoch:03d}
+    monitor: val/auroc
+    mode: max
+    save_top_k: 1
+    save_last: true
+    auto_insert_metric_name: false
+  bacc_checkpoint:
+    _target_: lightning.pytorch.callbacks.ModelCheckpoint
+    dirpath: null
+    filename: best_bacc_{epoch:03d}
+    monitor: val/bacc
+    mode: max
+    save_top_k: 1
+    save_last: false
+    auto_insert_metric_name: false

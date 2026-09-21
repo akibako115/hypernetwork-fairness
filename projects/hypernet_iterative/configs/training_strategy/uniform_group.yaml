@@ -1,0 +1,11 @@
+# @package _global_
+training_strategy:
+  name: uniform_group
+  uses_cohort_group_id: true
+  supports_warm_start: false
+model:
+  loss_fn:
+    _target_: projects.hypernet_iterative.loss.UniformGroupTaskLoss
+    num_groups: ${cohort.num_groups}
+    class_weight: null
+    group_key: ${cohort.group_key}

@@ -1,0 +1,2 @@
+fairness_metrics:
+  _target_: projects.hypernet_iterative.callbacks.fairness_metrics.FairnessMetricsCallback

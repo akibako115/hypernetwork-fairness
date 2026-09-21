@@ -1,0 +1,2 @@
+group_dro_diagnostics:
+  _target_: projects.hypernet_iterative.callbacks.hidden_cohort_logger.GroupDRODiagnosticsCallback

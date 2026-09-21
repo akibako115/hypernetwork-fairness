@@ -1,0 +1,8 @@
+# @package _global_
+cohort:
+  # iterative run では k の正本を runner の iteration.clusters に置く。
+  # reference_id は cohort を生成した直前 stage を workflow が具体値で注入する。
+  name: metadata_kmeans
+  reference_id: unspecified
+  num_groups: ${iteration.clusters}
+  group_key: group_id

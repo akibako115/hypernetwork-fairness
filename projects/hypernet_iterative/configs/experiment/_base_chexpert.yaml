@@ -1,0 +1,15 @@
+# @package _global_
+defaults:
+  - /data: chexpert
+  - /checkpoint_selection: global_auroc_bacc
+  - _self_
+
+dataset: chexpert
+weighting: inverse
+trainer:
+  max_epochs: ${iteration.warmup_epochs}
+data:
+  num_workers: 8
+  pin_memory: true
+  persistent_workers: true
+  prefetch_factor: 2

@@ -1,0 +1,14 @@
+# cohort stage だけが追加する validation contract と群別 diagnostics。
+cohort_single_process:
+  _target_: projects.hypernet_iterative.callbacks.hidden_cohort_logger.CohortSingleProcessCallback
+cohort_validity:
+  _target_: projects.hypernet_iterative.callbacks.hidden_cohort_logger.CohortValidityCallback
+  num_groups: ${cohort.num_groups}
+  group_key: ${cohort.group_key}
+  target_column: target
+hidden_cohort_logger:
+  # 全 val group の両 class は cohort_validity が fit 開始時に検証する。
+  # ここで再検証すると limit_val_batches を使う debug run で誤検知するため、既定値 false を維持する。
+  _target_: projects.hypernet_iterative.callbacks.hidden_cohort_logger.HiddenCohortMetricsCallback
+  num_groups: ${cohort.num_groups}
+  group_key: ${cohort.group_key}

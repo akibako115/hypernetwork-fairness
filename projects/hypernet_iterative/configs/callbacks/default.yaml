@@ -1,0 +1,11 @@
+defaults:
+  - model_checkpoint
+  - model_summary
+  - text_progress
+  - metrics_logger
+  - fairness_metrics
+  - group_dro_diagnostics
+  - _self_
+
+model_summary:
+  max_depth: -1

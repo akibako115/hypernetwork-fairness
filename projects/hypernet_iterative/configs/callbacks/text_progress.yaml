@@ -1,0 +1,2 @@
+text_progress:
+  _target_: projects.hypernet_iterative.callbacks.text_progress.TextProgressLogger

@@ -1,0 +1,24 @@
+# @package _global_
+checkpoint_selection:
+  name: hidden_min_auroc
+  requires_hidden_cohort: true
+
+callbacks:
+  # 自動評価の主選択は global AUROC のままにし、worst-group AUROC は補助保存する。
+  model_checkpoint:
+    dirpath: null
+    filename: best_global_auroc_{epoch:03d}
+    monitor: val/auroc
+    mode: max
+    save_top_k: 1
+    save_last: true
+    auto_insert_metric_name: false
+  hidden_min_auroc_checkpoint:
+    _target_: lightning.pytorch.callbacks.ModelCheckpoint
+    dirpath: null
+    filename: best_hidden_auroc_{epoch:03d}
+    monitor: val/hidden_min_auroc
+    mode: max
+    save_top_k: 1
+    save_last: false
+    auto_insert_metric_name: false

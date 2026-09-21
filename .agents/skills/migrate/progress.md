@@ -107,7 +107,19 @@ two-stage は `projects/hypernet_two_stage/` として独立させる。Stage 1 
 各 stage を1 train batch・1 validation batch に制限した CheXpert 最小実行が完走した。cohort の再生成や
 任意回数の反復は持たない。
 
+`hypernet_iterative` は固定 cohort の単一 stage に必要な model / data / callbacks / module /
+configs を移植済み。cohort sidecar の train 被覆、binary hidden metric、warm-start と resume の
+組み合わせを検証する project-local validation を置いた。checkpoint 選択は global AUROC を主選択とし、
+BAcc および hidden-min-AUROC の補助 checkpoint を選べる config を移植済み。cohort 再生成、
+stage subprocess、run artifact、validation の workflow 呼び出しは未実装である。
+
 ## 未決事項
+
+- **iterative の warm-start 前データ依存初期化。** 現在の `LitModule.setup()` は旧実装と同じく
+  `initialize_with_dataloader()` の後に net 全体を warm-start で厳密一致ロードする。このため
+  warm-start stage では Var(c) の初期化結果が直後に上書きされるが、初期化を省くと train
+  DataLoader の sampler が消費する RNG を含め既存 run との互換性が変わり得る。現時点では
+  **互換性を優先して維持**し、最適化する場合は数値挙動変更として独立に検証・記録する。
 
 - **split の golden は作らない。** `attribute_names` は設定で変わるため、fixture CSV に対する
   `splits.py` の単体テストで列契約を検証する。実データの行数・画像集合 hash・target 分布は

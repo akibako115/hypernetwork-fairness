@@ -1,0 +1,8 @@
+defaults:
+  - chexpert
+  - _self_
+
+_target_: projects.hypernet_iterative.data.cohort_datamodule.CohortImageDataModule
+group_assignment_path: null
+num_groups: ${cohort.num_groups}
+group_key: ${cohort.group_key}
