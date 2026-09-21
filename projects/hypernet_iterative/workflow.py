@@ -65,11 +65,22 @@ def reserve_parent_run(config: DictConfig) -> Path:
     raise RuntimeError("一意な parent run directory を予約できない")
 
 
-def plan(config: DictConfig) -> list[Stage]:
-    """設定から warmup と cohort stage の決定的な実行計画を作る。"""
+def _validate_iteration(config: DictConfig) -> None:
+    """反復計画の数値を、GPU 時間を使う前に検証する。
+
+    `plan()` は `dry_run` からしか呼ばれないので、ここを `plan()` の中に置くと実 run では
+    発火しない。`iteration.clusters` の打ち間違いは warmup fit を消費し切ったあと
+    `cohorts.build.save_artifact` で初めて落ちる。`run_iterative()` も先頭でこれを呼ぶ。
+    """
     iteration = config.iteration
     if min(int(iteration.warmup_epochs), int(iteration.stage_epochs), int(iteration.stages), int(iteration.clusters), int(iteration.n_init)) < 1:
         raise ValueError("iteration counts must be positive")
+
+
+def plan(config: DictConfig) -> list[Stage]:
+    """設定から warmup と cohort stage の決定的な実行計画を作る。"""
+    _validate_iteration(config)
+    iteration = config.iteration
     result = [Stage("warmup", "fit")]
     for number in range(1, int(iteration.stages) + 1):
         result.extend((Stage(f"cohort{number:02d}", "cohort"), Stage(f"stage{number:02d}", "fit")))
@@ -283,6 +294,7 @@ def _inverse_frequency_weights(labels: list[int], num_classes: int) -> list[floa
 
 def run_iterative(config: DictConfig) -> Path:
     """warmup → cohort 再生成 → warm-start stage を指定回数だけ実行する。"""
+    _validate_iteration(config)
     _resolve_inverse_class_weights(config)
     run_dir = reserve_parent_run(config)
     record_path = run_dir / "run.json"

@@ -60,6 +60,18 @@ def test_workflow_builds_a_cohort_then_warm_starts_each_stage(tmp_path: Path, mo
     assert set(record["stages"]) == {"warmup", "cohort01", "stage01", "cohort02", "stage02"}
 
 
+@pytest.mark.parametrize("key", ["warmup_epochs", "stage_epochs", "stages", "clusters", "n_init"])
+def test_run_iterative_rejects_non_positive_iteration_counts_before_reserving_a_run(tmp_path: Path, key: str) -> None:
+    """GPU 時間を使う前に落ちること。`plan()` は dry-run からしか呼ばれない。"""
+    config = _config(tmp_path)
+    config.iteration[key] = 0
+
+    with pytest.raises(ValueError, match="iteration counts must be positive"):
+        workflow.run_iterative(config)
+
+    assert not (tmp_path / "runs").exists()
+
+
 def test_data_manifest_records_all_splits_and_input_identity(tmp_path: Path) -> None:
     split_dir = tmp_path / "splits"
     split_dir.mkdir()
