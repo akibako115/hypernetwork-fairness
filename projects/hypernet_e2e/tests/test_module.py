@@ -11,6 +11,7 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
 from projects.hypernet_e2e.loss import ObjectiveInput, TaskLoss
+from projects.hypernet_e2e.models.attribute_adversary import AttributeAdversary, gradient_reverse
 from projects.hypernet_e2e.module import LitModule
 
 
@@ -161,3 +162,29 @@ def test_optimizer_factory_stays_out_of_the_checkpoint_hparams() -> None:
 def test_freezing_the_backbone_requires_a_checkpoint_to_freeze() -> None:
     with pytest.raises(ValueError, match="backbone_checkpoint_path"):
         _module(freeze_backbone=True)
+
+
+def test_gradient_reverse_negates_only_the_backbone_gradient() -> None:
+    features = torch.tensor([[1.0, -2.0]], requires_grad=True)
+    weights = torch.tensor([[3.0, 4.0]])
+    (gradient_reverse(features, 0.5) * weights).sum().backward()
+
+    assert torch.equal(features.grad, -0.5 * weights)
+
+
+def test_attribute_adversary_ignores_missing_values_and_updates_its_parameters() -> None:
+    adversary = AttributeAdversary(feature_dim=2, categorical_cardinalities=[2], num_continuous=1, hidden_dim=3)
+    features = torch.randn(3, 2, requires_grad=True)
+    attributes = {
+        "categorical": torch.tensor([[0], [1], [0]]),
+        "categorical_missing": torch.tensor([[False], [True], [False]]),
+        "continuous": torch.tensor([[0.0], [0.3], [-0.2]]),
+        "continuous_missing": torch.tensor([[False], [True], [False]]),
+    }
+
+    loss = adversary(features, attributes)
+    loss.backward()
+
+    assert loss.requires_grad
+    assert features.grad is not None
+    assert all(parameter.grad is not None for parameter in adversary.parameters())

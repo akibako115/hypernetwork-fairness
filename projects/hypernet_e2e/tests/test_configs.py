@@ -62,6 +62,18 @@ def test_from_resnet_preset_freezes_the_backbone_and_demands_a_stage1_checkpoint
         instantiate(cfg.model)
 
 
+def test_attribute_invariant_stage1_and_its_stage2_preset_compose() -> None:
+    config_dir = Path(__file__).parent.parent / "configs"
+    with initialize_config_dir(version_base="1.3", config_dir=str(config_dir)):
+        stage1 = compose(config_name="train", overrides=["experiment=resnet_chexpert_attribute_invariant"])
+        stage2 = compose(config_name="train", overrides=["experiment=spatial_lora_chexpert_from_attribute_invariant"])
+
+    assert stage1.model.attribute_adversary._target_.endswith("AttributeAdversary")
+    assert stage1.model.attribute_adversary.feature_dim == 2048
+    assert instantiate(stage1.model).attribute_adversary is not None
+    assert stage2.model.freeze_backbone is True
+
+
 @pytest.mark.parametrize(
     ("experiment", "loss_target"),
     [

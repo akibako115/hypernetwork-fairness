@@ -45,6 +45,8 @@ model・data・callbacks・trainer を作成し、1 回の `fit` を実行しま
 - `experiment=spatial_lora_chexpert_erm`
 - 各モデルの `inverse_weighted_loss` / `inverse_weighted_sampling`
 - `experiment=spatial_lora_chexpert_from_resnet`（2 段学習の 2 段目）
+- `experiment=resnet_chexpert_attribute_invariant`（GRL による属性不変な第1段）
+- `experiment=spatial_lora_chexpert_from_attribute_invariant`（上記からの第2段）
 - 各モデルの `group_dro`
 
 `inverse_weighted_loss` の class weight は、`run.py` が train split の target 頻度から算出して
@@ -105,6 +107,27 @@ uv run python -m projects.hypernet_e2e.run \
 2 段目の `run.json` は、読み込んだ checkpoint の path・SHA-256 と、それを出力した run の ID を
 `parent_run` に記録します。1 段目の記録と SHA-256 が食い違う checkpoint は、fit を始めずに
 失敗させます。段ごとに別 run なので、`trainer.max_epochs` のような設定は段ごとに独立して振れます。
+
+### 属性不変 backbone → 属性条件付き LoRA
+
+`resnet_chexpert_attribute_invariant` は、backbone 特徴量から属性を当てる補助予測器の前に
+Gradient Reversal Layer（GRL）を置く。補助予測器は属性を当てるように、backbone はその予測を
+難しくするように同じ通常の backprop で更新される。第2段では既存の凍結契約により backbone と
+共有 classifier を固定し、属性の条件は Spatial LoRA / HyperLinear の差分にのみ入る。
+
+```bash
+uv run python -m projects.hypernet_e2e.run experiment=resnet_chexpert_attribute_invariant
+
+uv run python -m projects.hypernet_e2e.run \
+  experiment=spatial_lora_chexpert_from_attribute_invariant \
+  model.backbone_checkpoint_path=projects/hypernet_e2e/runs/<stage1-run-id>/checkpoints/<best>.ckpt
+```
+
+GRL の学習時の属性損失だけでは不変性の証明にはならない。保持情報量は、凍結した第1段 backbone
+出力に対して、学習に使っていない独立の線形／MLP probe を train/validation split で学習・評価し、
+ERM の第1段と属性 AUC / accuracy / age MAE を比較して判定する。task AUROC と subgroup gap も
+同じ split で併記する。`model.attribute_adversary_weight` は task 性能とのトレードオフなので、
+少なくとも `0.01, 0.03, 0.1` を同一 seed 群で比較する。
 
 ## 学習起動
 

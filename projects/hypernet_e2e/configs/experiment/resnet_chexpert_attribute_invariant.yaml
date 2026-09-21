@@ -1,0 +1,8 @@
+# @package _global_
+defaults:
+  - /model: resnet50_attribute_invariant
+  - _base_chexpert
+  - _self_
+
+experiment_name: resnet-chexpert-attribute-invariant
+tags: [chexpert, resnet50, attribute_invariant, dann]

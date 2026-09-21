@@ -1,0 +1,36 @@
+_target_: projects.hypernet_e2e.module.LitModule
+
+optimizer:
+  _target_: torch.optim.AdamW
+  _partial_: true
+  lr: 1e-4
+  weight_decay: 1e-2
+scheduler: null
+
+net:
+  _target_: projects.hypernet_e2e.models.resnet.network.ResNet
+  layers: [3, 4, 6, 3]
+  block: Bottleneck
+  num_classes: ${data.num_classes}
+
+loss_fn:
+  _target_: projects.hypernet_e2e.loss.TaskLoss
+  class_weight: null
+
+# 第1段: GRL は属性予測器を強化しつつ、backbone には属性予測を悪化させる勾配を渡す。
+# λ は `attribute_adversary_weight * attribute_adversary.gradient_scale` として効く。
+attribute_adversary:
+  _target_: projects.hypernet_e2e.models.attribute_adversary.AttributeAdversary
+  feature_dim: 2048
+  categorical_cardinalities: ${data.attribute_spec.categorical_cardinalities}
+  num_continuous: ${data.attribute_spec.continuous_dim}
+  hidden_dim: 256
+  gradient_scale: 1.0
+attribute_adversary_weight: 0.1
+
+use_attributes: false
+backbone_checkpoint_path: ${paths.checkpoints_dir}/resnet50_imagenet.pth
+freeze_backbone: false
+attribute_names: ${data.attribute_names}
+fairness_attribute_names: ${data.fairness_attribute_names}
+compile: false

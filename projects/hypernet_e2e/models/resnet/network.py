@@ -199,8 +199,21 @@ class ResNet(nn.Module):
         Returns:
             torch.Tensor: `num_classes` 指定時は `[B, num_classes]`、未指定時は `[B, feature_dim]`
         """
+        logits, _ = self.forward_with_features(x)
+        return logits
+
+    def forward_with_features(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """分類 logits と、その直前の backbone 表現を一度の forward で返す。
+
+        Args:
+            x: `[B, 3, H, W]` の画像 batch。
+
+        Returns:
+            tuple[torch.Tensor, torch.Tensor]: logits（`num_classes` が None の場合は特徴量）と
+                `[B, feature_dim]` の backbone 特徴量。
+        """
         feat = self.backbone(x)
-        return self.fc(feat) if self.fc is not None else feat
+        return (self.fc(feat) if self.fc is not None else feat), feat
 
     def get_features(self, x: torch.Tensor) -> torch.Tensor:
         """分類ヘッドを経由せず backbone の特徴量 `(B, feature_dim)` を返す。

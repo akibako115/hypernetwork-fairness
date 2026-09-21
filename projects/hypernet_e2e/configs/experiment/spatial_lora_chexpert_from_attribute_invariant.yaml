@@ -1,0 +1,8 @@
+# @package _global_
+# 属性不変 ResNet を第1段に使う 2 段目。checkpoint は stage1 の best checkpoint を指定する。
+defaults:
+  - spatial_lora_chexpert_from_resnet
+  - _self_
+
+experiment_name: spatial-lora-chexpert-from-attribute-invariant
+tags: [chexpert, spatial_lora_resnet50, two_stage, attribute_invariant_backbone]
