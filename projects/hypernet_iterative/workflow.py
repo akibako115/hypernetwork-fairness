@@ -7,6 +7,7 @@ import json
 import secrets
 import subprocess
 import sys
+from collections import Counter
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -250,8 +251,39 @@ def write_preflight(run_dir: Path) -> None:
         raise RuntimeError("golden preflight に失敗した")
 
 
+def _resolve_inverse_class_weights(config: DictConfig) -> None:
+    """inverse weighting 時に train split から class weight を設定する。
+
+    parent run の予約より前に解決する。`cohort_stage_config` は warmup config の
+    `model.loss_fn.class_weight` をそのまま次 stage へ渡すので、解決先はここ1箇所に保つ。
+    """
+    if config.get("weighting", "none") != "inverse":
+        return
+    frame = pd.read_csv(Path(str(config.data.cv_splits_dir)) / "train.csv")
+    labels = [int(value) for value in frame["target"]]
+    num_classes = int(config.data.num_classes)
+    weights = _inverse_frequency_weights(labels, num_classes)
+    OmegaConf.update(config, "model.loss_fn.class_weight", weights, merge=False)
+
+
+def _inverse_frequency_weights(labels: list[int], num_classes: int) -> list[float]:
+    """平均が 1 になる逆頻度 class weight を返す。"""
+    if not labels:
+        raise ValueError("train.csv の target は空にできない")
+    expected = list(range(num_classes))
+    observed = sorted(set(labels))
+    if observed != expected:
+        raise ValueError(f"train.csv の target は {expected} である必要があるが、{observed} が指定された")
+    counts = Counter(labels)
+    sample_count = len(labels)
+    raw_weights = [sample_count / (num_classes * counts[class_index]) for class_index in expected]
+    mean_weight = sum(raw_weights) / len(raw_weights)
+    return [round(weight / mean_weight, 6) for weight in raw_weights]
+
+
 def run_iterative(config: DictConfig) -> Path:
     """warmup → cohort 再生成 → warm-start stage を指定回数だけ実行する。"""
+    _resolve_inverse_class_weights(config)
     run_dir = reserve_parent_run(config)
     record_path = run_dir / "run.json"
     record = json.loads(record_path.read_text())

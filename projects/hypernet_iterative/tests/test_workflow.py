@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+import pytest
 from omegaconf import OmegaConf
 
 from projects.hypernet_iterative import workflow
@@ -92,3 +93,50 @@ def test_cohort_stage_config_supports_the_declared_strategy_and_selection(tmp_pa
     assert stage.model.loss_fn.num_classes == 2
     assert stage.checkpoint_selection.name == "hidden_min_auroc"
     assert stage.callbacks.hidden_min_auroc_checkpoint.monitor == "val/hidden_min_auroc"
+
+
+def test_inverse_weighting_resolves_the_class_weight_once_and_carries_it_into_every_stage(tmp_path: Path, monkeypatch) -> None:
+    split_dir = tmp_path / "splits"
+    split_dir.mkdir()
+    (split_dir / "train.csv").write_text("image,target\na.png,0\nb.png,1\nc.png,1\nd.png,1\n")
+    config = _config(tmp_path)
+    config.weighting = "inverse"
+    config.data.cv_splits_dir = str(split_dir)
+    observed_stages = []
+
+    def fake_run_stage(stage_config, stage_dir):
+        observed_stages.append(stage_config)
+        checkpoint = tmp_path / f"{stage_dir.name}.ckpt"
+        checkpoint.touch()
+        return {"metrics": {}, "checkpoints": {"val/auroc": {"path": str(checkpoint)}}}
+
+    def fake_build_cohort(stage_config, *, checkpoint_path, reference_id, output_dir):
+        output_dir.mkdir(parents=True)
+        assignment = output_dir / "assignments.parquet"
+        assignment.touch()
+        return assignment
+
+    monkeypatch.setattr(workflow, "run_stage", fake_run_stage)
+    monkeypatch.setattr(workflow, "build_cohort", fake_build_cohort)
+    monkeypatch.setattr(workflow, "write_data_manifest", lambda *_: None)
+    monkeypatch.setattr(workflow, "write_preflight", lambda *_: None)
+
+    run_dir = workflow.run_iterative(config)
+
+    assert [list(stage.model.loss_fn.class_weight) for stage in observed_stages] == [[1.5, 0.5]] * 3
+    # 親 run の config.yaml も解決済みの重みを持つ。後から run を読む側が再計算しなくてよい。
+    assert list(OmegaConf.load(run_dir / "config.yaml").model.loss_fn.class_weight) == [1.5, 0.5]
+
+
+def test_inverse_frequency_weights_reject_missing_class_and_matches_old_normalization() -> None:
+    assert workflow._inverse_frequency_weights([0, 1, 1, 1], 2) == [1.5, 0.5]
+    with pytest.raises(ValueError, match="必要"):
+        workflow._inverse_frequency_weights([0, 0], 2)
+
+
+def test_weighting_none_leaves_the_class_weight_untouched(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+
+    workflow._resolve_inverse_class_weights(config)
+
+    assert "class_weight" not in config.model.loss_fn

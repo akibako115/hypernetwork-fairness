@@ -127,11 +127,11 @@ epoch ごとの metric は parent run が持つ 1 つの W&B run（project `fair
 - 数値挙動に関わる既存コードを移植する際は、実装を整理・書き換えません。説明の追記は
   許可しますが、挙動変更と同じ変更に混ぜません。docstring は日本語で書きます。
 
+`weighting: inverse` のとき、`workflow.py` が parent run を予約する前に train split の target
+頻度から class weight を解決し、warmup と全 cohort stage が同じ値を使います。
+
 ## 既知の差分
 
-- `weighting: inverse` は現状 marker だけで、`model.loss_fn.class_weight` は `null` のままです。
-  train split の頻度から解決する処理（`hypernet_e2e` の `training.py` にあたるもの）を持たないので、
-  実際には重み無しの cross-entropy で学習します。
 - 各 stage が `run.json` に載せる checkpoint は、`stage.py` が `best_model_path` を持つ先頭の
   callback から取ります。monitor までは照合しないので、`callbacks.model_checkpoint` の monitor を
   差し替えたり callback の並びを変えたりすると、別基準の checkpoint が次 stage の warm-start と
