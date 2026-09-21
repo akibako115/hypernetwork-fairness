@@ -1,0 +1,41 @@
+_target_: projects.hypernet_e2e.data.datamodule.ImageDataModule
+# 黒縁を除去し長辺 600 へ縮めた画像。色恒常性は掛けていない。撮影サイトと相関する色かぶりを
+# 交絡として残したまま評価するためで、由来は data/isic2019/cropped_images.txt と
+# post-deploy の src/preprocess_images.py（--threshold 15、Shades of Gray 無し）。
+data_dir: ${paths.data_dir}/isic2019/images_cropped_no_shades_of_gray/ISIC_2019_Training_Input
+# post-deploy が使う splits/ とは別物。data_pipeline.isic2019_splits が生成する。
+cv_splits_dir: ${paths.data_dir}/isic2019/splits_fairness
+num_classes: 8
+batch_size: 128
+num_workers: 8
+pin_memory: true
+persistent_workers: true
+prefetch_factor: 2
+train_sampling: uniform
+standardize_continuous: true
+
+attribute_names:
+  categorical: [sex, anatom_site_general]
+  continuous: [age_approx]
+
+# sex(2), anatom_site_general(8)
+attribute_spec:
+  categorical_cardinalities: [2, 8]
+  continuous_dim: 1
+
+# attribution は元データセット（BCN20000 / HAM10000 / MSK）を表す共変量で、患者の属性ではない。
+# 群ごとにクラス構成が違う（MSK には BCC・AK・DF・VASC・SCC が 1 枚も無い）ため、群間 gap は
+# 色かぶりのショートカットではなく有病率差を測ってしまう。よって fairness の評価軸には入れず、
+# split CSV の列としてのみ残す。ITA で肌色を推定する際に、色かぶりとの切り分けに使う。
+fairness_attribute_names:
+  categorical: [sex, anatom_site_general, age_group_65]
+
+fairness_age_groups:
+  age_group_65:
+    source: age_approx
+    boundaries: [65]
+
+train_transform:
+  _target_: projects.hypernet_e2e.data.transform_utils.train_transforms_isic2019
+val_transform:
+  _target_: projects.hypernet_e2e.data.transform_utils.val_transforms_isic2019

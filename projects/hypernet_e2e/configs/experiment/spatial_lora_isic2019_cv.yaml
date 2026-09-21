@@ -1,0 +1,16 @@
+# @package _global_
+# 5-fold CV の 1 fold を回す preset。`fold=0..4` で切り替え、5 run の test 結果をプールして評価する。
+# 稀少クラス（DF 239 枚 / VASC 253 枚）は単一 test split では属性で割った時点で群あたり 10 枚前後に
+# なり、群間 gap がサンプリング変動に埋もれる。全画像が 1 回ずつ test に回る CV ならプールした
+# 評価セルが実数のまま使える。
+defaults:
+  - spatial_lora_isic2019
+  - _self_
+
+fold: 0
+
+experiment_name: spatial-lora-isic2019-cv-fold${fold}
+tags: [isic2019, spatial_lora_resnet50, erm, cv]
+
+data:
+  cv_splits_dir: ${paths.data_dir}/isic2019/splits_fairness_cv/fold${fold}
