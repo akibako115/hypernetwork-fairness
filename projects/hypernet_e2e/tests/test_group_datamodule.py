@@ -117,3 +117,30 @@ def test_setup_refuses_a_train_split_that_leaves_a_group_empty(tmp_path: Path) -
 
     with pytest.raises(ValueError, match=r"\[3\] が空"):
         dm.setup("fit")
+
+
+def test_group_dro_reaches_its_group_ids_through_one_lightning_fit(tmp_path: Path) -> None:
+    """DataModule が付けた group ID が training_step の目的関数まで届くことを確かめる。"""
+    import lightning as L
+    import torch.nn as nn
+
+    from projects.hypernet_e2e.loss import GroupDROTaskLoss
+    from projects.hypernet_e2e.module import LitModule
+
+    class _Net(nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.fc = nn.Linear(3, 2)
+
+        def forward(self, image: torch.Tensor) -> torch.Tensor:
+            return self.fc(image.mean(dim=(2, 3)))
+
+    dm = _datamodule(*_all_four_groups(tmp_path))
+    objective = GroupDROTaskLoss(num_groups=4, step_size=1.0)
+    module = LitModule(net=_Net(), loss_fn=objective, optimizer=lambda params: torch.optim.SGD(params, lr=0.1), scheduler=None)
+
+    L.Trainer(max_epochs=1, accelerator="cpu", logger=False, enable_checkpointing=False, enable_progress_bar=False).fit(module, datamodule=dm)
+
+    # 4 群それぞれが train batch に現れるので、adversarial weight は一様初期値から動く。
+    assert objective.adv_probs.sum().item() == pytest.approx(1.0)
+    assert not torch.allclose(objective.adv_probs, torch.full((4,), 0.25))
