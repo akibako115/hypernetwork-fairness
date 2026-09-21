@@ -9,11 +9,12 @@
 | project | 責務 | 現在地 |
 | --- | --- | --- |
 | [`hypernet_e2e`](projects/hypernet_e2e/README.md) | fit 開始時に group が確定している hypernetwork 系学習と性能比較 | model / data / callbacks / Lightning module / configs / run 記録 / 学習起動、demographic group への GroupDRO を実装済み |
-| [`hypernet_iterative`](projects/hypernet_iterative/docs/run-artifacts.md) | run 中に複数 stage を進める反復学習 | warmup、cohort 再生成、独立 stage process、artifact・preflight 記録まで実装済み。実データの最小 end-to-end run も確認済み |
+| [`hypernet_iterative`](projects/hypernet_iterative/README.md) | run 中に複数 stage を進める反復学習 | warmup、cohort 再生成、独立 stage process、artifact・preflight 記録まで実装済み。実データの最小 end-to-end run も確認済み |
 | [`foundation_linear_probe`](projects/foundation_linear_probe/README.md) | 凍結済み foundation model の特徴と線形プローブによる公平性比較 | ResNet50・DINOv2・RAD-DINO の特徴抽出、線形 probe、群別指標の PoC |
 
-project の境界は、**group が fit の開始時に確定しているか**で引いています。demographic 属性から
-決まる group は `hypernet_e2e`、学習の途中で再生成される hidden cohort は `hypernet_iterative` です。
+hypernetwork 系 2 project の境界は、**group が fit の開始時に確定しているか**で引いています。
+demographic 属性から決まる group は `hypernet_e2e`、学習の途中で再生成される hidden cohort は
+`hypernet_iterative` です。
 
 ResNet を 1 段目、凍結した Spatial LoRA を 2 段目とする二段学習は、`hypernet_e2e` の run を
 2 回起動して構成します。段ごとに run が分かれるので、trainer 設定も学習条件も段ごとに独立して
