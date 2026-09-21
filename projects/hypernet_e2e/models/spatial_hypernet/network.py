@@ -89,29 +89,11 @@ class SpatialLoRAResNet(nn.Module):
         Returns:
             torch.Tensor: `[B, num_classes]` の logits
         """
-        logits, _ = self.forward_with_features(x, attributes)
-        return logits
-
-    def forward_with_features(
-        self,
-        x: torch.Tensor,
-        attributes: Mapping[str, torch.Tensor],
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        """分類 logits と、Spatial LoRA 適用後の特徴量を一度の forward で返す。
-
-        Args:
-            x: `[B, 3, H, W]` の画像 batch。
-            attributes: `categorical` / `continuous` とそれぞれの `*_missing`。
-
-        Returns:
-            tuple[torch.Tensor, torch.Tensor]: `[B, num_classes]` の logits と
-                `[B, feature_dim]` の Spatial LoRA 適用後特徴量。
-        """
         condition = self.metadata_encoder(attributes)
         features = self._forward_backbone(x, condition)
         if isinstance(self.fc, HyperLinearLayer):
-            return self.fc(features, condition), features
-        return self.fc(features), features
+            return self.fc(features, condition)
+        return self.fc(features)
 
     def get_features(self, x: torch.Tensor, attributes: Mapping[str, torch.Tensor]) -> torch.Tensor:
         """Spatial LoRA 適用後の flatten 済み特徴量を返す。
