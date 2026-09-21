@@ -16,8 +16,11 @@
   adversarial weight を stage をまたいで持ち越さない。
 - cohort は固定入力ではなく、生成した run が所有する artifact とする。参照 checkpoint の絶対 path と
   SHA-256 を `cohort.json` に残し、既存 artifact directory を上書きしない。
-- 次 stage が参照する checkpoint は選択基準まで照合して1つに絞る。`best_model_path` を持つ先頭の
-  callback を使わない。
+- 次 stage の warm-start と cohort 生成は、その stage の `last` を参照する。stage が下げているのは
+  group 目的関数の損失なので、global val AUROC の best を引き継ぐと、目的関数が効いた更新ほど
+  stage 境界で巻き戻る。評価用の選択はこれとは別のルールとし、引き継ぎと同じ checkpoint を使わない。
+- stage が記録する `val/auroc` の best は、選択基準まで照合して1つに絞る。`best_model_path` を持つ
+  先頭の callback を使わない。
 
 ## docstring とコメント
 

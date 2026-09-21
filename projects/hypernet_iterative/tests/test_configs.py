@@ -95,3 +95,31 @@ def test_cohort_stage_config_matches_the_training_strategy_group_it_declares(tmp
         assert OmegaConf.to_container(stage.model.loss_fn, resolve=True) == OmegaConf.to_container(declared.model.loss_fn, resolve=True)
         assert stage.training_strategy.supports_warm_start == declared.training_strategy.supports_warm_start
         assert stage.training_strategy.uses_cohort_group_id == declared.training_strategy.uses_cohort_group_id
+
+
+def _checkpoint_callbacks(config) -> dict:
+    """ModelCheckpoint の callback だけを名前つきで取り出す。"""
+    return {name: OmegaConf.to_container(value, resolve=True) for name, value in config.callbacks.items() if value.get("_target_") == "lightning.pytorch.callbacks.ModelCheckpoint"}
+
+
+def test_cohort_stage_config_matches_the_checkpoint_selection_group_it_declares(tmp_path) -> None:
+    """parent が置く checkpoint callback と、宣言側の config group を突き合わせる。
+
+    `cohort_stage_config` は warmup の config を写してから差分を当てるので、選択を切り替えても
+    前の選択が置いた補助 checkpoint が残りうる。宣言側と比較して、残ったら落ちるようにする。
+    """
+    for selection in ("global_auroc_bacc", "hidden_min_auroc"):
+        warmup = _compose(f"iteration.cohort_checkpoint_selection={selection}")
+        stage = workflow.cohort_stage_config(
+            warmup,
+            assignment_path=tmp_path / "assignments.parquet",
+            checkpoint_path=tmp_path / "reference.ckpt",
+            reference_id="warmup",
+        )
+        declared = _compose(
+            "experiment=spatial_lora_iterative_cohort_chexpert",
+            f"checkpoint_selection={selection}",
+        )
+
+        assert _checkpoint_callbacks(stage) == _checkpoint_callbacks(declared)
+        assert stage.checkpoint_selection.name == declared.checkpoint_selection.name

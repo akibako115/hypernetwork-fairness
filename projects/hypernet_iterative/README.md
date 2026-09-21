@@ -13,10 +13,10 @@ stage の checkpoint に依存して定義が変わる group です。
 1 run は warmup 1 回と、cohort 生成 + cohort stage の組を `iteration.stages` 回持つ parent run です。
 
 ```text
-warmup fit ──▶ best val/auroc checkpoint
+warmup fit ──▶ last checkpoint
                  │
                  ├─ cohort01  その checkpoint の metadata encoder 出力を train で KMeans → assignments.parquet
-                 └─ stage01   固定 cohort で GroupDRO fit ──▶ best val/auroc checkpoint
+                 └─ stage01   固定 cohort で GroupDRO fit ──▶ last checkpoint
                                 │
                                 ├─ cohort02 …
                                 └─ stage02 …
@@ -107,10 +107,20 @@ global AUROC のままで、差は補助保存される checkpoint です。
 | `global_auroc_bacc` | `val/bacc` 最良 |
 | `hidden_min_auroc` | `val/hidden_min_auroc`（worst-group AUROC）最良 |
 
-`stage.py` は `val/auroc` を monitor する checkpoint callback をちょうど 1 つ要求します。
-ここで選ばれた checkpoint が次 stage の warm-start と cohort 生成の参照になるため、monitor を
-差し替えた run や checkpoint callback を増やした run は、別基準の checkpoint が黙って使われる
-前に失敗します。
+引き継ぎと評価は別のルールです。**次 stage の warm-start と cohort 生成の参照は、その stage の
+`last` を使います。**stage が下げているのは GroupDRO の損失で、global val AUROC の best を選ぶと、
+DRO が効いた更新ほど stage 境界で巻き戻ります。2 epoch の stage では best の候補が 2 つしかなく、
+val AUROC の差は誤差の範囲に収まりやすいので、なおさら基準として弱い。`last` なら 30 epoch 分の
+更新がそのまま積まれます。
+
+一方、各 stage の `best_global_auroc_*.ckpt` は保存され、score は `run.json` の
+`stages.*.checkpoints["val/auroc"].score` に残ります。**`selected_checkpoint` に載るのは最後の
+stage の best であって run 全体の best ではありません。**run をまたぐ選択は、この score を見て
+分析側で決めます。
+
+`stage.py` は `val/auroc` を monitor する checkpoint callback をちょうど 1 つ要求します。この
+score が stage 間比較の根拠になるため、monitor を差し替えた run や checkpoint callback を
+増やした run は、別基準の score が黙って `val/auroc` として記録される前に失敗します。
 
 ## 学習起動
 

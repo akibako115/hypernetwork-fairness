@@ -285,6 +285,10 @@ def cohort_stage_config(
     selection_name = str(result.iteration.get("cohort_checkpoint_selection", "global_auroc_bacc"))
     if selection_name == "hidden_min_auroc":
         OmegaConf.update(result, "checkpoint_selection", {"name": selection_name, "requires_hidden_cohort": True}, merge=False)
+        # warmup は global_auroc_bacc なので、その config を写した時点で bacc_checkpoint が
+        # 入っている。ここは差分を当てるだけなので、消さないと補助 checkpoint が両方残り、
+        # 宣言側の checkpoint_selection/hidden_min_auroc.yaml と食い違う。
+        result.callbacks.pop("bacc_checkpoint", None)
         OmegaConf.update(
             result,
             "callbacks.hidden_min_auroc_checkpoint",
@@ -461,8 +465,12 @@ def _group_class_weight_for_stage(config: DictConfig, assignment_path: Path) -> 
 def run_iterative(config: DictConfig) -> Path:
     """warmup → cohort 再生成 → warm-start stage を指定回数だけ実行する。
 
-    各 stage の参照 checkpoint は `val/auroc` の best で固定する。途中で失敗しても
-    `run.json` には失敗として確定した状態が残る。
+    次 stage へ渡す checkpoint と cohort の参照は各 stage の `last` で固定する。stage は
+    GroupDRO の損失を下げており、global val AUROC の best を選ぶとその更新を stage 境界の
+    たびに巻き戻すため、引き継ぎに best は使わない。`selected_checkpoint` に残るのは最後の
+    stage の best val/auroc であって run 全体の best ではない。run をまたぐ選択は
+    `stages.*.checkpoints` の score から分析側で決める。途中で失敗しても `run.json` には
+    失敗として確定した状態が残る。
 
     Args:
         config: `iteration.*` を含む解決済み設定。`weighting=inverse` なら warmup の全体
@@ -489,7 +497,7 @@ def run_iterative(config: DictConfig) -> Path:
             OmegaConf.update(warmup, "trainer.max_epochs", warmup.iteration.warmup_epochs, merge=False)
             result = run_stage(warmup, run_dir / "stages" / "warmup")
             record["stages"]["warmup"] = result
-            checkpoint_path = Path(result["checkpoints"]["val/auroc"]["path"])
+            checkpoint_path = Path(result["checkpoints"]["last"]["path"])
             selected_checkpoint = result["checkpoints"]["val/auroc"]
             if wandb_run is not None:
                 record["wandb"] = {"id": wandb_run.id, "url": wandb_run.url, "name": wandb_run.name}
@@ -518,7 +526,7 @@ def run_iterative(config: DictConfig) -> Path:
                 )
                 result = run_stage(stage_config, run_dir / "stages" / stage_name)
                 record["stages"][stage_name] = result
-                checkpoint_path = Path(result["checkpoints"]["val/auroc"]["path"])
+                checkpoint_path = Path(result["checkpoints"]["last"]["path"])
                 selected_checkpoint = result["checkpoints"]["val/auroc"]
                 if wandb_run is not None:
                     log_stage(wandb_run, stage_name, result)

@@ -24,6 +24,20 @@ def _config(tmp_path: Path):
     )
 
 
+def _fake_result(tmp_path: Path, stage_dir: Path) -> dict:
+    """best と last を別ファイルにした stage result を返す。
+
+    引き継ぎがどちらを読んでいるかを path で判定できるようにするため、同じ file を
+    使い回さない。
+    """
+    result = {"metrics": {}, "checkpoints": {}}
+    for key, suffix in (("val/auroc", "best"), ("last", "last")):
+        checkpoint = tmp_path / f"{stage_dir.name}_{suffix}.ckpt"
+        checkpoint.touch()
+        result["checkpoints"][key] = {"path": str(checkpoint), "score": 0.5}
+    return result
+
+
 def test_workflow_builds_a_cohort_then_warm_starts_each_stage(tmp_path: Path, monkeypatch) -> None:
     config = _config(tmp_path)
     observed_stages = []
@@ -31,9 +45,7 @@ def test_workflow_builds_a_cohort_then_warm_starts_each_stage(tmp_path: Path, mo
 
     def fake_run_stage(stage_config, stage_dir):
         observed_stages.append((stage_config, stage_dir))
-        checkpoint = tmp_path / f"{stage_dir.name}.ckpt"
-        checkpoint.touch()
-        return {"metrics": {}, "checkpoints": {"val/auroc": {"path": str(checkpoint)}}}
+        return _fake_result(tmp_path, stage_dir)
 
     def fake_build_cohort(stage_config, *, checkpoint_path, reference_id, output_dir):
         observed_cohorts.append((stage_config, checkpoint_path, reference_id, output_dir))
@@ -51,8 +63,11 @@ def test_workflow_builds_a_cohort_then_warm_starts_each_stage(tmp_path: Path, mo
 
     assert [directory.name for _, directory in observed_stages] == ["warmup", "stage01", "stage02"]
     assert [reference for _, _, reference, _ in observed_cohorts] == ["warmup", "stage01"]
-    assert observed_stages[1][0].model.warm_start_checkpoint_path.endswith("warmup.ckpt")
-    assert observed_stages[2][0].model.warm_start_checkpoint_path.endswith("stage01.ckpt")
+    # 引き継ぎと cohort の参照はどちらも last。best を選ぶと GroupDRO の更新を stage
+    # 境界のたびに巻き戻すため。
+    assert observed_stages[1][0].model.warm_start_checkpoint_path.endswith("warmup_last.ckpt")
+    assert observed_stages[2][0].model.warm_start_checkpoint_path.endswith("stage01_last.ckpt")
+    assert [path.name for _, path, _, _ in observed_cohorts] == ["warmup_last.ckpt", "stage01_last.ckpt"]
     assert observed_stages[1][0].data.group_assignment_path.endswith("cohort01/assignments.parquet")
     assert observed_stages[1][0].trainer.max_epochs == 2
     record = __import__("json").loads((run_dir / "run.json").read_text())
@@ -232,9 +247,7 @@ def test_inverse_weighting_resolves_a_group_weight_for_every_cohort(tmp_path: Pa
 
     def fake_run_stage(stage_config, stage_dir):
         observed_stages.append(stage_config)
-        checkpoint = tmp_path / f"{stage_dir.name}.ckpt"
-        checkpoint.touch()
-        return {"metrics": {}, "checkpoints": {"val/auroc": {"path": str(checkpoint)}}}
+        return _fake_result(tmp_path, stage_dir)
 
     def fake_build_cohort(stage_config, *, checkpoint_path, reference_id, output_dir):
         output_dir.mkdir(parents=True)

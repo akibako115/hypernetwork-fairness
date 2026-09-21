@@ -16,12 +16,16 @@
 ```
 
 `run.json` は parent run の状態と stage ごとの result を保持する。状態は `running`、`succeeded`、`failed` のいずれかで、
-最終的な選択 checkpoint は `selected_checkpoint` に記録する。既存 run の再開・上書きはしない。
+`selected_checkpoint` には最後の stage の best val/auroc を記録する。run 全体の best では
+ないので、stage をまたぐ選択は `stages.*.checkpoints` の score から分析側で決める。
+既存 run の再開・上書きはしない。
 
 `data_manifest.json` は train / val / test split のファイル hash、行数、画像集合 hash、target 分布と画像 root を持つ。
 `preflight.json` は起動前に実行する project-local golden preflight のコマンド、出力、golden hash、Git commit を持つ。
 
-各 `artifacts/cohorts/cohortNN/` は直前 stage の `val/auroc` checkpoint に基づく cohort である。
+各 `artifacts/cohorts/cohortNN/` は直前 stage の `last` checkpoint に基づく cohort である。
+次 stage の warm-start も同じ checkpoint を使う。best を引き継ぐと、GroupDRO が効いた更新ほど
+stage 境界で巻き戻る。
 `cohort.json` に参照 checkpoint の絶対 path と SHA-256、KMeans の設定、group 数を記録し、`assignments.parquet` を
 後続 stage の固定 cohort DataModule へ渡す。optimizer、scheduler、GroupDRO の内部状態は stage をまたいで引き継がない。
 
