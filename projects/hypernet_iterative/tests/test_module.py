@@ -198,3 +198,13 @@ def test_setup_logs_how_many_backbone_tensors_were_loaded(tmp_path, caplog) -> N
         module.setup("fit")
 
     assert "Loaded" in caplog.text
+
+
+def test_optimizer_factory_stays_out_of_the_checkpoint_hparams() -> None:
+    """lambda / Hydra partial を checkpoint に pickle させない。"""
+    module = _module(optimizer=lambda params: torch.optim.SGD(params, lr=0.1))
+
+    assert "optimizer" not in module.hparams
+    assert "scheduler" not in module.hparams
+    # 残る hparams は checkpoint に安全に書ける値だけであること。
+    assert not [name for name, value in module.hparams.items() if callable(value)]

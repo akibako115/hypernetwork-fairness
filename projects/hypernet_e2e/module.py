@@ -43,11 +43,12 @@ class LitModule(L.LightningModule):
     ) -> None:
         """モデル、目的関数、および単段 fit の初期化設定を保持する。"""
         super().__init__()
-        self.save_hyperparameters(logger=False, ignore=["net", "loss_fn"])
+        # optimizer / scheduler factory は lambda や Hydra partial を取り得る。hparams に残すと
+        # checkpoint に pickle され、load 側が同じ import を解決できることを要求してしまう。
+        # ignore して実行中の module だけが保持し、Lightning のシリアライズ経路から切り離す。
+        self.save_hyperparameters(logger=False, ignore=["net", "loss_fn", "optimizer", "scheduler"])
         self.net = net
         self.loss_fn = loss_fn
-        # optimizer factory は lambda / Hydra partial を取り得る。checkpoint 用 hparams に依存せず、
-        # 実行中の module が直接保持することで Lightning のシリアライズ経路から切り離す。
         self._optimizer_factory = optimizer
         self._scheduler_factory = scheduler
         self.use_attributes = use_attributes
