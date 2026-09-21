@@ -156,3 +156,25 @@ def test_train_attributes_require_the_fit_datasets(tmp_path: Path) -> None:
 
     with pytest.raises(RuntimeError, match="setup"):
         dm.train_attributes()
+
+
+def test_reading_a_split_rejects_a_csv_that_is_missing_attribute_columns(tmp_path: Path) -> None:
+    """列の欠落は、属性の取り出しで初めて落ちるのではなく CSV を読む時点で止める。"""
+    image_dir, split_dir = _write_fixture(tmp_path)
+    frame = pd.read_csv(split_dir / "train.csv").drop(columns=["age_missing"])
+    frame.to_csv(split_dir / "train.csv", index=False)
+    dm = _datamodule(image_dir, split_dir)
+
+    with pytest.raises(ValueError, match="age_missing"):
+        dm.setup("fit")
+
+
+def test_reading_a_split_rejects_duplicate_image_values(tmp_path: Path) -> None:
+    image_dir, split_dir = _write_fixture(tmp_path)
+    frame = pd.read_csv(split_dir / "train.csv")
+    frame.loc[1, "image"] = frame.loc[0, "image"]
+    frame.to_csv(split_dir / "train.csv", index=False)
+    dm = _datamodule(image_dir, split_dir)
+
+    with pytest.raises(ValueError, match="duplicate image"):
+        dm.setup("fit")

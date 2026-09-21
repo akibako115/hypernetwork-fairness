@@ -12,7 +12,7 @@ from torchvision.transforms import transforms
 from .attribute_utils import attribute_tensors, continuous_columns, standardize_continuous_columns, validate_attribute_spec
 from .dataset import ImageDataset
 from .evaluation_attributes import add_age_groups
-from .splits import Split
+from .splits import Split, validate_split_frame
 
 
 class ImageDataModule(LightningDataModule):
@@ -60,8 +60,14 @@ class ImageDataModule(LightningDataModule):
         self.data_test: Dataset | None = None
 
     def read_split_dataframe(self, split: str) -> pd.DataFrame:
-        """指定 split の CSV を標準化前の DataFrame として読む。"""
-        return pd.read_csv(f"{self.hparams.cv_splits_dir}/{split}.csv")
+        """指定 split の CSV を検証した上で、標準化前の DataFrame として読む。
+
+        split CSV がこの DataModule に入る唯一の経路なので、必須列と `image` の一意性は
+        ここで確かめる。列が欠けたまま学習を始め、属性の取り出しで初めて失敗するのを避ける。
+        """
+        frame = pd.read_csv(f"{self.hparams.cv_splits_dir}/{split}.csv")
+        validate_split_frame(frame, self.hparams.attribute_names, split=split)
+        return frame
 
     def standardized_dataframes(self, *splits: Split) -> tuple[pd.DataFrame, ...]:
         """指定 split を読み込み、必要なら train 統計量で連続属性を標準化して返す。"""
