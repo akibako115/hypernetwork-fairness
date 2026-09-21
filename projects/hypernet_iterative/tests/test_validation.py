@@ -35,7 +35,7 @@ def test_validation_rejects_warm_start_for_unsupported_strategy(tmp_path) -> Non
         training_strategy={"name": "uniform_group", "uses_cohort_group_id": True, "supports_warm_start": False},
     )
 
-    with pytest.raises(ValueError, match="cohort GroupDRO"):
+    with pytest.raises(ValueError, match="supports_warm_start"):
         validate_training_config(config)
 
 

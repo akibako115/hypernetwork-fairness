@@ -35,8 +35,11 @@ stage 間で何を引き継ぐかは固定です。
 | 固定した cohort の group 割り当て | GroupDRO の adversarial weight（`adv_probs`） |
 | | cohort の定義そのもの（stage ごとに作り直す） |
 
-`uniform_group` は warm-start を持ちません（`supports_warm_start: false`）。各 fit は独立した
-子 process (`stage.py`) で走るため、stage が GPU メモリや global state を持ち越すこともありません。
+反復条件の group 目的関数は warm-start を持ちます。`uniform_group` だけは
+`supports_warm_start: false` で、これは固定 cohort baseline 用の宣言です。反復の対照として
+uniform を回すときは `uniform_group_iterative` を選びます（目的関数は同じで、warm-start の
+可否だけが違う）。各 fit は独立した子 process (`stage.py`) で走るため、stage が GPU メモリや
+global state を持ち越すこともありません。
 
 ## 実装範囲
 
@@ -63,7 +66,7 @@ callbacks/      # metrics、fairness、hidden cohort 指標、GroupDRO diagnosti
 | `iteration.stage_epochs` | 各 cohort stage の epoch 数 |
 | `iteration.clusters` | KMeans の k。cohort の group 数の正本 |
 | `iteration.n_init` | KMeans の初期化回数 |
-| `iteration.cohort_training_strategy` | `group_dro` / `group_dro_balanced` / `uniform_group` |
+| `iteration.cohort_training_strategy` | `group_dro` / `group_dro_balanced` / `uniform_group_iterative`（`uniform_group` は warm-start なし） |
 | `iteration.cohort_checkpoint_selection` | `global_auroc_bacc` / `hidden_min_auroc` |
 
 parent run が実際に使う cohort stage の設定は、`workflow.cohort_stage_config()` が warmup の

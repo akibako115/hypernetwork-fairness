@@ -171,10 +171,14 @@ def cohort_stage_config(
         "group_dro": "projects.hypernet_iterative.loss.GroupDROTaskLoss",
         "group_dro_balanced": "projects.hypernet_iterative.loss.ClassBalancedGroupDROTaskLoss",
         "uniform_group": "projects.hypernet_iterative.loss.UniformGroupTaskLoss",
+        "uniform_group_iterative": "projects.hypernet_iterative.loss.UniformGroupTaskLoss",
     }.get(strategy_name)
     if strategy_target is None:
         raise ValueError(f"unsupported iteration.cohort_training_strategy: {strategy_name}")
-    supports_warm_start = strategy_name in {"group_dro", "group_dro_balanced"}
+    # `uniform_group` と `uniform_group_iterative` は同じ目的関数で、warm-start の可否だけが違う。
+    # 反復条件で前者を選ぶと各 stage が ImageNet 初期化からやり直しになり、GroupDRO 条件と
+    # 比較できる対照でなくなるため、名前を分けて warm-start の許可を明示する。
+    supports_warm_start = strategy_name in {"group_dro", "group_dro_balanced", "uniform_group_iterative"}
     loss_config: dict[str, Any] = {
         "_target_": strategy_target,
         "num_groups": clusters,

@@ -60,6 +60,37 @@ def test_workflow_builds_a_cohort_then_warm_starts_each_stage(tmp_path: Path, mo
     assert set(record["stages"]) == {"warmup", "cohort01", "stage01", "cohort02", "stage02"}
 
 
+def test_uniform_group_iterative_warm_starts_each_stage(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    config.iteration.cohort_training_strategy = "uniform_group_iterative"
+
+    stage = workflow.cohort_stage_config(
+        config,
+        assignment_path=tmp_path / "assignments.parquet",
+        checkpoint_path=tmp_path / "reference.ckpt",
+        reference_id="warmup",
+    )
+
+    assert stage.model.loss_fn._target_.endswith("UniformGroupTaskLoss")
+    assert stage.training_strategy.supports_warm_start is True
+    assert stage.model.warm_start_checkpoint_path.endswith("reference.ckpt")
+
+
+def test_uniform_group_restarts_each_stage_from_the_backbone_initialization(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    config.iteration.cohort_training_strategy = "uniform_group"
+
+    stage = workflow.cohort_stage_config(
+        config,
+        assignment_path=tmp_path / "assignments.parquet",
+        checkpoint_path=tmp_path / "reference.ckpt",
+        reference_id="warmup",
+    )
+
+    assert stage.training_strategy.supports_warm_start is False
+    assert stage.model.warm_start_checkpoint_path is None
+
+
 @pytest.mark.parametrize("key", ["warmup_epochs", "stage_epochs", "stages", "clusters", "n_init"])
 def test_run_iterative_rejects_non_positive_iteration_counts_before_reserving_a_run(tmp_path: Path, key: str) -> None:
     """GPU 時間を使う前に落ちること。`plan()` は dry-run からしか呼ばれない。"""

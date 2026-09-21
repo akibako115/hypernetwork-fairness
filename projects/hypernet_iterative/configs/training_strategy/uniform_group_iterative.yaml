@@ -1,0 +1,15 @@
+# @package _global_
+
+# 目的関数は uniform_group と同じで、warm-start の可否だけが違う。反復条件で
+# uniform_group を選ぶと各 stage が ImageNet 初期化からやり直しになり、GroupDRO 条件と
+# 比較できる対照でなくなる。固定 cohort baseline 側の宣言を変えずに済むよう名前を分ける。
+training_strategy:
+  name: uniform_group_iterative
+  uses_cohort_group_id: true
+  supports_warm_start: true
+model:
+  loss_fn:
+    _target_: projects.hypernet_iterative.loss.UniformGroupTaskLoss
+    num_groups: ${cohort.num_groups}
+    class_weight: null
+    group_key: ${cohort.group_key}

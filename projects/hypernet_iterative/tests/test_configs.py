@@ -60,6 +60,7 @@ def test_cohort_stage_can_select_each_supported_group_objective() -> None:
         "group_dro": ("GroupDROTaskLoss", True),
         "group_dro_balanced": ("ClassBalancedGroupDROTaskLoss", True),
         "uniform_group": ("UniformGroupTaskLoss", False),
+        "uniform_group_iterative": ("UniformGroupTaskLoss", True),
     }
 
     for strategy, (loss_name, supports_warm_start) in expected.items():

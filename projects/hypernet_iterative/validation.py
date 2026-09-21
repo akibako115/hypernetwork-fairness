@@ -27,7 +27,7 @@ def validate_training_config(config: DictConfig) -> None:
         if config.get("ckpt_path"):
             raise ValueError("model.warm_start_checkpoint_path は ckpt_path による resume と併用できない")
         if not uses_cohort or strategy is None or not strategy.get("supports_warm_start", False):
-            raise ValueError("model.warm_start_checkpoint_path は cohort GroupDRO 継続でのみサポートされる")
+            raise ValueError("model.warm_start_checkpoint_path は supports_warm_start を宣言した cohort strategy でのみサポートされる")
         if not Path(warm_start_path).is_file():
             raise FileNotFoundError(f"warm-start checkpoint が見つからない: {warm_start_path}")
 
