@@ -20,6 +20,16 @@ ResNet を 1 段目、凍結した Spatial LoRA を 2 段目とする二段学�
 2 回起動して構成します。段ごとに run が分かれるので、trainer 設定も学習条件も段ごとに独立して
 振れます。checkpoint の受け渡しは `run.json` の `checkpoints` と `parent_run` が記録します。
 
+## データ
+
+`data/<dataset>/` の split CSV は、どの project からも読み取り専用の固定入力です。分割単位・比率・
+CV 戦略・群別指標の最小セル枚数は [data_pipeline/README.md](data_pipeline/README.md) を正本とします。
+
+| dataset | 分割単位 | 比率 | CV |
+| --- | --- | --- | --- |
+| CheXpert | 患者 | 80/10/10 | 行わない |
+| ISIC 2019 | 病変（`lesion_id`） | 80/10/10 | 5-fold（fold 内 60/20/20）。稀少クラスの評価に必要 |
+
 ## 再現性の境界
 
 - `tests/golden/` は project が再現すべき評価・前処理の期待値であり、コードから import しません。
