@@ -70,19 +70,30 @@ rsync -azn --stats \
   --exclude='.venv' \
   --exclude='__pycache__' \
   --exclude='/data' \
+  --exclude='/.claude' \
+  --exclude='/.direnv' \
   --exclude='/projects/*/runs' \
   --exclude='/run_logs' \
   --exclude='/remote_logs' \
   --exclude='/wandb' \
   --exclude='/references' \
+  --exclude='*.log' \
   --exclude='.mypy_cache' \
   --exclude='.pytest_cache' \
   --exclude='.ruff_cache' \
   ./ kohkiakiba@192.168.1.[N+10]:<remote_path>/
 ```
 
-`Total transferred file size` が数 MB〜十数 MB であることを確認してから、`-azn` を `-az` に
-変えた本番を提示する。GB 単位になっていたら exclude が効いていないので、本番を提示しない。
+`Total transferred file size` が数 MB であることを確認してから、`-azn` を `-az` に変えた
+本番を提示する。GB 単位になっていたら exclude が効いていないので、本番を提示しない。
+
+2026-09-21 にローカルで測った実測は 542 files / 3.9 MB。`/.claude` を外すと worktree の
+checkout が丸ごと乗って数倍になるので、この行を消さない。exclude を変えたら、ネットワークを
+使わないローカル dry-run で内訳を確認できる。
+
+```bash
+rsync -an --out-format='%n' <同じ exclude 群> ./ /tmp/rsync-probe/ | awk -F/ '{print $1}' | sort | uniq -c | sort -rn
+```
 
 metadata の権限・timestamp で `rsync` が code 23 を返すことがある。ファイル本体が届いていれば
 失敗とみなす前に remote 側を確認する。この確認はエージェントが実行してよい。
@@ -125,16 +136,24 @@ ssh -o ConnectTimeout=10 kohkiakiba@192.168.1.[N+10] \
   それで分析対象を決めてから、選んだ run の `checkpoints/` だけを 1 run ずつ提示する
 - **両側を glob しない。** `runs/*/ ./runs/*/` は、ローカルに 2 つ目が存在した瞬間に最後の
   引数が destination になる。フルパスを書く
-- 同名・異内容のファイルがあれば上書きせず停止する。run directory は不変なので、同じ run ID に
-  差分が出ること自体が異常
+- **既にローカルにあるファイルを上書きしない。** run directory は不変なので、同じ run ID の
+  ファイルに差分が出ること自体が異常であり、上書きは事故の隠蔽になる。`--ignore-existing` で
+  機械的に防ぎ、差分の有無は `-ni` の dry-run 出力で確認する。
+  途中で切れた転送が最終名のまま残ると `--ignore-existing` がそれを正しいファイルとして
+  スキップするので、`--partial` ではなく `--partial-dir=.rsync-partial` を使う
+  （`--partial-dir` は `--inplace` と併用できない。回収側では `--inplace` を付けない）
 
 ```bash
-rsync -azn --stats --exclude='*.ckpt' \
+rsync -azni --stats --exclude='*.ckpt' \
   -e "ssh -o ConnectTimeout=10 -o ControlPath=~/.ssh/sockets/%r@%h-%p" \
-  --bwlimit=12500 --timeout=60 --partial \
+  --bwlimit=12500 --timeout=60 --partial-dir=.rsync-partial --ignore-existing \
   kohkiakiba@192.168.1.[N+10]:<remote_path>/projects/hypernet_e2e/runs/<run-id>/ \
   ./projects/hypernet_e2e/runs/<run-id>/
 ```
+
+`-n` を外した本番を提示する前に、dry-run の出力に既存ファイルへの更新
+（`>f` で始まり、かつローカルに既にある path）が無いことを確認する。あれば転送せず、
+どちらが正しいかを先に確定させる。
 
 回収する run の checkpoint サイズは、提示の前に remote 側で測る。これはエージェントが実行してよい。
 
