@@ -7,6 +7,9 @@
 
 - `workflow.py` が Stage 1 の fit、最良 `val/auroc` checkpoint の選択、Stage 2 への入力、親 run の
   状態確定を所有する。呼び出し側は stage の順序や checkpoint path を操作しない。
+- stage 固有の設定は config group `stage1` / `stage2` が所有する。この project の実験対象は
+  stage1 の条件と stage2 の条件の組なので、どちらも CLI から独立に振れる状態に保つ。
+  `workflow.py` が実行時に注入してよいのは、前 stage の結果にしか無い checkpoint path だけとする。
 - Stage 2 は Stage 1 の選択 checkpoint から共有 backbone と classifier を読み込み、両者を凍結する。
   metadata encoder と Spatial LoRA だけを更新する。
 - cohort の再生成・GroupDRO・任意回数の stage 反復はこの project の責務に含めない。

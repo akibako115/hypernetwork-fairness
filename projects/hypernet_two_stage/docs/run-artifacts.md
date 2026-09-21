@@ -27,19 +27,32 @@ projects/hypernet_two_stage/runs/<run-id>/
       result.json
 ```
 
-`run.json` は親 run の状態、stage 計画、Stage 1 から Stage 2 へ渡す checkpoint の path と SHA-256、
-最終 `selected_checkpoint` を持つ。親が成功するのは二つの stage がともに成功し、各 stage に
-最良 `val/auroc` checkpoint がある場合だけとする。
+`run.json` は `schema_version` / `run_id` / `kind` / `status` / `started_at` / `finished_at` /
+`git_commit` / `seed` と、stage 計画、最終 `selected_checkpoint` を持つ。run-id は e2e と同じ
+`<timestamp>-<experiment>-s<seed>-<hex>` 規約に従い、seed が未指定の run は `snone` とする。
+親が成功するのは二つの stage がともに成功し、各 stage に最良 `val/auroc` checkpoint がある場合
+だけとする。
+
+`data_manifest.json` は train / val split の path、SHA-256、行数、画像集合の SHA-256、target 分布を
+持つ。`preflight.json` は判定に使った golden ファイルの名前と SHA-256、実行した commit を持つ。
 
 ## stage の入力と出力
 
-Stage 1 は ImageNet 初期化の ResNet を入力に、`val/auroc` が最大の checkpoint と last checkpoint を
-出力する。Stage 2 は Stage 1 の最良 checkpoint の hash を検証してから、その共有 backbone と
-classifier を読み込み凍結する。Stage 2 の最良 `val/auroc` checkpoint が親 run の最終選択となる。
+stage 固有の設定は config group `stage1` / `stage2` が所有し、CLI からは
+`stage2.model.net.rank=8` のように stage を明示して上書きする。`workflow` は選ばれた stage の
+`model` と `trainer` 差分から、その stage 一回分の config を組み立てる。
 
-各 `config.yaml` は実行に使った解決済み設定を持つ。`result.json` は scalar metrics、experiment
-logger の参照、checkpoint の path、role、score、SHA-256 を持つ。checkpoint と metrics は stage
-directory の外に複製しない。
+Stage 1 は ImageNet 初期化の ResNet を入力に、`val/auroc` が最大の checkpoint と last checkpoint を
+出力する。Stage 2 は Stage 1 の最良 checkpoint の SHA-256 を load 直前に再計算して記録値と照合して
+から、その共有 backbone と classifier を読み込み凍結する。照合に失敗した run は失敗として残す。
+checkpoint の key が 1 つも一致しない部分ロードも失敗として扱い、ランダム初期化のまま学習した run
+を成功として残さない。Stage 2 の最良 `val/auroc` checkpoint が親 run の最終選択となる。
+
+各 stage の `config.yaml` は、その stage が実際に実行した解決済み設定だけを持つ（他 stage の
+セクションは残さない）。`result.json` は scalar metrics、experiment logger の参照、checkpoint の
+`path` / `role` / `score` / `sha256` を持つ。`score` は `ModelCheckpoint.best_model_score`、つまり
+その checkpoint が選ばれた時点の `val/auroc` であり、最終 epoch の値である `metrics/fit.json` とは
+一致しない。checkpoint と metrics は stage directory の外に複製しない。
 
 ## 実行ログと experiment logger
 
@@ -52,7 +65,7 @@ epoch ごとの metric は `logger` group が指す experiment logger が持つ�
 `<run-id>-stage1` / `<run-id>-stage2`、ローカル実体は各 stage の `wandb/` に入る。wandb run の
 `name`・`id`・`url` は各 stage の `result.json` と親の `run.json` に残す。`logger=none` を指定した
 run は experiment logger を作らない。`metrics/fit.json` は fit 終了時点の値だけなので、学習曲線は
-experiment logger を正本とする。
+experiment logger を、checkpoint に対応する値は `result.json` の `score` を正本とする。
 
 ## 制約
 

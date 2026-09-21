@@ -4,7 +4,9 @@ defaults:
   - logger: wandb
   - paths: default
   - trainer: gpu
-  - experiment: resnet_chexpert_inverse_weighted_loss
+  - stage1: resnet50
+  - stage2: spatial_lora_resnet50
+  - experiment: chexpert_inverse_weighted_loss
   - override hydra/hydra_logging: colorlog
   - override hydra/job_logging: console
   - _self_
@@ -13,6 +15,10 @@ project: hypernet_two_stage
 task_name: train
 seed: 12345
 tags: []
+
+# weighting=inverse のとき workflow が train split の class 頻度から解決する。両 stage の
+# loss_fn がこの値を参照するので、解決先は1箇所に保つ。
+class_weight: null
 
 # run.py が一意な run directory を予約してから設定する。config 単体では出力しない。
 run_dir: null

@@ -1,7 +1,0 @@
-# @package _global_
-defaults:
-  - spatial_lora_chexpert
-  - _self_
-
-data:
-  train_sampling: inverse_frequency

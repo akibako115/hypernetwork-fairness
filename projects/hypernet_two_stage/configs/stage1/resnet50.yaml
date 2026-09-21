@@ -1,0 +1,38 @@
+# Stage 1: ImageNet 初期化の ResNet を学習し、その best val/auroc checkpoint を Stage 2 へ渡す。
+# CLI からは `stage1.model.optimizer.lr=1e-3` のように stage を明示して上書きする。
+model:
+  _target_: projects.hypernet_two_stage.module.LitModule
+
+  optimizer:
+    _target_: torch.optim.AdamW
+    _partial_: true
+    lr: 1e-4
+    weight_decay: 1e-2
+  scheduler: null
+
+  net:
+    _target_: projects.hypernet_two_stage.models.resnet.network.ResNet
+    layers: [3, 4, 6, 3]
+    block: Bottleneck
+    num_classes: ${data.num_classes}
+    zero_init_residual: false
+    groups: 1
+    width_per_group: 64
+    replace_stride_with_dilation: null
+
+  loss_fn:
+    _target_: projects.hypernet_two_stage.loss.TaskLoss
+    # weighting=inverse のとき workflow が親 config の class_weight を解決する。
+    class_weight: ${class_weight}
+
+  use_attributes: false
+  backbone_checkpoint_path: null
+  freeze_backbone: false
+  attribute_names: ${data.attribute_names}
+  fairness_attribute_names: ${data.fairness_attribute_names}
+  compile: false
+
+# 共有 trainer への差分。null はこの stage では共有 trainer の値をそのまま使うという意味で、
+# stage ごとに振りたい key だけをここに宣言する（例: `stage2.trainer.max_epochs=10`）。
+trainer:
+  max_epochs: null

@@ -1,4 +1,5 @@
 # @package _global_
+# 両 stage が共有する CheXpert の入力と実行条件。stage 固有の設定は stage1 / stage2 group が持つ。
 defaults:
   - /data: chexpert
   - _self_

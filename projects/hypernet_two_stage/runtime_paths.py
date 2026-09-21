@@ -1,4 +1,4 @@
-"""e2e の実行時 path を repo root 基準の絶対 path に正規化する。"""
+"""two-stage の実行時 path を repo root 基準の絶対 path に正規化する。"""
 
 from __future__ import annotations
 
@@ -8,12 +8,15 @@ from typing import Any
 from omegaconf import DictConfig, OmegaConf
 
 _MISSING = object()
+# この project は model 設定を stage ごとに持つので、checkpoint path も stage ごとに正規化する。
+# 存在しない key は読み飛ばされるので、片方の stage しか持たない config でもそのまま使える。
 _PATH_KEYS = (
     "paths.project_dir",
     "paths.data_dir",
     "data.data_dir",
     "data.cv_splits_dir",
-    "model.backbone_checkpoint_path",
+    "stage1.model.backbone_checkpoint_path",
+    "stage2.model.backbone_checkpoint_path",
 )
 
 
