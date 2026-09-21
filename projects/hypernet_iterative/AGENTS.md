@@ -12,6 +12,8 @@
   挙動はそこからは変わらない。片方だけを変えない。
 - 各 fit は `stage.py` の独立 process が実行する。parent が組み立てた stage config でも、子 process
   は `validate_training_config` で必ず再検証する。生成結果を無検証で信用しない。
+- 子 process は W&B run を作らない。epoch ごとの metric は `metrics/metrics.csv` に書き、親が
+  読んで自分の W&B run へ集約する。W&B への書き手を親 1 つに保つ。
 - stage 間で引き継ぐのは `net` の tensor だけとする。optimizer、scheduler、GroupDRO の
   adversarial weight を stage をまたいで持ち越さない。
 - cohort は固定入力ではなく、生成した run が所有する artifact とする。参照 checkpoint の絶対 path と

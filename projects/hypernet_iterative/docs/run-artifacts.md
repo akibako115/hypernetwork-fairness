@@ -20,6 +20,11 @@
 ないので、stage をまたぐ選択は `stages.*.checkpoints` の score から分析側で決める。
 既存 run の再開・上書きはしない。
 
+各 stage の `result.json` は fit 完了時点の scalar metrics、`checkpoints`、そして epoch ごとの
+metric を書いた `metrics_csv` の絶対 path を持つ。`metrics/metrics.csv` は `CSVLogger` の出力で、
+epoch ごとに全 callback の記録を残す。`callback_metrics` のスナップショットは最終 epoch の 1 点しか
+持たないので、推移はこの CSV が正本である。親はここを読んで W&B run へ集約する。
+
 `data_manifest.json` は train / val / test split のファイル hash、行数、画像集合 hash、target 分布と画像 root を持つ。
 `preflight.json` は起動前に実行する project-local golden preflight のコマンド、出力、golden hash、Git commit を持つ。
 

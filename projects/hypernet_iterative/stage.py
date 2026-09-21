@@ -12,12 +12,16 @@ from typing import Any
 import lightning as L
 import torch
 from hydra.utils import instantiate
+from lightning.pytorch.loggers import CSVLogger
 from omegaconf import OmegaConf
 
 from .validation import validate_training_config
 
 # 次 stage の warm-start と cohort 生成が参照する checkpoint の選択基準。
 _SELECTION_MONITOR = "val/auroc"
+
+# epoch ごとの metric の置き場所。run artifact 契約が stage ごとに予約している。
+_METRICS_DIRNAME = "metrics"
 
 
 def run(config_path: Path, result_path: Path) -> None:
@@ -28,6 +32,9 @@ def run(config_path: Path, result_path: Path) -> None:
     Args:
         config_path: parent が保存した stage config。その親 directory を stage の出力先に使う
         result_path: metrics と checkpoint path を書き出す先
+
+    epoch ごとの metric は `metrics/metrics.csv` に残す。親はこれを読んで自分の W&B run へ
+    集約するので、子は W&B run を作らない。
 
     Returns:
         None
@@ -49,7 +56,12 @@ def run(config_path: Path, result_path: Path) -> None:
         L.seed_everything(config.seed, workers=True)
     data, model = instantiate(config.data), instantiate(config.model)
     callbacks = [instantiate(value) for value in config.callbacks.values()]
-    trainer = instantiate(config.trainer, callbacks=callbacks, logger=False, default_root_dir=str(stage_dir))
+    # CSVLogger はローカルの CSV にしか書かないので、W&B run は親の1本のままである。
+    # 子が W&B logger を持つと stage ごとに別 run ができるため、それは引き続き禁じる。
+    # `trainer.callback_metrics` は fit 完了後の1点しか残らず、epoch ごとの推移は
+    # ここでしか残らない。親はこの CSV を読んで自分の W&B run へ集約する。
+    logger = CSVLogger(save_dir=str(stage_dir), name=_METRICS_DIRNAME, version="")
+    trainer = instantiate(config.trainer, callbacks=callbacks, logger=logger, default_root_dir=str(stage_dir))
     trainer.fit(model=model, datamodule=data)
     metrics = {k: (_scalar(v)) for k, v in trainer.callback_metrics.items()}
     checkpoint = _selected_checkpoint(callbacks)
@@ -57,7 +69,11 @@ def run(config_path: Path, result_path: Path) -> None:
         raise RuntimeError("stage did not write best and last checkpoints")
     result_path.write_text(
         json.dumps(
-            {"metrics": metrics, "checkpoints": {"val/auroc": {"path": checkpoint.best_model_path, "score": metrics.get("val/auroc")}, "last": {"path": checkpoint.last_model_path}}},
+            {
+                "metrics": metrics,
+                "metrics_csv": str(Path(logger.log_dir) / "metrics.csv"),
+                "checkpoints": {"val/auroc": {"path": checkpoint.best_model_path, "score": metrics.get("val/auroc")}, "last": {"path": checkpoint.last_model_path}},
+            },
             ensure_ascii=False,
             indent=2,
             allow_nan=False,

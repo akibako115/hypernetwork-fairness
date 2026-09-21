@@ -1,5 +1,6 @@
 """parent iterative workflow の stage 接続を実データなしで検証する。"""
 
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -24,8 +25,8 @@ def _config(tmp_path: Path):
     )
 
 
-def _fake_result(tmp_path: Path, stage_dir: Path) -> dict:
-    """best と last を別ファイルにした stage result を返す。
+def _fake_result(tmp_path: Path, stage_dir: Path, epochs: int = 2) -> dict:
+    """best と last を別ファイルにし、epoch metric の CSV も残した stage result を返す。
 
     引き継ぎがどちらを読んでいるかを path で判定できるようにするため、同じ file を
     使い回さない。
@@ -35,7 +36,24 @@ def _fake_result(tmp_path: Path, stage_dir: Path) -> dict:
         checkpoint = tmp_path / f"{stage_dir.name}_{suffix}.ckpt"
         checkpoint.touch()
         result["checkpoints"][key] = {"path": str(checkpoint), "score": 0.5}
+    metrics_csv = tmp_path / f"{stage_dir.name}_metrics.csv"
+    metrics_csv.write_text("epoch,step,val/auroc\n" + "".join(f"{epoch},{epoch},0.5\n" for epoch in range(epochs)), encoding="utf-8")
+    result["metrics_csv"] = str(metrics_csv)
     return result
+
+
+class _FakeWandbRun:
+    """`log` の step を記録するだけの W&B run の代役。"""
+
+    id = "fake"
+    url = "https://example.invalid/fake"
+    name = "fake-run"
+
+    def __init__(self) -> None:
+        self.steps: list[int] = []
+
+    def log(self, payload: dict, step: int) -> None:
+        self.steps.append(step)
 
 
 def test_workflow_builds_a_cohort_then_warm_starts_each_stage(tmp_path: Path, monkeypatch) -> None:
@@ -277,3 +295,39 @@ def test_unsupported_weighting_is_rejected_by_the_dry_run_and_the_real_run(tmp_p
         entry_point(config)
 
     assert not (tmp_path / "runs").exists()
+
+
+def test_epoch_metrics_are_aggregated_with_a_run_wide_step(tmp_path: Path, monkeypatch) -> None:
+    """stage ごとに step をリセットすると W&B 側で曲線が繋がらない。"""
+    config = _config(tmp_path)
+    wandb_run = _FakeWandbRun()
+
+    def fake_run_stage(stage_config, stage_dir):
+        return _fake_result(tmp_path, stage_dir, epochs=2)
+
+    def fake_build_cohort(stage_config, *, checkpoint_path, reference_id, output_dir):
+        output_dir.mkdir(parents=True)
+        assignment = output_dir / "assignments.parquet"
+        assignment.touch()
+        return assignment
+
+    @contextmanager
+    def fake_parent_wandb(*_args, **_kwargs):
+        yield wandb_run
+
+    monkeypatch.setattr(workflow, "run_stage", fake_run_stage)
+    monkeypatch.setattr(workflow, "build_cohort", fake_build_cohort)
+    monkeypatch.setattr(workflow, "write_data_manifest", lambda *_: None)
+    monkeypatch.setattr(workflow, "write_preflight", lambda *_: None)
+    monkeypatch.setattr(workflow, "parent_wandb", fake_parent_wandb)
+
+    workflow.run_iterative(config)
+
+    # warmup 2 epoch + stage01 2 epoch + stage02 2 epoch。cohort は metric を持たない。
+    assert wandb_run.steps == [0, 1, 2, 3, 4, 5]
+
+
+def test_a_stage_without_epoch_metrics_is_rejected(tmp_path: Path) -> None:
+    """子が CSV を残さなかった stage を黙って飛ばすと、曲線に穴が空いたまま run が続く。"""
+    with pytest.raises(ValueError, match="metrics_csv"):
+        workflow._log_stage_epochs(_FakeWandbRun(), 0, {"metrics": {}}, 0)

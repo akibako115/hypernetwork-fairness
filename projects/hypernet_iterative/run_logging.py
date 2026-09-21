@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import csv
 import logging
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
@@ -47,19 +48,57 @@ def parent_wandb(config: DictConfig, run_dir: Path) -> Iterator[Any | None]:
         run.finish(exit_code=0)
 
 
-def log_stage(run: Any, stage: str, result: Mapping[str, Any]) -> None:
-    """子 process が残した scalar metrics を parent W&B run へ集約する。
+def read_epoch_metrics(csv_path: Path) -> list[dict[str, float]]:
+    """子 process の `metrics.csv` を epoch ごとの1件へまとめる。
+
+    `CSVLogger` は `log_metrics` 呼び出しごとに1行書くため、同じ epoch の train と val が
+    別行に分かれる。空セルはその行が書かなかった指標を表すので落とし、epoch 単位で1つに
+    まとめ直す。`step` 列は optimizer step であり、親が振る通し epoch と混ざるので除く。
+
+    Args:
+        csv_path: `stages/<name>/metrics/metrics.csv`
+
+    Returns:
+        list[dict[str, float]]: epoch 昇順の metric。`epoch` キーは stage 内の epoch 番号
+
+    Raises:
+        FileNotFoundError: CSV が無い場合。子が metric を残さずに終えたことを意味する。
+    """
+    if not csv_path.is_file():
+        raise FileNotFoundError(f"stage の epoch metric が見つからない: {csv_path}")
+    by_epoch: dict[int, dict[str, float]] = {}
+    with csv_path.open(encoding="utf-8", newline="") as handle:
+        for row in csv.DictReader(handle):
+            epoch = int(float(row["epoch"]))
+            merged = by_epoch.setdefault(epoch, {"epoch": float(epoch)})
+            for name, value in row.items():
+                if name in ("epoch", "step") or value in (None, ""):
+                    continue
+                merged[name] = float(value)
+    return [by_epoch[epoch] for epoch in sorted(by_epoch)]
+
+
+def log_epoch_metrics(run: Any, stage_index: int, rows: Sequence[Mapping[str, float]], offset: int) -> int:
+    """stage 1本分の epoch metric を、run 全体で通し番号の step として W&B へ送る。
+
+    stage ごとに接頭辞を付けず素のキーで送るので、`val/auroc` などは run 全体で1本の曲線に
+    なる。stage の境目は `stage_index` で読む。
 
     Args:
         run: 集約先の W&B run
-        stage: stage 名。`stage/<name>/<metric>` の接頭辞になる
-        result: 子 process の result.json。`metrics` の None は送らない
+        stage_index: warmup を 0、以降の cohort stage を 1, 2, ... とした通し番号
+        rows: `read_epoch_metrics` の戻り値
+        offset: この stage の最初の epoch に割り当てる通し step
 
     Returns:
-        None
+        int: 次の stage へ渡す offset（`offset + len(rows)`）
     """
-    metrics = result.get("metrics", {})
-    run.log({f"stage/{stage}/{name}": value for name, value in metrics.items() if value is not None})
+    for index, row in enumerate(rows):
+        payload = {name: value for name, value in row.items() if name != "epoch"}
+        payload["stage_index"] = float(stage_index)
+        payload["stage_epoch"] = row["epoch"]
+        run.log(payload, step=offset + index)
+    return offset + len(rows)
 
 
 @contextmanager

@@ -20,7 +20,7 @@ from hydra.utils import instantiate
 from omegaconf import DictConfig, OmegaConf
 
 from .cohorts.build import extract_embeddings, load_split_frames, save_artifact
-from .run_logging import log_stage, parent_wandb, text_log
+from .run_logging import log_epoch_metrics, parent_wandb, read_epoch_metrics, text_log
 
 _REPOSITORY_ROOT = Path(__file__).parents[2]
 
@@ -462,6 +462,18 @@ def _group_class_weight_for_stage(config: DictConfig, assignment_path: Path) -> 
     return resolve_group_class_weights(config, assignment_path)
 
 
+def _log_stage_epochs(wandb_run: Any, stage_index: int, result: Mapping[str, Any], offset: int) -> int:
+    """子が残した epoch metric を親の W&B run へ集約し、次の offset を返す。
+
+    offset は config の epoch 数ではなく実際に記録された epoch 数で進める。`limit_*` を付けた
+    run でも step がずれない。
+    """
+    csv_path = result.get("metrics_csv")
+    if csv_path is None:
+        raise ValueError("stage result に metrics_csv が無い。子が epoch metric を残していない")
+    return log_epoch_metrics(wandb_run, stage_index, read_epoch_metrics(Path(csv_path)), offset)
+
+
 def run_iterative(config: DictConfig) -> Path:
     """warmup → cohort 再生成 → warm-start stage を指定回数だけ実行する。
 
@@ -499,9 +511,10 @@ def run_iterative(config: DictConfig) -> Path:
             record["stages"]["warmup"] = result
             checkpoint_path = Path(result["checkpoints"]["last"]["path"])
             selected_checkpoint = result["checkpoints"]["val/auroc"]
+            epoch_offset = 0
             if wandb_run is not None:
                 record["wandb"] = {"id": wandb_run.id, "url": wandb_run.url, "name": wandb_run.name}
-                log_stage(wandb_run, "warmup", result)
+                epoch_offset = _log_stage_epochs(wandb_run, 0, result, epoch_offset)
             for number in range(1, int(config.iteration.stages) + 1):
                 cohort_name = f"cohort{number:02d}"
                 artifact_dir = run_dir / "artifacts" / "cohorts" / cohort_name
@@ -511,10 +524,13 @@ def run_iterative(config: DictConfig) -> Path:
                     reference_id="warmup" if number == 1 else f"stage{number - 1:02d}",
                     output_dir=artifact_dir,
                 )
-                cohort_result = {"artifact_dir": str(artifact_dir), "assignment_path": str(assignment_path), "reference_checkpoint": str(checkpoint_path)}
-                record["stages"][cohort_name] = cohort_result
-                if wandb_run is not None:
-                    log_stage(wandb_run, cohort_name, cohort_result)
+                # cohort は metric を持たないので W&B へは送らない。来歴は run.json と
+                # cohort.json が持つ。
+                record["stages"][cohort_name] = {
+                    "artifact_dir": str(artifact_dir),
+                    "assignment_path": str(assignment_path),
+                    "reference_checkpoint": str(checkpoint_path),
+                }
 
                 stage_name = f"stage{number:02d}"
                 stage_config = cohort_stage_config(
@@ -529,7 +545,7 @@ def run_iterative(config: DictConfig) -> Path:
                 checkpoint_path = Path(result["checkpoints"]["last"]["path"])
                 selected_checkpoint = result["checkpoints"]["val/auroc"]
                 if wandb_run is not None:
-                    log_stage(wandb_run, stage_name, result)
+                    epoch_offset = _log_stage_epochs(wandb_run, number, result, epoch_offset)
             record["selected_checkpoint"] = selected_checkpoint
             record["status"] = "succeeded"
     except BaseException as error:

@@ -140,8 +140,18 @@ uv run python -m projects.hypernet_iterative.run \
 ```
 
 epoch ごとの metric は parent run が持つ 1 つの W&B run（project `fairness_hypernet_iterative`）に
-集約します。子 process は `logger=False` で走り、自分では W&B run を作りません。送信せずに
-試すときは `logger=none` を付けます。実行ログは parent run の `logs/train.log` に残ります。
+集約します。**子 process は W&B run を作りません。**stage ごとに別 run ができてしまうためで、
+子は `CSVLogger` で `stages/<name>/metrics/metrics.csv` に書き、親が stage 終了後にそれを読んで
+自分の W&B run へ流します。
+
+送るキーは `val/auroc` のように素の名前のままです。stage ごとに接頭辞を付けると系列が分断され、
+反復全体の推移が読めなくなるためで、**run 全体で 1 本の曲線**になります。stage の境目は同時に
+記録する `stage_index`（warmup が 0、以降の cohort stage が 1, 2, …）と `stage_epoch` で読みます。
+W&B の step は run を通した通し epoch で、実際に記録された epoch 数から進めます。
+
+この経路なので、**曲線が W&B に現れるのは stage が終わった時点**です。走行中の進捗は
+`TextProgressLogger` が parent run の `logs/train.log` に出しています。送信せずに試すときは
+`logger=none` を付けます（CSV は `logger` の設定に関わらず残ります）。
 
 ## 出力の保存先
 
