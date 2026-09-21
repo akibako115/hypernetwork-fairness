@@ -22,7 +22,10 @@
 ## docstring とコメント
 
 - docstring は日本語で書く。公開 module・class・関数には、その **interface** を利用者が
-  理解するための docstring を付ける。自明な private helper や test には不要。
+  理解するための docstring を付ける。自明な private helper や test には不要。公開関数・公開
+  メソッドの docstring は Google 形式の `Args:` と `Returns:` を必須とし、引数がない場合は
+  `Args: なし`、戻り値がない場合は `Returns: None` と明記する。送出し得る例外が利用者の
+  分岐や復旧に必要な場合は `Raises:` も付ける。
 - class の docstring は1行の責務要約を必須とする。入出力 shape、属性辞書のキー、設定値の
   制約、初期化・状態更新など、呼び出し側が知る必要がある不変条件は続けて明記する。
 - コメントはコードの逐語訳ではなく、**なぜこの実装・順序・数値設定なのか**を説明する場合に
