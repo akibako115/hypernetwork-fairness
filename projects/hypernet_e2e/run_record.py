@@ -8,7 +8,7 @@ import re
 import secrets
 import subprocess
 import sys
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -16,6 +16,7 @@ from typing import Any
 import pandas as pd
 from omegaconf import DictConfig, OmegaConf
 
+from projects.hypernet_e2e.run_logging import inject_logger_outputs
 from projects.hypernet_e2e.runtime_paths import normalize_runtime_paths, resolve_repository_path
 
 _MISSING = object()
@@ -46,7 +47,7 @@ class RunRecorder:
 
         root = cls._project_dir(resolved, project_dir)
         run_dir, run_id = cls._reserve_run_dir(root, resolved)
-        cls._inject_run_paths(config, run_dir)
+        cls._inject_run_paths(config, run_dir, run_id)
         recorder = cls(
             run_dir,
             {
@@ -58,6 +59,7 @@ class RunRecorder:
                 "finished_at": None,
                 "git_commit": cls._git_commit(),
                 "seed": resolved.get("seed"),
+                "loggers": [],
                 "result_summary": None,
             },
         )
@@ -72,6 +74,14 @@ class RunRecorder:
             recorder.fail(error)
             raise
         return recorder
+
+    def record_loggers(self, references: Sequence[Mapping[str, Any]]) -> None:
+        """experiment logger の run 参照を記録する。
+
+        fit の前に呼ぶことで、失敗した run からも wandb dashboard を辿れる。
+        """
+        self._run_record["loggers"] = [dict(reference) for reference in references]
+        self._write_json("run.json", self._run_record)
 
     def succeed(self, result_summary: Mapping[str, Any] | None = None) -> None:
         """成功した fit の終了時刻と JSON 化可能な結果要約を確定する。"""
@@ -91,12 +101,13 @@ class RunRecorder:
         return resolve_repository_path(str(paths["project_dir"]))
 
     @staticmethod
-    def _inject_run_paths(config: DictConfig, run_dir: Path) -> None:
+    def _inject_run_paths(config: DictConfig, run_dir: Path, run_id: str) -> None:
         """予約済みの出力先を実行時 config に反映する。"""
         OmegaConf.update(config, "run_dir", str(run_dir), merge=False)
         checkpoint_path = "callbacks.model_checkpoint.dirpath"
         if OmegaConf.select(config, checkpoint_path, default=_MISSING) is not _MISSING:
             OmegaConf.update(config, checkpoint_path, str(run_dir / "checkpoints"), merge=False)
+        inject_logger_outputs(config, run_dir, run_id)
 
     @classmethod
     def _reserve_run_dir(cls, project_dir: Path, config: Mapping[str, Any]) -> tuple[Path, str]:

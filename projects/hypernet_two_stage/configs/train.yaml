@@ -1,10 +1,12 @@
 # @package _global_
 defaults:
   - callbacks: default
-  - logger: none
+  - logger: wandb
   - paths: default
   - trainer: gpu
   - experiment: resnet_chexpert_inverse_weighted_loss
+  - override hydra/hydra_logging: colorlog
+  - override hydra/job_logging: console
   - _self_
 
 project: hypernet_two_stage

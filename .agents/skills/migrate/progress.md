@@ -100,6 +100,14 @@ e2e の生成物は `projects/hypernet_e2e/runs/<run-id>/` が所有する。`da
 固定入力だけを置き、cohort は生成 run の `artifacts/cohorts/` に保存する。詳細な出力契約は
 `projects/hypernet_e2e/docs/run-artifacts.md` に固定した。
 
+実験ログは旧 repo と同じく **wandb を既定**にし、`run_logging.py` が両 project で
+保存先・run 名・終了処理を持つ。移植直後は `logger=False` が固定され、epoch ごとの metric が
+どこにも残らず、Hydra の job log も repo 直下の共有 `run.log` に落ちていた。現在は
+run ごとの `logs/train.log` と `runs/<run-id>/wandb/` に収め、wandb run の `name` / `id` / `url` を
+run 記録に残す。project 名は旧 repo とは分け、`fairness_hypernet_e2e` /
+`fairness_hypernet_two_stage` とする。旧 repo の `config_tree.log` / `tags.log` / `.hydra/` は
+解決済み `config.yaml` と重複するため再現しない。
+
 two-stage は `projects/hypernet_two_stage/` として独立させる。Stage 1 の最良
 `val/auroc` checkpoint を入力に、共有 backbone / classifier を凍結した Stage 2 Spatial LoRA を
 学習する固定2段の workflow を持つ。ResNet、MetadataEncoder、HyperLinear、Spatial LoRA、model utility
