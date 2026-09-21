@@ -35,3 +35,16 @@ uv run ruff check projects/hypernet_e2e
 ```
 
 最小学習の起動方法と出力契約は、[hypernet_e2e の README](projects/hypernet_e2e/README.md) を参照してください。
+
+## Agent skills
+
+`.agents/skills/` に作業手順を置いています。skill 名で参照されたら対応する `SKILL.md` を読みます。
+
+| skill | 用途 |
+| --- | --- |
+| [`migrate`](.agents/skills/migrate/SKILL.md) | 旧 fairness repo からの対話的な移植 |
+| [`train`](.agents/skills/train/SKILL.md) | 学習の起動・承認・監視。ローカルと ws Docker |
+| [`gpu`](.agents/skills/gpu/SKILL.md) | GPU と実行中プロセスの確認 |
+| [`data-explore`](.agents/skills/data-explore/SKILL.md) | データセット構造の調査と data config との突き合わせ |
+
+分析（旧 repo の `analyze` skill 相当）は、`analysis/` を移植した時点で追加します。
