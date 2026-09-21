@@ -1,3 +1,9 @@
+"""カテゴリ・連続属性とその欠損フラグを 1 本の embedding へ写す MLP encoder。
+
+ここが出す embedding が Spatial LoRA と HyperLinear の condition であり、
+iterative の cohort もこの出力を KMeans にかけて定義される。
+"""
+
 from collections.abc import Mapping, Sequence
 
 import torch
@@ -55,8 +61,7 @@ class MetadataEncoder(nn.Module):
         self.mlp = nn.Sequential(*layers)
 
     def forward(self, attributes: Mapping[str, torch.Tensor]) -> torch.Tensor:
-        """
-        属性辞書からメタデータ埋め込みを生成する。
+        """属性辞書からメタデータ埋め込みを生成する。
 
         Args:
             attributes: 属性辞書
@@ -66,7 +71,7 @@ class MetadataEncoder(nn.Module):
                 - continuous_missing: 連続属性の欠損値フラグ (B, num_continuous)
 
         Returns:
-            (B, output_dim) のテンソル
+            torch.Tensor: `[B, output_dim]` の metadata embedding
         """
         parts: list[torch.Tensor] = []
 

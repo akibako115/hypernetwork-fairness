@@ -32,7 +32,19 @@ class Stage:
 
 
 def reserve_parent_run(config: DictConfig) -> Path:
-    """全 stage と cohort artifact を所有する親 run directory を一意に予約する。"""
+    """全 stage と cohort artifact を所有する親 run directory を一意に予約する。
+
+    `mkdir` の排他性で一意性を取るので、同時起動しても同じ directory を掴まない。
+
+    Args:
+        config: `paths.project_dir` と `seed` を持つ解決済み設定。予約時にそのまま保存する
+
+    Returns:
+        Path: `stages/` `artifacts/` `logs/` と `config.yaml` `run.json` を作った run directory
+
+    Raises:
+        RuntimeError: 100 回試しても一意な directory を取れなかった場合。
+    """
     project_dir = Path(str(config.paths.project_dir))
     for _ in range(100):
         run_id = f"{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}-iterative-s{config.seed}-{secrets.token_hex(2)}"
@@ -78,7 +90,17 @@ def _validate_iteration(config: DictConfig) -> None:
 
 
 def plan(config: DictConfig) -> list[Stage]:
-    """設定から warmup と cohort stage の決定的な実行計画を作る。"""
+    """設定から warmup と cohort stage の決定的な実行計画を作る。
+
+    Args:
+        config: `iteration.*` を持つ設定
+
+    Returns:
+        list[Stage]: warmup の fit に続き、cohort 生成と fit を `iteration.stages` 回並べたもの
+
+    Raises:
+        ValueError: `iteration.*` のいずれかが 1 未満の場合。
+    """
     _validate_iteration(config)
     iteration = config.iteration
     result = [Stage("warmup", "fit")]
@@ -88,7 +110,21 @@ def plan(config: DictConfig) -> list[Stage]:
 
 
 def run_stage(config: DictConfig, stage_dir: Path) -> dict[str, Any]:
-    """解決 config を保存して子 process へ渡し、stage result を読む。"""
+    """解決 config を保存して子 process へ渡し、stage result を読む。
+
+    stage ごとに process を分けることで、optimizer や GroupDRO の内部状態、GPU メモリが
+    stage をまたがない。
+
+    Args:
+        config: この stage の解決済み設定。`stage_dir/config.yaml` に保存する
+        stage_dir: この stage の出力先。まだ存在しないこと
+
+    Returns:
+        dict[str, Any]: 子 process の result.json。`metrics` と `checkpoints` を持つ
+
+    Raises:
+        subprocess.CalledProcessError: 子 process が非 0 で終了した場合。
+    """
     stage_dir.mkdir(parents=True)
     (stage_dir / "checkpoints").mkdir()
     (stage_dir / "metrics").mkdir()
@@ -110,6 +146,20 @@ def build_cohort(
     cohort の入力は画像 backbone の feature ではなく metadata embedding なので、親 process
     は checkpoint を ``net`` にだけ読み込み、CSV を画像 loader 経由にせず行順のまま処理する。
     これにより cohort artifact は data augmentation や sampler に依存しない。
+
+    Args:
+        config: model と data を構築できる解決済み設定。`iteration.clusters` / `n_init` /
+            `seed` が KMeans の設定になる
+        checkpoint_path: metadata encoder を取り出す参照 checkpoint
+        reference_id: この cohort を生成した stage 名。sidecar に記録する
+        output_dir: cohort artifact の出力先。既存 directory は上書きしない
+
+    Returns:
+        Path: 後続 stage の DataModule へ渡す `assignments.parquet` の path
+
+    Raises:
+        TypeError: model が warm-start に対応しない、または `net.metadata_encoder` を
+            持たない場合。
     """
     model = instantiate(config.model)
     if not hasattr(model, "load_warm_start_checkpoint"):
@@ -151,6 +201,21 @@ def cohort_stage_config(
 
     stage 間で引き継ぐのは ``net`` の tensor だけである。optimizer、scheduler、GroupDRO の
     adversarial weight は子 process ごとに新しく構築される。
+
+    Args:
+        warmup_config: warmup の解決済み設定。class weight もここから引き継ぐ
+        assignment_path: この stage が使う固定 cohort の `assignments.parquet`
+        checkpoint_path: warm-start 元の checkpoint。strategy が warm-start に対応しない
+            場合は設定しない
+        reference_id: この cohort を生成した stage 名
+
+    Returns:
+        DictConfig: cohort DataModule、group 目的関数、hidden cohort callback、
+            checkpoint 選択を差し替えた stage 設定
+
+    Raises:
+        ValueError: `iteration.cohort_training_strategy` または
+            `iteration.cohort_checkpoint_selection` が未対応の値の場合。
     """
     result = OmegaConf.create(OmegaConf.to_container(warmup_config, resolve=True))
     clusters = int(result.iteration.clusters)
@@ -232,7 +297,18 @@ def cohort_stage_config(
 
 
 def write_data_manifest(run_dir: Path, config: DictConfig) -> None:
-    """反復全体で共有する全 split の入力同一性を記録する。"""
+    """反復全体で共有する全 split の入力同一性を記録する。
+
+    Args:
+        run_dir: 書き込み先の親 run directory
+        config: `data.data_dir` と `data.cv_splits_dir` を持つ設定
+
+    Returns:
+        None
+
+    Raises:
+        ValueError: いずれかの split CSV に `image` / `target` 列が無い場合。
+    """
     data = config.data
     splits_dir = Path(str(data.cv_splits_dir))
     _write_json(
@@ -246,7 +322,17 @@ def write_data_manifest(run_dir: Path, config: DictConfig) -> None:
 
 
 def write_preflight(run_dir: Path) -> None:
-    """親 run の前に project-local golden preflight を実行・保存する。"""
+    """親 run の前に project-local golden preflight を実行・保存する。
+
+    Args:
+        run_dir: `preflight.json` の書き込み先
+
+    Returns:
+        None
+
+    Raises:
+        RuntimeError: preflight が非 0 で終了した場合。結果は先に保存する
+    """
     golden_files = sorted((_REPOSITORY_ROOT / "tests" / "golden").glob("*.v*.json"))
     command = [sys.executable, "-m", "pytest", "projects/hypernet_iterative/tests", "-m", "preflight", "-q"]
     completed = subprocess.run(command, cwd=_REPOSITORY_ROOT, capture_output=True, text=True, check=False)
@@ -297,7 +383,22 @@ def _inverse_frequency_weights(labels: list[int], num_classes: int) -> list[floa
 
 
 def run_iterative(config: DictConfig) -> Path:
-    """warmup → cohort 再生成 → warm-start stage を指定回数だけ実行する。"""
+    """warmup → cohort 再生成 → warm-start stage を指定回数だけ実行する。
+
+    各 stage の参照 checkpoint は `val/auroc` の best で固定する。途中で失敗しても
+    `run.json` には失敗として確定した状態が残る。
+
+    Args:
+        config: `iteration.*` を含む解決済み設定。`weighting=inverse` ならここで class
+            weight を解決し、全 stage へ配る
+
+    Returns:
+        Path: 親 run directory
+
+    Raises:
+        ValueError: `iteration.*` のいずれかが 1 未満の場合。
+        RuntimeError: golden preflight に失敗した場合。
+    """
     _validate_iteration(config)
     _resolve_inverse_class_weights(config)
     run_dir = reserve_parent_run(config)

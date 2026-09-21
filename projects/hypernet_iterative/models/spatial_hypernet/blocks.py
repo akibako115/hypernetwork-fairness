@@ -1,3 +1,9 @@
+"""metadata condition から 3x3 convolution の低ランク差分を生成する Spatial LoRA。
+
+`SpatialLoRAConv2` は base convolution の重みを所有せず、sample ごとの差分 ΔW=A@B だけを
+生成する。`SpatialLoRABottleneckAdapter` はそれを既存 Bottleneck の conv2 にだけ挿す。
+"""
+
 import math
 
 import torch
@@ -62,6 +68,12 @@ class SpatialLoRAConv2(nn.Module):
         3x3 カーネルの大きさが base convolution の Kaiming 初期値と無関係に決まる。
         "Principled Weight Initialization for Hypernetworks" の規則を fan_in=Cin*3*3 で
         適用し、条件 c の各成分の分散が var_input のとき std(B)=1/sqrt(fan_in) となるようにする。
+
+        Args:
+            var_input: condition の各成分の分散 Var(c)。0 以下なら 1.0 として扱う
+
+        Returns:
+            None
         """
         if var_input <= 0:
             var_input = 1.0
@@ -81,12 +93,34 @@ class SpatialLoRAConv2(nn.Module):
         return a, b
 
     def weight_delta(self, condition: torch.Tensor) -> torch.Tensor:
-        """各サンプルの ΔW=(A @ B) を (B, Cout, Cin, 3, 3) で返す。"""
+        """各サンプルの ΔW=(A @ B) を (B, Cout, Cin, 3, 3) で返す。
+
+        診断・テスト用であり、forward からは呼ばない。forward は差分を実体化せず、
+        B の動的 3x3 convolution と A の動的 1x1 projection に分けて適用する。
+
+        Args:
+            condition: `[B, condition_dim]` の metadata embedding
+
+        Returns:
+            torch.Tensor: `[B, Cout, Cin, 3, 3]` のスケール済み低ランク差分
+        """
         a, b = self._factors(condition)
         return self.scale * torch.einsum("bor,brihw->boihw", a, b)
 
     def forward(self, x: torch.Tensor, condition: torch.Tensor) -> torch.Tensor:
-        """(B, Cin, H, W) に sample-wise の有効 3x3 convolution を適用する。"""
+        """(B, Cin, H, W) に sample-wise の有効 3x3 convolution を適用する。
+
+        Args:
+            x: `[B, Cin, H, W]` の入力特徴量
+            condition: `[B, condition_dim]` の metadata embedding。x と batch size が揃うこと
+
+        Returns:
+            torch.Tensor: `[B, Cout, H', W']`。base convolution の出力に低ランク差分を加えたもの
+
+        Raises:
+            ValueError: x が 4 次元でない場合、batch size が condition と食い違う場合、
+                または x のチャンネル数が `in_channels` と異なる場合。
+        """
         if x.ndim != 4:
             raise ValueError(f"x must be 4-dimensional, got shape {tuple(x.shape)}")
         if x.size(0) != condition.size(0):
@@ -141,11 +175,26 @@ class SpatialLoRABottleneckAdapter(nn.Module):
         self.conv2_adapter = SpatialLoRAConv2(condition_dim, block.conv2, rank, lora_alpha)
 
     def initialize_from_variance(self, var_input: float) -> None:
-        """内部の SpatialLoRAConv2 へ初期化を委譲する。"""
+        """内部の SpatialLoRAConv2 へ初期化を委譲する。
+
+        Args:
+            var_input: condition の各成分の分散 Var(c)
+
+        Returns:
+            None
+        """
         self.conv2_adapter.initialize_from_variance(var_input)
 
     def forward(self, x: torch.Tensor, condition: torch.Tensor) -> torch.Tensor:
-        """Bottleneck residual branch の conv2 だけを metadata 条件付きに置き換える。"""
+        """Bottleneck residual branch の conv2 だけを metadata 条件付きに置き換える。
+
+        Args:
+            x: `[B, Cin, H, W]` の入力特徴量
+            condition: `[B, condition_dim]` の metadata embedding
+
+        Returns:
+            torch.Tensor: `[B, Cout, H', W']`。元の Bottleneck と同じ出力 shape
+        """
         block = self._block
         identity = x
         out = block.relu(block.bn1(block.conv1(x)))

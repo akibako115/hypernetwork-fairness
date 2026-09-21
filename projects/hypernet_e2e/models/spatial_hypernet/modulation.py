@@ -1,3 +1,9 @@
+"""metadata condition で分類層を変調する HyperLinear layer。
+
+共有 `nn.Linear` に、condition から生成した sample ごとの低ランク差分を加える。
+初期化規則は `SpatialLoRAConv2` と揃えてあり、学習開始時は共有 Linear と一致する。
+"""
+
 import math
 
 import torch
@@ -49,6 +55,12 @@ class HyperLinearLayer(nn.Module):
         """生成先 Linear の fan_in に合わせて B 生成器を初期化する。
 
         SpatialLoRAConv2 と同じ規則を fan_in=in_features で適用する。
+
+        Args:
+            var_input: condition の各成分の分散 Var(c)。0 以下なら 1.0 として扱う
+
+        Returns:
+            None
         """
         if var_input <= 0:
             var_input = 1.0
@@ -71,12 +83,30 @@ class HyperLinearLayer(nn.Module):
 
         診断・テスト用であり、forward からは呼ばない。分類層では小さいが、低ランク計算を
         一貫して保つため A@B の明示的な実体化を避ける。
+
+        Args:
+            condition: `[B, condition_dim]` の metadata embedding
+
+        Returns:
+            torch.Tensor: `[B, Cout, Cin]` のスケール済み低ランク差分
         """
         a, b = self._factors(condition)
         return self.scale * torch.bmm(a, b)
 
     def forward(self, x: torch.Tensor, condition: torch.Tensor) -> torch.Tensor:
-        """(B, Cin) の特徴量へ共有 Linear と sample-wise な低ランク差分を適用する。"""
+        """(B, Cin) の特徴量へ共有 Linear と sample-wise な低ランク差分を適用する。
+
+        Args:
+            x: `[B, in_features]` の特徴量
+            condition: `[B, condition_dim]` の metadata embedding
+
+        Returns:
+            torch.Tensor: `[B, out_features]` の logits
+
+        Raises:
+            ValueError: x か condition が 2 次元でない場合、batch size が食い違う場合、
+                または特徴量次元が `in_features` / `condition_dim` と異なる場合。
+        """
         if x.ndim != 2:
             raise ValueError(f"x must be 2-dimensional, got shape {tuple(x.shape)}")
         if condition.ndim != 2:

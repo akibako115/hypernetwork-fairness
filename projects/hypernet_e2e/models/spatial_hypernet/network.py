@@ -1,3 +1,10 @@
+"""ResNet backbone に Spatial LoRA と HyperLinear を組み合わせたネットワーク。
+
+backbone の重みは共有のまま、選択した stage の Bottleneck と分類層だけを metadata
+condition で変調する。B 生成器の初期化は train split の Var(c) に依存するため、
+`initialize_with_attributes` を学習開始前に呼ぶ必要がある。
+"""
+
 import logging
 from collections.abc import Mapping, Sequence
 
@@ -72,7 +79,16 @@ class SpatialLoRAResNet(nn.Module):
             self.fc = nn.Linear(backbone.feature_dim, num_classes)
 
     def forward(self, x: torch.Tensor, attributes: Mapping[str, torch.Tensor]) -> torch.Tensor:
-        """画像 (B, 3, H, W) と属性辞書から分類 logits (B, num_classes) を返す。"""
+        """画像 (B, 3, H, W) と属性辞書から分類 logits (B, num_classes) を返す。
+
+        Args:
+            x: `[B, 3, H, W]` の画像 batch
+            attributes: `categorical` / `continuous` とそれぞれの `*_missing`。
+                各値は `[B, n_attributes]`
+
+        Returns:
+            torch.Tensor: `[B, num_classes]` の logits
+        """
         condition = self.metadata_encoder(attributes)
         features = self._forward_backbone(x, condition)
         if isinstance(self.fc, HyperLinearLayer):
@@ -80,12 +96,29 @@ class SpatialLoRAResNet(nn.Module):
         return self.fc(features)
 
     def get_features(self, x: torch.Tensor, attributes: Mapping[str, torch.Tensor]) -> torch.Tensor:
-        """Spatial LoRA 適用後の flatten 済み特徴量を返す。"""
+        """Spatial LoRA 適用後の flatten 済み特徴量を返す。
+
+        Args:
+            x: `[B, 3, H, W]` の画像 batch
+            attributes: `categorical` / `continuous` とそれぞれの `*_missing`
+
+        Returns:
+            torch.Tensor: `[B, feature_dim]` の特徴量
+        """
         condition = self.metadata_encoder(attributes)
         return self._forward_backbone(x, condition)
 
     def load_base_state_dict(self, state_dict: dict) -> dict[str, list[str]]:
-        """ResNet の backbone と分類 head を Spatial LoRA の初期値として読み込む。"""
+        """ResNet の backbone と分類 head を Spatial LoRA の初期値として読み込む。
+
+        shape の合うキーだけをコピーするため、LoRA generator は初期値のまま残る。
+
+        Args:
+            state_dict: ResNet 側の state dict。`fc.*` は共有分類層へ読み替える
+
+        Returns:
+            dict[str, list[str]]: loaded_keys / skipped_keys / missing_keys / unexpected_keys
+        """
         # ResNet checkpoint の fc を、Spatial LoRA の共有分類層へ対応付ける。
         spatial_state = dict(state_dict)
         if isinstance(self.fc, HyperLinearLayer):
@@ -99,7 +132,14 @@ class SpatialLoRAResNet(nn.Module):
         return load_compatible_state_dict(self, spatial_state)
 
     def freeze_base_model(self) -> None:
-        """二段階学習で Stage 1 の backbone と共有 classifier を凍結する。"""
+        """二段階学習で Stage 1 の backbone と共有 classifier を凍結する。
+
+        Args:
+            なし
+
+        Returns:
+            None
+        """
         # Stage 1 から引き継いだ画像 backbone を固定し、Spatial LoRA だけが特徴を補正するようにする。
         for parameter in self.backbone.parameters():
             parameter.requires_grad = False
@@ -124,6 +164,9 @@ class SpatialLoRAResNet(nn.Module):
         Args:
             attributes: train split 全行分の model 入力属性。`[n_rows, n_attributes]` の
                 `categorical` / `continuous` とそれぞれの `*_missing`
+
+        Returns:
+            None
         """
         targets: list[SpatialLoRABottleneckAdapter | HyperLinearLayer] = [adapter for adapters in self.spatial_adapters.values() for adapter in adapters]
         if isinstance(self.fc, HyperLinearLayer):
@@ -171,9 +214,23 @@ class SpatialLoRAResNet(nn.Module):
         return x
 
     def backbone_parameters(self):
-        """freeze_backbone 用に backbone（Spatial LoRA adapter・分類ヘッドを除く）の parameter を列挙する。"""
+        """freeze_backbone 用に backbone（Spatial LoRA adapter・分類ヘッドを除く）の parameter を列挙する。
+
+        Args:
+            なし
+
+        Returns:
+            Iterator[nn.Parameter]: backbone の parameter
+        """
         return self.backbone.backbone_parameters()
 
     def backbone_stateful_modules(self):
-        """freeze_backbone 時に eval モードへ固定すべき backbone の BatchNorm モジュールを列挙する。"""
+        """freeze_backbone 時に eval モードへ固定すべき backbone の BatchNorm モジュールを列挙する。
+
+        Args:
+            なし
+
+        Returns:
+            Iterator[nn.BatchNorm2d]: backbone の BatchNorm モジュール
+        """
         return self.backbone.backbone_stateful_modules()

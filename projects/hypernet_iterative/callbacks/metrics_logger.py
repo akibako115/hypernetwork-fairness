@@ -27,6 +27,14 @@ class MetricsLogger(L.Callback):
     def setup(self, trainer: L.Trainer, pl_module: L.LightningModule, stage: str) -> None:
         """metric を pl_module と同じ device へ移動し、`pl_module.log()` が `metric_attribute` で
         参照できるよう `_ml_<metric>_<phase>` の名前で pl_module の属性として登録する。
+
+        Args:
+            trainer: 呼び出し元の Trainer
+            pl_module: metric の登録先。device もここから取る
+            stage: Lightning が渡す stage 名
+
+        Returns:
+            None
         """
         device = pl_module.device
         for phase in ("train", "val", "test"):
@@ -40,7 +48,15 @@ class MetricsLogger(L.Callback):
             setattr(pl_module, f"_ml_auroc_{phase}", self._aurocs[phase])
 
     def on_fit_start(self, trainer: L.Trainer, pl_module: L.LightningModule) -> None:
-        """WandbLogger 使用時、全メトリクスの x 軸を step ではなく epoch に統一する。"""
+        """WandbLogger 使用時、全メトリクスの x 軸を step ではなく epoch に統一する。
+
+        Args:
+            trainer: 呼び出し元の Trainer
+            pl_module: logger を持つ LightningModule
+
+        Returns:
+            None
+        """
         from lightning.pytorch.loggers import WandbLogger
 
         if isinstance(pl_module.logger, WandbLogger):
@@ -55,7 +71,18 @@ class MetricsLogger(L.Callback):
         batch,
         batch_idx: int,
     ) -> None:
-        """train バッチの step output を集計し、`train/*` としてログする。"""
+        """train バッチの step output を集計し、`train/*` としてログする。
+
+        Args:
+            trainer: 呼び出し元の Trainer
+            pl_module: ログ先の LightningModule
+            outputs: step が返した `loss` / `logits` / `targets` を持つ dict
+            batch: 呼び出し元が渡す batch（集計には使わない）
+            batch_idx: batch の index（集計には使わない）
+
+        Returns:
+            None
+        """
         self._step(pl_module, outputs, "train")
 
     def on_validation_batch_end(
@@ -67,7 +94,19 @@ class MetricsLogger(L.Callback):
         batch_idx: int,
         dataloader_idx: int = 0,
     ) -> None:
-        """検証バッチの step output を集計し、`val/*` としてログする。"""
+        """検証バッチの step output を集計し、`val/*` としてログする。
+
+        Args:
+            trainer: 呼び出し元の Trainer
+            pl_module: ログ先の LightningModule
+            outputs: step が返した `loss` / `logits` / `targets` を持つ dict
+            batch: 呼び出し元が渡す batch（集計には使わない）
+            batch_idx: batch の index（集計には使わない）
+            dataloader_idx: 複数 dataloader 時の index
+
+        Returns:
+            None
+        """
         self._step(pl_module, outputs, "val")
 
     def on_test_batch_end(
@@ -79,7 +118,19 @@ class MetricsLogger(L.Callback):
         batch_idx: int,
         dataloader_idx: int = 0,
     ) -> None:
-        """テストバッチの step output を集計し、`test/*` としてログする。"""
+        """テストバッチの step output を集計し、`test/*` としてログする。
+
+        Args:
+            trainer: 呼び出し元の Trainer
+            pl_module: ログ先の LightningModule
+            outputs: step が返した `loss` / `logits` / `targets` を持つ dict
+            batch: 呼び出し元が渡す batch（集計には使わない）
+            batch_idx: batch の index（集計には使わない）
+            dataloader_idx: 複数 dataloader 時の index
+
+        Returns:
+            None
+        """
         self._step(pl_module, outputs, "test")
 
     def _step(self, pl_module: L.LightningModule, outputs: dict | None, phase: str) -> None:

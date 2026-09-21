@@ -23,6 +23,14 @@ def inject_logger_outputs(config: DictConfig, output_dir: Path, run_name: str) -
     ``save_dir`` を持つ logger は出力先を run directory に向ける。``name`` が ``null`` の logger
     だけ ``run_name`` を入れ、config が明示した名前は保つ。設定の書き換えは config 保存より前に
     行い、``config.yaml`` から実際の保存先を読めるようにする。
+
+    Args:
+        config: 書き換え対象の設定。`logger` group を in-place で更新する
+        output_dir: `save_dir` を持つ logger に入れる出力先
+        run_name: `name` が null の logger にだけ入れる run 名
+
+    Returns:
+        None
     """
     loggers = OmegaConf.select(config, "logger", default=_MISSING)
     if loggers is _MISSING or not loggers:
@@ -40,6 +48,12 @@ def text_log(log_dir: Path) -> Iterator[Path]:
 
     Hydra 自身の file handler は repository root へ書くため、run ごとの実行ログはこの handler が
     所有する。handler は文脈を抜けるときに必ず外し、後続の run のログを混ぜない。
+
+    Args:
+        log_dir: `train.log` を作る directory。無ければ作る
+
+    Yields:
+        Path: 書き込み先の log file path
     """
     log_dir.mkdir(parents=True, exist_ok=True)
     path = log_dir / "train.log"
@@ -73,6 +87,12 @@ def experiment_loggers(config: DictConfig) -> Iterator[list[Any]]:
 
     group が空（``logger=none``）なら空 list を返す。例外で終わった fit でも wandb run を
     開いたままにしない。
+
+    Args:
+        config: `logger` group を持ちうる解決済み設定
+
+    Yields:
+        list[Any]: 構築した Lightning logger。group が空なら空 list
     """
     group = config.get("logger")
     loggers = [instantiate(value) for value in group.values()] if group else []
@@ -87,6 +107,13 @@ def logger_references(loggers: Sequence[Any]) -> list[dict[str, str]]:
 
     wandb を import せずに済ませるため型名で判定する。参照の取得は experiment を初期化するので、
     fit が失敗した run でも dashboard への link が run.json に残る。
+
+    Args:
+        loggers: `experiment_loggers` が返した logger
+
+    Returns:
+        list[dict[str, str]]: WandbLogger ごとの `logger` / `name` / `id` / `url`。
+            wandb を使わない run では空 list
     """
     references = []
     for logger in loggers:
@@ -108,5 +135,12 @@ def _finish_wandb() -> None:
 
 
 def as_trainer_loggers(loggers: Sequence[Any]) -> list[Any] | bool:
-    """Lightning Trainer の ``logger`` 引数に渡す値を返す。空なら logging を無効にする。"""
+    """Lightning Trainer の ``logger`` 引数に渡す値を返す。空なら logging を無効にする。
+
+    Args:
+        loggers: `experiment_loggers` が返した logger
+
+    Returns:
+        list[Any] | bool: logger の list。空の場合は logging を切る False
+    """
     return list(loggers) if loggers else False

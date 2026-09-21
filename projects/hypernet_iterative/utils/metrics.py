@@ -45,17 +45,18 @@ def build_eval_attributes(
     attribute_names: Sequence[str] | None = None,
     categorical_missing: torch.Tensor | None = None,
 ) -> tuple[dict[str, torch.Tensor], dict[str, list[str]]]:
-    """
-    epoch バッファから評価用のグループ属性を構築する。
+    """epoch バッファから評価用のグループ属性を構築する。
 
     全属性がカテゴリカル（バイナリ済み）として扱われる。
     値が -1 のサンプルは欠損として集計から除外される。
 
     Args:
-        categorical:     shape `[N, num_cat]`。各列が1属性に対応。
-        attribute_names: 列ごとの属性名。None の場合は "attr[i]" 形式。
+        categorical:         shape `[N, num_cat]`。各列が1属性に対応。
+        attribute_names:     列ごとの属性名。None の場合は "attr[i]" 形式。
+        categorical_missing: shape `[N, num_cat]` の欠損フラグ。None なら欠損を扱わない。
 
     Returns:
+        tuple[dict[str, torch.Tensor], dict[str, list[str]]]:
         (eval_attributes, eval_attribute_names) のタプル。
         compute_metrics_by_attribute にそのまま渡せる形式。
     """
@@ -76,8 +77,7 @@ def compute_fairness_metrics(
     attributes: Mapping[str, torch.Tensor] | None,
     attribute_names: Mapping[str, Sequence[str]] | None = None,
 ) -> dict[str, dict[str, float]]:
-    """
-    属性グループ間の fairness 指標 (Eopp0, Eopp1, Eodds) を計算する。
+    """属性グループ間の fairness 指標 (Eopp0, Eopp1, Eodds) を計算する。
 
     各指標はクラスごとに one-vs-rest で算出し、macro 平均をとる。
     - Eopp1: グループ間 TPR (True Positive Rate) の最大差のクラス平均
@@ -91,11 +91,16 @@ def compute_fairness_metrics(
         attribute_names: 属性列名。未指定なら `categorical[0]` のような名前を使う。
 
     Returns:
-        例:
+        dict[str, dict[str, float]]: 属性名ごとの指標。attributes が None、または
+        `categorical` を持たない場合は空 dict。例:
         {
             "sex": {"Eopp0": 0.05, "Eopp1": 0.08, "Eodds": 0.065},
             "age_group": {"Eopp0": 0.03, "Eopp1": 0.10, "Eodds": 0.065},
         }
+
+    Raises:
+        ValueError: logits が 2 次元でない場合、または logits と targets の batch size が
+            食い違う場合。
     """
     if attributes is None:
         return {}
@@ -221,8 +226,7 @@ def compute_metrics_by_attribute(
     attributes: Mapping[str, torch.Tensor] | None,
     attribute_names: Mapping[str, Sequence[str]] | None = None,
 ) -> dict[str, dict[int, float]]:
-    """
-    属性値ごとに accuracy を集計する。
+    """属性値ごとに accuracy を集計する。
 
     Args:
         logits: モデルの出力。shape は `[batch_size, num_classes]` を想定。
@@ -231,11 +235,16 @@ def compute_metrics_by_attribute(
         attribute_names: 属性列名。未指定なら `categorical[0]` のような名前を使う。
 
     Returns:
-        例:
+        dict[str, dict[int, float]]: 属性名ごとの属性値 -> accuracy。attributes が None、
+        または `categorical` を持たない場合は空 dict。例:
         {
             "sex": {0: 0.75, 1: 0.80},
             "age_group": {0: 1.0, 1: 0.85, 2: 0.70},
         }
+
+    Raises:
+        ValueError: logits が 2 次元でない場合、または logits と targets の batch size が
+            食い違う場合。
     """
     if attributes is None:
         return {}

@@ -43,6 +43,12 @@ def train_transforms_chexpert() -> transforms.Compose:
     CXR_Fairness（MLforHealth/CXR_Fairness）公開実装の `augment=1` 相当（
     RandomResizedCrop(224, scale=(0.75, 1.0)) -> RandomHorizontalFlip -> RandomRotation(10) ->
     ImageNet normalize）と同一構成にし、先行研究との比較可能性を保つ。
+
+    Args:
+        なし
+
+    Returns:
+        transforms.Compose: PIL Image を `[3, 224, 224]` の `torch.float32` へ変換する transform
     """
     return transforms.Compose(
         [
@@ -61,6 +67,12 @@ def val_transforms_chexpert() -> transforms.Compose:
     `_pad_to_square` でアスペクト比を保ったまま正方形化してから 224x224 にリサイズする。
     CXR_Fairness 公開実装は前処理段階で画像を 224x224 にキャッシュしてから ToTensor +
     normalize するが、本実装では transform 内で同等の入力形状を再現する。
+
+    Args:
+        なし
+
+    Returns:
+        transforms.Compose: PIL Image を `[3, 224, 224]` の `torch.float32` へ変換する transform
     """
     return transforms.Compose(
         [

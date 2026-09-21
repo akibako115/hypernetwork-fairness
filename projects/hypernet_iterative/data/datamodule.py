@@ -64,13 +64,31 @@ class ImageDataModule(LightningDataModule):
 
         split CSV がこの DataModule に入る唯一の経路なので、必須列と `image` の一意性は
         ここで確かめる。列が欠けたまま学習を始め、属性の取り出しで初めて失敗するのを避ける。
+
+        Args:
+            split: 読み込む split 名（`cv_splits_dir/<split>.csv`）
+
+        Returns:
+            pd.DataFrame: CSV の行順のままの split DataFrame
+
+        Raises:
+            ValueError: 必須列が欠けている場合、または `image` が重複している場合。
         """
         frame = pd.read_csv(f"{self.hparams.cv_splits_dir}/{split}.csv")
         validate_split_frame(frame, self.hparams.attribute_names, split=split)
         return frame
 
     def standardized_dataframes(self, *splits: Split) -> tuple[pd.DataFrame, ...]:
-        """指定 split を読み込み、必要なら train 統計量で連続属性を標準化して返す。"""
+        """指定 split を読み込み、必要なら train 統計量で連続属性を標準化して返す。
+
+        Args:
+            *splits: 返す split 名。`standardize_continuous` が真なら train は
+                統計量の算出のために必ず追加で読む
+
+        Returns:
+            tuple[pd.DataFrame, ...]: splits と同じ順序の DataFrame。評価専用の年齢群列を
+                付与済みで、`standardize_continuous` が真なら連続属性は標準化済み
+        """
         needed = dict.fromkeys(("train", *splits)) if self.hparams.standardize_continuous else dict.fromkeys(splits)
         frames = {split: add_age_groups(self.read_split_dataframe(split), self.hparams.fairness_age_groups) for split in needed}
         if not self.hparams.standardize_continuous:
@@ -93,7 +111,17 @@ class ImageDataModule(LightningDataModule):
         )
 
     def setup(self, stage: str) -> None:
-        """stage に応じて split CSV を読み込み、標準化を適用した Dataset を構築する。"""
+        """stage に応じて split CSV を読み込み、標準化を適用した Dataset を構築する。
+
+        Args:
+            stage: Lightning が渡す stage 名（`fit` / `validate` / `test`）
+
+        Returns:
+            None
+
+        Raises:
+            RuntimeError: `batch_size` が devices 数で割り切れない場合。
+        """
         if self.trainer is not None:
             if self.hparams.batch_size % self.trainer.world_size != 0:
                 raise RuntimeError(f"batch_size（{self.hparams.batch_size}）が devices 数（{self.trainer.world_size}）で割り切れない")
@@ -118,6 +146,16 @@ class ImageDataModule(LightningDataModule):
         データ依存の初期化（Spatial LoRA の Var(c) 推定など）が使う。`setup(stage="fit")` が
         構築した Dataset の DataFrame をそのまま読むので、連続属性は標準化済みの値になる。
         画像は読まない。
+
+        Args:
+            なし
+
+        Returns:
+            dict[str, torch.Tensor]: `categorical` / `continuous` と対応する `*_missing`。
+                各値は `[n_rows, n_attributes]`
+
+        Raises:
+            RuntimeError: `setup(stage="fit")` より前に呼ばれた場合。
         """
         if self.data_train is None:
             raise RuntimeError("train_attributes() を呼ぶ前に setup(stage='fit') を呼び出す必要がある")
@@ -143,7 +181,16 @@ class ImageDataModule(LightningDataModule):
         return WeightedRandomSampler(sample_weights, num_samples=len(targets), replacement=True)
 
     def train_dataloader(self) -> DataLoader[Any]:
-        """学習用 DataLoader を返す。"""
+        """学習用 DataLoader を返す。
+
+        Args:
+            なし
+
+        Returns:
+            DataLoader[Any]: train Dataset の DataLoader。`train_sampling` が
+                `inverse_frequency` なら class 頻度の逆数で重み付けした sampler を使い、
+                `uniform` なら shuffle する
+        """
         sampler = self._train_sampler()
         return DataLoader(
             dataset=self.data_train,
@@ -157,7 +204,14 @@ class ImageDataModule(LightningDataModule):
         )
 
     def val_dataloader(self) -> DataLoader[Any]:
-        """検証用 DataLoader を返す。"""
+        """検証用 DataLoader を返す。
+
+        Args:
+            なし
+
+        Returns:
+            DataLoader[Any]: val Dataset を CSV 順で返す DataLoader
+        """
         return DataLoader(
             dataset=self.data_val,
             batch_size=self.batch_size_per_device,
@@ -169,7 +223,14 @@ class ImageDataModule(LightningDataModule):
         )
 
     def test_dataloader(self) -> DataLoader[Any]:
-        """テスト用 DataLoader を返す。"""
+        """テスト用 DataLoader を返す。
+
+        Args:
+            なし
+
+        Returns:
+            DataLoader[Any]: test Dataset を CSV 順で返す DataLoader
+        """
         return DataLoader(
             dataset=self.data_test,
             batch_size=self.batch_size_per_device,
@@ -181,7 +242,17 @@ class ImageDataModule(LightningDataModule):
         )
 
     def evaluation_dataloader(self, split: Split) -> DataLoader[Any]:
-        """指定 split を評価 transform・固定順で返す。"""
+        """指定 split を評価 transform・固定順で返す。
+
+        `setup` が構築した Dataset ではなく split を読み直すので、train sampling や
+        train transform の設定にかかわらず同じ順序・同じ前処理になる。
+
+        Args:
+            split: 評価する split 名
+
+        Returns:
+            DataLoader[Any]: 評価 transform を適用し CSV 順で返す DataLoader
+        """
         (frame,) = self.standardized_dataframes(split)
         dataset = self._create_dataset(frame, self.val_transform)
         return DataLoader(

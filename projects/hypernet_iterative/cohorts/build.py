@@ -31,7 +31,19 @@ def load_split_frames(
     datamodule: ImageDataModule,
     attribute_names: Mapping[str, Sequence[str]] | None,
 ) -> tuple[dict[str, pd.DataFrame], dict[str, pd.DataFrame]]:
-    """学習時と同じ CSV 検証・連続属性標準化を通した split frame を返す。"""
+    """学習時と同じ CSV 検証・連続属性標準化を通した split frame を返す。
+
+    Args:
+        datamodule: split CSV の読み込みと標準化を所有する DataModule
+        attribute_names: `categorical` / `continuous` の列名
+
+    Returns:
+        tuple[dict[str, pd.DataFrame], dict[str, pd.DataFrame]]: (raw, prepared)。raw は
+            CSV そのまま、prepared は連続属性を標準化したもの。どちらも行順は CSV と同じ
+
+    Raises:
+        ValueError: いずれかの split で必須列が欠けている場合、または `image` が重複する場合。
+    """
     raw = {split: datamodule.read_split_dataframe(split) for split in SPLITS}
     for split, frame in raw.items():
         validate_split_frame(frame, attribute_names, split=split)
@@ -48,7 +60,25 @@ def extract_embeddings(
     batch_size: int,
     device: torch.device,
 ) -> dict[str, SplitEmbeddings]:
-    """各 split を行順どおりに metadata encoder へ通す。"""
+    """各 split を行順どおりに metadata encoder へ通す。
+
+    画像 loader を経由しないので、embedding は data augmentation や sampler に依存しない。
+
+    Args:
+        metadata_encoder: 属性辞書を embedding に変換する encoder
+        raw_frames: split ごとの CSV そのままの DataFrame。`image` と `target` を取る
+        prepared_frames: split ごとの標準化済み DataFrame。属性の取り出しに使う
+        attribute_names: `categorical` / `continuous` の列名
+        batch_size: encoder に一度に通す行数
+        device: encoder を載せる device
+
+    Returns:
+        dict[str, SplitEmbeddings]: split ごとの image / target / embedding。行順は CSV と同じ
+
+    Raises:
+        ValueError: batch_size が 1 未満の場合、split が空の場合、
+            または embedding に NaN / inf が含まれる場合。
+    """
     if batch_size < 1:
         raise ValueError("batch_size must be positive")
     metadata_encoder.to(device).eval()
@@ -84,7 +114,28 @@ def save_artifact(
     reference_checkpoint: Path,
     reference_id: str,
 ) -> Path:
-    """train-fit KMeans、assignment、再現に必要な sidecar を一つの artifact として保存する。"""
+    """train-fit KMeans、assignment、再現に必要な sidecar を一つの artifact として保存する。
+
+    KMeans は train split だけで fit し、val / test には同じ cluster center を適用する。
+
+    Args:
+        output_dir: artifact の出力先。既存 directory は上書きしない
+        embeddings: `extract_embeddings` が返した split ごとの embedding
+        clusters: KMeans の k。cohort の group 数
+        n_init: KMeans の初期化回数
+        random_state: KMeans の乱数種
+        reference_checkpoint: embedding を生成した checkpoint。path と SHA-256 を記録する
+        reference_id: 参照した stage 名
+
+    Returns:
+        Path: 後続 stage の DataModule へ渡す `assignments.parquet` の path
+
+    Raises:
+        ValueError: clusters が 2 未満、n_init が 1 未満、train の行数が clusters 未満、
+            または train assignment が全 group を覆わない場合。
+        FileExistsError: output_dir が既に存在する場合。
+        FileNotFoundError: reference_checkpoint が存在しない場合。
+    """
     if clusters < 2:
         raise ValueError("clusters must be at least 2")
     if n_init < 1:

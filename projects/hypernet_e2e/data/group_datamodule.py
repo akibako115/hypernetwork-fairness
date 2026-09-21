@@ -24,6 +24,19 @@ def demographic_group_ids(
     `attribute_names` の先頭ほど上位桁になる。欠損は group を持たないので、欠損 flag が立った行が
     1 行でもあれば例外を投げる。0 に丸めて先頭 group へ混ぜると、その group の loss だけが
     静かに汚れて原因が追えなくなるため。
+
+    Args:
+        frame: group 属性列とその `*_missing` 列を持つ split DataFrame
+        attribute_names: group を構成する属性列名。先頭ほど上位桁になる
+        cardinalities: 各属性が取りうる値の数。attribute_names と同じ長さ
+        group_key: エラーメッセージに出す group ID の列名
+
+    Returns:
+        pd.Series: frame と同じ index の `int64` group ID
+
+    Raises:
+        ValueError: 属性列かその `*_missing` 列が無い場合、欠損した行がある場合、
+            または属性値が `[0, cardinality)` の外にある場合。
     """
     group_ids = pd.Series(0, index=frame.index, dtype="int64")
     for name, cardinality in zip(attribute_names, cardinalities, strict=True):
@@ -71,7 +84,14 @@ class GroupImageDataset(ImageDataset):
         return image, attributes, target
 
     def group_counts(self, num_groups: int) -> torch.Tensor:
-        """`[num_groups]` の行数を返す。"""
+        """`[num_groups]` の行数を返す。
+
+        Args:
+            num_groups: 数える group 数。出現しない group は 0 になる
+
+        Returns:
+            torch.Tensor: `[num_groups]` の `int64` 行数
+        """
         return torch.bincount(torch.as_tensor(self.df[self.group_key].to_numpy(), dtype=torch.long), minlength=num_groups)
 
 
@@ -145,7 +165,17 @@ class GroupImageDataModule(ImageDataModule):
         )
 
     def setup(self, stage: str) -> None:
-        """親の Dataset を構築し、fit の train split が全 group を含むことを確かめる。"""
+        """親の Dataset を構築し、fit の train split が全 group を含むことを確かめる。
+
+        Args:
+            stage: Lightning が渡す stage 名。全 group の確認は `fit` でだけ行う
+
+        Returns:
+            None
+
+        Raises:
+            ValueError: train split に1行も現れない group がある場合。
+        """
         super().setup(stage)
         if stage != "fit":
             return

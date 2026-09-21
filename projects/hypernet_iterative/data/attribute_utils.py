@@ -20,24 +20,53 @@ _TENSOR_DTYPES: dict[AttributeKind, torch.dtype] = {"categorical": torch.long, "
 
 
 def missing_columns(columns: Iterable[str]) -> list[str]:
-    """属性列名から対応する欠損フラグ列名（`{col}_missing`）のリストを作る。"""
+    """属性列名から対応する欠損フラグ列名（`{col}_missing`）のリストを作る。
+
+    Args:
+        columns: 属性列名
+
+    Returns:
+        list[str]: 入力と同じ順序の `{col}_missing` 列名
+    """
     return [f"{column}_missing" for column in columns]
 
 
 def attribute_columns(attribute_names: Mapping[str, Sequence[str]] | None, kind: AttributeKind) -> list[str]:
-    """attribute_names から指定種別の列名リストを取り出す。未指定なら空リスト。"""
+    """attribute_names から指定種別の列名リストを取り出す。未指定なら空リスト。
+
+    Args:
+        attribute_names: `categorical` / `continuous` の列名。None なら空リストを返す
+        kind: 取り出す属性種別
+
+    Returns:
+        list[str]: 指定種別の列名
+    """
     if attribute_names is None:
         return []
     return list(attribute_names.get(kind, []))
 
 
 def categorical_columns(attribute_names: Mapping[str, Sequence[str]] | None) -> list[str]:
-    """attribute_names から categorical 列名のリストを取り出す。"""
+    """attribute_names から categorical 列名のリストを取り出す。
+
+    Args:
+        attribute_names: `categorical` / `continuous` の列名。None なら空リストを返す
+
+    Returns:
+        list[str]: categorical 属性の列名
+    """
     return attribute_columns(attribute_names, "categorical")
 
 
 def continuous_columns(attribute_names: Mapping[str, Sequence[str]] | None) -> list[str]:
-    """attribute_names から continuous 列名のリストを取り出す。"""
+    """attribute_names から continuous 列名のリストを取り出す。
+
+    Args:
+        attribute_names: `categorical` / `continuous` の列名。None なら空リストを返す
+
+    Returns:
+        list[str]: continuous 属性の列名
+    """
     return attribute_columns(attribute_names, "continuous")
 
 
@@ -106,8 +135,7 @@ def standardize_continuous_columns(
     *split_dfs: pd.DataFrame,
     columns: Sequence[str],
 ) -> tuple[pd.DataFrame, ...]:
-    """
-    train split の非欠損行の統計量で連続属性を標準化する。
+    """train split の非欠損行の統計量で連続属性を標準化する。
 
     Args:
         train_df: 統計量（mean/std）の算出元となる train split
@@ -116,6 +144,9 @@ def standardize_continuous_columns(
 
     Returns:
         tuple[pd.DataFrame, ...]: split_dfs と同じ順序・件数で標準化した DataFrame
+
+    Raises:
+        ValueError: いずれかの列で train split に非欠損値が1つも無い場合。
     """
     if not columns:
         return tuple(split_df.copy() for split_df in split_dfs)
@@ -148,7 +179,20 @@ def validate_attribute_spec(
     attribute_names: Mapping[str, Sequence[str]] | None,
     attribute_spec: Mapping[str, Any] | None,
 ) -> None:
-    """attribute_spec の cardinality 数・continuous_dim が attribute_names と要素数一致するか検証する。"""
+    """attribute_spec の cardinality 数・continuous_dim が attribute_names と要素数一致するか検証する。
+
+    Args:
+        attribute_names: `categorical` / `continuous` の列名。None なら検証しない
+        attribute_spec: `categorical_cardinalities` と `continuous_dim` を持つモデル側の
+            属性仕様。None なら検証しない
+
+    Returns:
+        None
+
+    Raises:
+        ValueError: cardinality の要素数、または continuous_dim が attribute_names と
+            食い違う場合。
+    """
     if attribute_spec is None or attribute_names is None:
         return
     categorical_names = categorical_columns(attribute_names)

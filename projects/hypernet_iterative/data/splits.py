@@ -17,7 +17,14 @@ SPLITS: tuple[Split, ...] = get_args(Split)
 
 
 def required_split_columns(attribute_names: Mapping[str, Sequence[str]] | None) -> set[str]:
-    """split CSV に必須の列名集合（`image` / `target` / 属性列 / 欠損フラグ列）を返す。"""
+    """split CSV に必須の列名集合（`image` / `target` / 属性列 / 欠損フラグ列）を返す。
+
+    Args:
+        attribute_names: `categorical` / `continuous` の列名。None なら属性列を要求しない
+
+    Returns:
+        set[str]: split CSV が必ず持つべき列名の集合
+    """
     attributes = [name for kind in ATTRIBUTE_KINDS for name in attribute_columns(attribute_names, kind)]
     return {"image", "target", *attributes, *missing_columns(attributes)}
 
@@ -34,6 +41,9 @@ def validate_split_frame(
         frame: 検証対象の split DataFrame
         attribute_names: `categorical` / `continuous` の列名
         split: エラーメッセージに出す split 名
+
+    Returns:
+        None
 
     Raises:
         ValueError: 必須列が欠けている場合、または `image` が重複している場合。

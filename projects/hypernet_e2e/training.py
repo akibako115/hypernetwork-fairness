@@ -30,6 +30,15 @@ def run_fit(config: DictConfig) -> Path:
     ``metrics/fit.json`` と ``run.json`` に保存する。fit が出力した checkpoint は、2 段学習の
     2 段目へ渡せるよう選択基準と SHA-256 付きで ``run.json`` に記録する。既存 run の再開・
     test 実行・stage 制御はこの入口の責務に含めない。
+
+    Args:
+        config: Hydra が合成した解決済み設定
+
+    Returns:
+        Path: 記録した run directory
+
+    Raises:
+        BaseException: fit 中の例外はそのまま送出する。送出前に run を失敗として確定する。
     """
     normalize_runtime_paths(config)
     _resolve_inverse_class_weights(config)

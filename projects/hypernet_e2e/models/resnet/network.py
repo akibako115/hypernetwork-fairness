@@ -1,3 +1,9 @@
+"""特徴抽出器としての ResNet backbone と、分類ヘッド付きの ResNet。
+
+`ResNetBackbone` は global average pooling までを担い、`ResNet` は `num_classes` を
+指定したときだけ分類ヘッドを持つ。`freeze_backbone` 用の parameter 列挙もここが持つ。
+"""
+
 from collections.abc import Sequence
 
 import torch
@@ -110,7 +116,14 @@ class ResNetBackbone(nn.Module):
         return nn.Sequential(*layers)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """stem + 4 stage + global average pooling を適用する。`(B, 3, H, W)` → `(B, feature_dim)`。"""
+        """stem + 4 stage + global average pooling を適用する。`(B, 3, H, W)` → `(B, feature_dim)`。
+
+        Args:
+            x: `[B, 3, H, W]` の画像 batch
+
+        Returns:
+            torch.Tensor: `[B, feature_dim]` の pooling 済み特徴量
+        """
         x = self.relu(self.bn1(self.conv1(x)))
         x = self.maxpool(x)
         x = self.layer1(x)
@@ -121,12 +134,26 @@ class ResNetBackbone(nn.Module):
         return torch.flatten(x, 1)
 
     def backbone_parameters(self):
-        """freeze_backbone 用に、stem + 4 stage（分類ヘッドを除く）の parameter を列挙する。"""
+        """freeze_backbone 用に、stem + 4 stage（分類ヘッドを除く）の parameter を列挙する。
+
+        Args:
+            なし
+
+        Returns:
+            Iterator[nn.Parameter]: stem と 4 stage の parameter
+        """
         for m in (self.conv1, self.bn1, self.layer1, self.layer2, self.layer3, self.layer4):
             yield from m.parameters()
 
     def backbone_stateful_modules(self):
-        """freeze_backbone 時に eval モードへ固定すべき BatchNorm モジュールを列挙する。"""
+        """freeze_backbone 時に eval モードへ固定すべき BatchNorm モジュールを列挙する。
+
+        Args:
+            なし
+
+        Returns:
+            Iterator[nn.BatchNorm2d]: running 統計量を持つ BatchNorm モジュール
+        """
         for m in self.modules():
             if isinstance(m, nn.BatchNorm2d):
                 yield m
@@ -164,18 +191,46 @@ class ResNet(nn.Module):
         self.fc = nn.Linear(self.backbone.feature_dim, num_classes) if num_classes is not None else None
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """`(B, 3, H, W)` → `num_classes` 指定時は `(B, num_classes)` の logits、未指定時は `(B, feature_dim)` の特徴量。"""
+        """`(B, 3, H, W)` → `num_classes` 指定時は `(B, num_classes)` の logits、未指定時は `(B, feature_dim)` の特徴量。
+
+        Args:
+            x: `[B, 3, H, W]` の画像 batch
+
+        Returns:
+            torch.Tensor: `num_classes` 指定時は `[B, num_classes]`、未指定時は `[B, feature_dim]`
+        """
         feat = self.backbone(x)
         return self.fc(feat) if self.fc is not None else feat
 
     def get_features(self, x: torch.Tensor) -> torch.Tensor:
-        """分類ヘッドを経由せず backbone の特徴量 `(B, feature_dim)` を返す。"""
+        """分類ヘッドを経由せず backbone の特徴量 `(B, feature_dim)` を返す。
+
+        Args:
+            x: `[B, 3, H, W]` の画像 batch
+
+        Returns:
+            torch.Tensor: `[B, feature_dim]` の特徴量
+        """
         return self.backbone(x)
 
     def backbone_parameters(self):
-        """freeze_backbone 用に backbone（分類ヘッドを除く）の parameter を列挙する。"""
+        """freeze_backbone 用に backbone（分類ヘッドを除く）の parameter を列挙する。
+
+        Args:
+            なし
+
+        Returns:
+            Iterator[nn.Parameter]: backbone の parameter
+        """
         return self.backbone.backbone_parameters()
 
     def backbone_stateful_modules(self):
-        """freeze_backbone 時に eval モードへ固定すべき backbone の BatchNorm モジュールを列挙する。"""
+        """freeze_backbone 時に eval モードへ固定すべき backbone の BatchNorm モジュールを列挙する。
+
+        Args:
+            なし
+
+        Returns:
+            Iterator[nn.BatchNorm2d]: backbone の BatchNorm モジュール
+        """
         return self.backbone.backbone_stateful_modules()

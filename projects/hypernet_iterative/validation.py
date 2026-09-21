@@ -6,7 +6,20 @@ from omegaconf import DictConfig
 
 
 def validate_training_config(config: DictConfig) -> None:
-    """学習を始める前に cohort、warm-start、checkpoint 選択の組み合わせを検証する。"""
+    """学習を始める前に cohort、warm-start、checkpoint 選択の組み合わせを検証する。
+
+    Args:
+        config: 検証する stage の解決済み設定
+
+    Returns:
+        None
+
+    Raises:
+        ValueError: cohort に必要な設定が欠けている場合、目的関数と class weight の
+            組み合わせが成立しない場合、warm-start が許可されていない場合、
+            または hidden cohort 選択に必要な callback が無い場合。
+        FileNotFoundError: warm-start checkpoint が存在しない場合。
+    """
     strategy = config.get("training_strategy")
     cohort = config.get("cohort")
     uses_cohort = cohort is not None

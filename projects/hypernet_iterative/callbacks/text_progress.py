@@ -1,3 +1,8 @@
+"""epoch ごとの進捗を1行のテキストとして run log へ書き出す callback。
+
+親 workflow が stage を独立 process で回すため、進捗は tty ではなくファイルに残す。
+"""
+
 from __future__ import annotations
 
 import logging
@@ -18,13 +23,31 @@ class TextProgressLogger(L.Callback):
         self._previous_excepthook: Any = None
 
     def setup(self, trainer: L.Trainer, pl_module: L.LightningModule, stage: str) -> None:
-        """`sys.excepthook` を差し替え、nohup 実行時でも未捕捉例外をログへ残す。"""
+        """`sys.excepthook` を差し替え、nohup 実行時でも未捕捉例外をログへ残す。
+
+        Args:
+            trainer: 呼び出し元の Trainer
+            pl_module: 呼び出し元の LightningModule
+            stage: Lightning が渡す stage 名
+
+        Returns:
+            None
+        """
         if self._previous_excepthook is None:
             self._previous_excepthook = sys.excepthook
             sys.excepthook = self._excepthook
 
     def teardown(self, trainer: L.Trainer, pl_module: L.LightningModule, stage: str) -> None:
-        """この callback が登録した hook だけを差し替え前の状態へ戻す。"""
+        """この callback が登録した hook だけを差し替え前の状態へ戻す。
+
+        Args:
+            trainer: 呼び出し元の Trainer
+            pl_module: 呼び出し元の LightningModule
+            stage: Lightning が渡す stage 名
+
+        Returns:
+            None
+        """
         if self._previous_excepthook is not None and sys.excepthook == self._excepthook:
             sys.excepthook = self._previous_excepthook
         self._previous_excepthook = None
@@ -45,7 +68,15 @@ class TextProgressLogger(L.Callback):
         return str(value)
 
     def on_train_epoch_end(self, trainer: L.Trainer, pl_module: L.LightningModule) -> None:
-        """train epoch 末に callback_metrics をテキスト整形し、1行のログとして出力する。"""
+        """train epoch 末に callback_metrics をテキスト整形し、1行のログとして出力する。
+
+        Args:
+            trainer: `callback_metrics` と epoch 番号の取得元
+            pl_module: 呼び出し元の LightningModule（出力には使わない）
+
+        Returns:
+            None
+        """
         # 内部用（"_" 始まり）のキーを除外し、epoch サマリとしてログ出力する対象を絞り込む
         metrics = {k: v for k, v in trainer.callback_metrics.items() if not k.startswith("_")}
         parts = [f"{key}={self._format_metric(value)}" for key, value in sorted(metrics.items())]

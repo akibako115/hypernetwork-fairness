@@ -15,6 +15,19 @@ def add_age_groups(frame: pd.DataFrame, definitions: Mapping[str, Mapping[str, A
     各 definition は ``source`` と昇順の ``boundaries`` を持つ。境界 ``[65]`` のとき、
     source が 65 未満なら 0、65 以上なら 1 とする。source の ``*_missing`` が真、または
     値が NaN の行は、値を 0 として対応する ``<name>_missing`` を真にする。
+
+    Args:
+        frame: source 列とその `*_missing` 列を持つ split DataFrame
+        definitions: 追加する年齢群名から `source` と `boundaries` への対応。
+            None または空なら frame をそのまま返す
+
+    Returns:
+        pd.DataFrame: definitions ごとに `<name>`（`int64`）と `<name>_missing`（bool）を
+            加えた複製。definitions が空のときは入力そのもの
+
+    Raises:
+        ValueError: source 列か `<source>_missing` 列が frame に無い場合、
+            または definition の source / boundaries が不正な場合。
     """
     if not definitions:
         return frame

@@ -21,7 +21,21 @@ _SELECTION_MONITOR = "val/auroc"
 
 
 def run(config_path: Path, result_path: Path) -> None:
-    """保存済み config で一回だけ fit し、checkpoint と scalar metrics を返す。"""
+    """保存済み config で一回だけ fit し、checkpoint と scalar metrics を返す。
+
+    parent が組み立てた config でも、子 process 側で必ず `validate_training_config` を通す。
+
+    Args:
+        config_path: parent が保存した stage config。その親 directory を stage の出力先に使う
+        result_path: metrics と checkpoint path を書き出す先
+
+    Returns:
+        None
+
+    Raises:
+        RuntimeError: `val/auroc` を monitor する checkpoint callback がちょうど1つでない場合、
+            または best / last checkpoint が書かれなかった場合。
+    """
     config = OmegaConf.load(config_path)
     stage_dir = config_path.parent
     # 主 checkpoint だけでなく、BAcc / hidden-cohort 用の補助 checkpoint も stage
@@ -74,6 +88,14 @@ def _scalar(value: Any) -> float | None:
 
 
 def main() -> None:
+    """`--config` と `--result` を受け取り、単一 stage を実行する CLI 入口。
+
+    Args:
+        なし
+
+    Returns:
+        None
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--result", type=Path, required=True)

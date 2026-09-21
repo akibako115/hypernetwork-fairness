@@ -1,3 +1,9 @@
+"""checkpoint の部分ロードと、hypernetwork 初期化用の Var(c) 推定。
+
+どちらもモデルの構築と学習の境目で使う。`compute_embedding_variance` は画像を読まず、
+属性テンソルだけから metadata embedding の分散を推定する。
+"""
+
 from collections.abc import Mapping
 
 import torch
@@ -6,6 +12,11 @@ import torch.nn as nn
 
 def load_compatible_state_dict(model: nn.Module, state_dict: dict, load_fc: bool = True) -> dict:
     """同名かつ同 shape のキーだけをモデルに部分ロードする。
+
+    Args:
+        model: ロード先のモデル
+        state_dict: ロード元の state dict
+        load_fc: False なら `fc.` で始まるキーを読み込まず結果にも含めない
 
     Returns:
         dict: loaded_keys / skipped_keys / missing_keys / unexpected_keys を key に持つ結果 dict。
@@ -54,6 +65,9 @@ def compute_embedding_variance(
 
     Returns:
         float: embedding 各次元の分散の平均。分散が求まらない場合は 1.0 を返す
+
+    Raises:
+        ValueError: attributes が空の場合、または行数が 0 の場合。
     """
     if not attributes:
         raise ValueError("Var(c) の推定には属性が1つ以上必要")

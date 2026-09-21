@@ -94,7 +94,18 @@ class CohortImageDataModule(ImageDataModule):
         self._load_assignments()
 
     def read_split_dataframe(self, split: str) -> pd.DataFrame:
-        """base CSV と sidecar を 1 対 1 で結合する。"""
+        """base CSV と sidecar を 1 対 1 で結合する。
+
+        Args:
+            split: 読み込む split 名
+
+        Returns:
+            pd.DataFrame: base CSV に `group_key` 列を加えたもの。行順は CSV と同じ
+
+        Raises:
+            ValueError: base CSV が既に `group_key` 列を持つ場合、sidecar に base CSV へ
+                無い image がある場合、または sidecar が覆わない image がある場合。
+        """
         frame = super().read_split_dataframe(split)
         if self.hparams.group_key in frame.columns:
             raise ValueError(f"{split} CSV already contains {self.hparams.group_key!r}; cannot merge a group assignment sidecar")

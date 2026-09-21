@@ -1,3 +1,9 @@
+"""ResNet の残差ブロックと、その構成に使う convolution factory。
+
+`BasicBlock` / `Bottleneck` は torchvision と同じ構成で、`_BLOCK_TYPES` を介して
+設定ファイルからは名前でも指定できる。
+"""
+
 import torch
 import torch.nn as nn
 
@@ -15,12 +21,32 @@ def _resolve_block_class(block: type[nn.Module] | str) -> type[nn.Module]:
 
 
 def conv3x3(in_planes: int, out_planes: int, stride: int = 1, groups: int = 1, dilation: int = 1) -> nn.Conv2d:
-    """padding=dilation の 3x3 conv（bias なし）を返す。"""
+    """padding=dilation の 3x3 conv（bias なし）を返す。
+
+    Args:
+        in_planes: 入力チャンネル数
+        out_planes: 出力チャンネル数
+        stride: 畳み込みの stride
+        groups: grouped convolution の group 数
+        dilation: dilation 幅。padding も同じ値にする
+
+    Returns:
+        nn.Conv2d: bias を持たない 3x3 convolution
+    """
     return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=dilation, groups=groups, bias=False, dilation=dilation)
 
 
 def conv1x1(in_planes: int, out_planes: int, stride: int = 1) -> nn.Conv2d:
-    """downsample・チャンネル数変換に使う 1x1 conv（bias なし）を返す。"""
+    """downsample・チャンネル数変換に使う 1x1 conv（bias なし）を返す。
+
+    Args:
+        in_planes: 入力チャンネル数
+        out_planes: 出力チャンネル数
+        stride: 畳み込みの stride
+
+    Returns:
+        nn.Conv2d: bias を持たない 1x1 convolution
+    """
     return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, bias=False)
 
 
@@ -49,7 +75,14 @@ class BasicBlock(nn.Module):
         self.stride = stride
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """3x3 conv 2層と残差接続を適用する。出力 shape は downsample の有無に応じ入力と同一またはチャンネル・解像度変化後。"""
+        """3x3 conv 2層と残差接続を適用する。出力 shape は downsample の有無に応じ入力と同一またはチャンネル・解像度変化後。
+
+        Args:
+            x: `[B, inplanes, H, W]` の入力
+
+        Returns:
+            torch.Tensor: `[B, planes, H', W']`。`H'`/`W'` は stride で決まる
+        """
         identity = x
         out = self.relu(self.bn1(self.conv1(x)))
         out = self.bn2(self.conv2(out))
@@ -82,7 +115,14 @@ class Bottleneck(nn.Module):
         self.stride = stride
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """1x1-3x3-1x1 conv と残差接続を適用する。出力チャンネル数は `planes * expansion`（expansion=4）。"""
+        """1x1-3x3-1x1 conv と残差接続を適用する。出力チャンネル数は `planes * expansion`（expansion=4）。
+
+        Args:
+            x: `[B, inplanes, H, W]` の入力
+
+        Returns:
+            torch.Tensor: `[B, planes * 4, H', W']`。`H'`/`W'` は stride で決まる
+        """
         identity = x
         out = self.relu(self.bn1(self.conv1(x)))
         out = self.relu(self.bn2(self.conv2(out)))

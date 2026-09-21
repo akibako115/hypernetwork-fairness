@@ -53,7 +53,14 @@ class TaskLoss(nn.Module):
         self.register_buffer("_class_weight", _class_weight_tensor(class_weight), persistent=False)
 
     def forward(self, inputs: ObjectiveInput) -> torch.Tensor:
-        """class_weight 付き cross-entropy loss を計算する。"""
+        """class_weight 付き cross-entropy loss を計算する。
+
+        Args:
+            inputs: `logits` `[B, num_classes]`、`target` `[B]`、`attributes`（未使用）
+
+        Returns:
+            torch.Tensor: batch 平均の scalar loss
+        """
         return F.cross_entropy(inputs.logits, inputs.target, weight=self._class_weight)
 
 
@@ -143,7 +150,17 @@ class UniformGroupTaskLoss(nn.Module):
         self.group_key = group_key
 
     def forward(self, inputs: ObjectiveInput) -> torch.Tensor:
-        """観測されたgroupごとの平均lossを一様平均して返す。"""
+        """観測されたgroupごとの平均lossを一様平均して返す。
+
+        Args:
+            inputs: `logits` `[B, num_classes]`、`target` `[B]`、`attributes[group_key]` `[B]`
+
+        Returns:
+            torch.Tensor: batch に現れた group の平均 loss を等重みで平均した scalar
+
+        Raises:
+            ValueError: `attributes[group_key]` の shape が `[B]` でない場合。
+        """
         per_sample_loss = F.cross_entropy(
             inputs.logits,
             inputs.target,
@@ -184,7 +201,19 @@ class GroupDROTaskLoss(nn.Module):
         self.group_key = group_key
 
     def forward(self, inputs: ObjectiveInput) -> torch.Tensor:
-        """group lossでexponentiated gradient更新したadv_probsとの加重和を返す。"""
+        """group lossでexponentiated gradient更新したadv_probsとの加重和を返す。
+
+        `adv_probs` は buffer なので、この呼び出しが状態を進める。勾配は更新側へ流さない。
+
+        Args:
+            inputs: `logits` `[B, num_classes]`、`target` `[B]`、`attributes[group_key]` `[B]`
+
+        Returns:
+            torch.Tensor: 更新後の `adv_probs` と group loss の内積となる scalar
+
+        Raises:
+            ValueError: `attributes[group_key]` の shape が `[B]` でない場合。
+        """
         per_sample_loss = F.cross_entropy(
             inputs.logits,
             inputs.target,
@@ -274,7 +303,20 @@ class ClassBalancedGroupDROTaskLoss(nn.Module):
         self.adv_probs.copy_(updated / updated.sum())
 
     def forward(self, inputs: ObjectiveInput) -> torch.Tensor:
-        """(group, class) セルのlossでadv_probsを更新し、balanced group lossとの加重和を返す。"""
+        """(group, class) セルのlossでadv_probsを更新し、balanced group lossとの加重和を返す。
+
+        `adv_probs` と セル平均 loss の EMA buffer は、この呼び出しが状態を進める。
+
+        Args:
+            inputs: `logits` `[B, num_classes]`、`target` `[B]`、`attributes[group_key]` `[B]`
+
+        Returns:
+            torch.Tensor: 更新後の `adv_probs` と、その batch に実在するセルだけで構成した
+                balanced group loss の内積となる scalar
+
+        Raises:
+            ValueError: `attributes[group_key]` の shape が `[B]` でない場合。
+        """
         per_sample_loss = F.cross_entropy(
             inputs.logits,
             inputs.target,

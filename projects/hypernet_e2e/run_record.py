@@ -44,7 +44,22 @@ class RunRecorder:
 
     @classmethod
     def prepare_fit(cls, config: DictConfig, *, project_dir: str | Path | None = None) -> RunRecorder:
-        """fit 前の artifact を作成し、golden preflight を通した recorder を返す。"""
+        """fit 前の artifact を作成し、golden preflight を通した recorder を返す。
+
+        run directory を予約し、`config.yaml` / `run.json` / data manifest / preflight を
+        書いたうえで recorder を返す。途中で失敗した場合も run を失敗として確定する。
+
+        Args:
+            config: Hydra が合成した設定。run path をここへ注入する
+            project_dir: run directory を作る root。省略時は設定の `paths.project_dir`
+
+        Returns:
+            RunRecorder: 予約済み run directory を持つ recorder
+
+        Raises:
+            TypeError: 解決した config が mapping でない場合。
+            RuntimeError: golden preflight に失敗した場合。
+        """
         normalize_runtime_paths(config)
         resolved = OmegaConf.to_container(config, resolve=True)
         if not isinstance(resolved, dict):
@@ -87,6 +102,12 @@ class RunRecorder:
         """experiment logger の run 参照を記録する。
 
         fit の前に呼ぶことで、失敗した run からも wandb dashboard を辿れる。
+
+        Args:
+            references: `logger_references` が返した run 参照
+
+        Returns:
+            None
         """
         self._run_record["loggers"] = [dict(reference) for reference in references]
         self._write_json("run.json", self._run_record)
@@ -97,16 +118,36 @@ class RunRecorder:
         2 段学習の 2 段目は、この記録から backbone checkpoint の path を選ぶ。どの基準で選ばれた
         checkpoint なのかが分からないと段の意味が決まらないので、``monitor`` と ``mode`` も残す。
         checkpoint を出力していない callback は記録しない。
+
+        Args:
+            callbacks: fit に渡した callback。ModelCheckpoint だけを拾う
+
+        Returns:
+            None
         """
         self._run_record["checkpoints"] = [reference for callback in callbacks if (reference := self._checkpoint_callback_reference(callback)) is not None]
         self._write_json("run.json", self._run_record)
 
     def succeed(self, result_summary: Mapping[str, Any] | None = None) -> None:
-        """成功した fit の終了時刻と JSON 化可能な結果要約を確定する。"""
+        """成功した fit の終了時刻と JSON 化可能な結果要約を確定する。
+
+        Args:
+            result_summary: `run.json` に残す結果要約。JSON 化できること
+
+        Returns:
+            None
+        """
         self._finish("succeeded", result_summary=result_summary)
 
     def fail(self, error: BaseException) -> None:
-        """失敗した fit の例外種別とメッセージを残して状態を確定する。"""
+        """失敗した fit の例外種別とメッセージを残して状態を確定する。
+
+        Args:
+            error: fit を止めた例外。種別名とメッセージだけを残す
+
+        Returns:
+            None
+        """
         self._finish("failed", result_summary={"error_type": type(error).__name__, "error_message": str(error)})
 
     @classmethod

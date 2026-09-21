@@ -63,7 +63,14 @@ class LitModule(L.LightningModule):
 
     @property
     def training_objective(self) -> nn.Module:
-        """train phase で最適化する注入済みの目的関数を返す。"""
+        """train phase で最適化する注入済みの目的関数を返す。
+
+        Args:
+            なし
+
+        Returns:
+            nn.Module: `ObjectiveInput` を受け取り scalar loss を返す目的関数
+        """
         return self.loss_fn
 
     def forward(
@@ -71,7 +78,18 @@ class LitModule(L.LightningModule):
         image: torch.Tensor,
         attributes: Mapping[str, torch.Tensor] | None = None,
     ) -> torch.Tensor:
-        """画像から ``(batch_size, num_classes)`` の logits を返す。"""
+        """画像から ``(batch_size, num_classes)`` の logits を返す。
+
+        Args:
+            image: `[B, 3, H, W]` の画像 batch
+            attributes: `use_attributes` が真のとき必須の属性辞書
+
+        Returns:
+            torch.Tensor: `[B, num_classes]` の logits
+
+        Raises:
+            ValueError: `use_attributes` が真なのに attributes が None の場合。
+        """
         if not self.use_attributes:
             return self.net(image)
         if attributes is None:
@@ -79,21 +97,64 @@ class LitModule(L.LightningModule):
         return self.net(image, attributes)
 
     def training_step(self, batch: tuple[Any, Mapping[str, torch.Tensor], torch.Tensor], batch_idx: int) -> dict[str, Any]:
-        """注入された学習目的関数で loss を計算する。"""
+        """注入された学習目的関数で loss を計算する。
+
+        Args:
+            batch: `(image, attributes, target)`
+            batch_idx: batch の index（計算には使わない）
+
+        Returns:
+            dict[str, Any]: `loss` / `logits` / `preds` / `target` / `attributes`。
+                callback がこれを epoch 集計に使う。`loss` は backward 可能なまま返す
+        """
         logits, preds, target, attributes = self._shared_step(batch)
         loss = self.training_objective(ObjectiveInput(logits=logits, target=target, attributes=attributes))
         return self._step_output(loss, logits, preds, target, attributes, detach_loss=False)
 
     def validation_step(self, batch: tuple[Any, Mapping[str, torch.Tensor], torch.Tensor], batch_idx: int) -> dict[str, Any]:
-        """比較用の通常 cross-entropy で validation loss を計算する。"""
+        """比較用の通常 cross-entropy で validation loss を計算する。
+
+        train の目的関数が group 目的関数でも、この loss は常に素の cross-entropy である。
+
+        Args:
+            batch: `(image, attributes, target)`
+            batch_idx: batch の index（計算には使わない）
+
+        Returns:
+            dict[str, Any]: `loss` / `logits` / `preds` / `target` / `attributes`。
+                callback がこれを epoch 集計に使う
+        """
         return self._evaluation_step(batch)
 
     def test_step(self, batch: tuple[Any, Mapping[str, torch.Tensor], torch.Tensor], batch_idx: int) -> dict[str, Any]:
-        """比較用の通常 cross-entropy で test loss を計算する。"""
+        """比較用の通常 cross-entropy で test loss を計算する。
+
+        train の目的関数が group 目的関数でも、この loss は常に素の cross-entropy である。
+
+        Args:
+            batch: `(image, attributes, target)`
+            batch_idx: batch の index（計算には使わない）
+
+        Returns:
+            dict[str, Any]: `loss` / `logits` / `preds` / `target` / `attributes`。
+                callback がこれを epoch 集計に使う
+        """
         return self._evaluation_step(batch)
 
     def setup(self, stage: str) -> None:
-        """fit 開始時だけ、e2e モデルに必要な初期化を順に行う。"""
+        """fit 開始時だけ、e2e モデルに必要な初期化を順に行う。
+
+        backbone checkpoint の読み込み、freeze、データ依存初期化の順に実行する。
+
+        Args:
+            stage: Lightning が渡す stage 名。`fit` 以外では何もしない
+
+        Returns:
+            None
+
+        Raises:
+            RuntimeError: backbone checkpoint から1つも重みを読めなかった場合。
+        """
         if stage != "fit":
             return
         if self.hparams.backbone_checkpoint_path is not None:
@@ -107,12 +168,32 @@ class LitModule(L.LightningModule):
             self.net = torch.compile(self.net)
 
     def on_train_epoch_start(self) -> None:
-        """凍結した backbone の BatchNorm 等を eval 状態に保つ。"""
+        """凍結した backbone の BatchNorm 等を eval 状態に保つ。
+
+        Lightning は epoch ごとに module を train モードへ戻すので、毎 epoch 掛け直す。
+
+        Args:
+            なし
+
+        Returns:
+            None
+        """
         if self.hparams.freeze_backbone and (backbone := getattr(self.net, "backbone", None)) is not None:
             backbone.eval()
 
     def load_backbone_checkpoint(self, checkpoint_path: str, load_fc: bool = True) -> dict[str, list[str]]:
-        """checkpoint から backbone 相当の互換する重みだけを読み込む。"""
+        """checkpoint から backbone 相当の互換する重みだけを読み込む。
+
+        Args:
+            checkpoint_path: 読み込む checkpoint の path
+            load_fc: False なら `fc.` で始まるキーを読み込まない
+
+        Returns:
+            dict[str, list[str]]: loaded_keys / skipped_keys / missing_keys / unexpected_keys
+
+        Raises:
+            TypeError: checkpoint が state_dict でも `state_dict` キーを持つ mapping でもない場合。
+        """
         checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
         raw_state = checkpoint.get("state_dict", checkpoint)
         if not isinstance(raw_state, Mapping):
@@ -126,7 +207,19 @@ class LitModule(L.LightningModule):
         return load_compatible_state_dict(self.net, state_dict, load_fc=load_fc)
 
     def configure_optimizers(self) -> dict[str, Any]:
-        """学習可能な net parameter から optimizer と任意 scheduler を構築する。"""
+        """学習可能な net parameter から optimizer と任意 scheduler を構築する。
+
+        Args:
+            なし
+
+        Returns:
+            dict[str, Any]: `optimizer` と、scheduler を注入した場合は `val/loss` を monitor
+                する `lr_scheduler`
+
+        Raises:
+            ValueError: optimizer factory が未指定の場合、または trainable parameter が
+                1つも無い場合。
+        """
         if self._optimizer_factory is None:
             raise ValueError("optimizer を指定する必要がある")
         parameters = [parameter for parameter in self.net.parameters() if parameter.requires_grad]

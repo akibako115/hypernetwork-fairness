@@ -20,29 +20,85 @@ class FairnessMetricsCallback(L.Callback):
         self._test_buffer: list[dict] = []
 
     def on_validation_epoch_start(self, trainer: L.Trainer, pl_module: L.LightningModule) -> None:
-        """検証 epoch 開始時に出力バッファをクリアする。"""
+        """検証 epoch 開始時に出力バッファをクリアする。
+
+        Args:
+            trainer: 呼び出し元の Trainer
+            pl_module: ログ先の LightningModule
+
+        Returns:
+            None
+        """
         self._val_buffer = []
 
     def on_test_epoch_start(self, trainer: L.Trainer, pl_module: L.LightningModule) -> None:
-        """テスト epoch 開始時に出力バッファをクリアする。"""
+        """テスト epoch 開始時に出力バッファをクリアする。
+
+        Args:
+            trainer: 呼び出し元の Trainer
+            pl_module: ログ先の LightningModule
+
+        Returns:
+            None
+        """
         self._test_buffer = []
 
     def on_validation_batch_end(self, trainer: L.Trainer, pl_module: L.LightningModule, outputs, batch, batch_idx: int, dataloader_idx: int = 0) -> None:
-        """検証 batch の step output を保持する。None は属性なしとして無視する。"""
+        """検証 batch の step output を保持する。None は属性なしとして無視する。
+
+        Args:
+            trainer: 呼び出し元の Trainer
+            pl_module: 呼び出し元の LightningModule（バッファリングには使わない）
+            outputs: step が返した `logits` / `target` / `attributes` を持つ dict
+            batch: 呼び出し元が渡す batch（集計には使わない）
+            batch_idx: batch の index（集計には使わない）
+            dataloader_idx: 複数 dataloader 時の index
+
+        Returns:
+            None
+        """
         if outputs is not None:
             self._val_buffer.append(outputs)
 
     def on_test_batch_end(self, trainer: L.Trainer, pl_module: L.LightningModule, outputs, batch, batch_idx: int, dataloader_idx: int = 0) -> None:
-        """テスト batch の step output を保持する。None は属性なしとして無視する。"""
+        """テスト batch の step output を保持する。None は属性なしとして無視する。
+
+        Args:
+            trainer: 呼び出し元の Trainer
+            pl_module: 呼び出し元の LightningModule（バッファリングには使わない）
+            outputs: step が返した `logits` / `target` / `attributes` を持つ dict
+            batch: 呼び出し元が渡す batch（集計には使わない）
+            batch_idx: batch の index（集計には使わない）
+            dataloader_idx: 複数 dataloader 時の index
+
+        Returns:
+            None
+        """
         if outputs is not None:
             self._test_buffer.append(outputs)
 
     def on_validation_epoch_end(self, trainer: L.Trainer, pl_module: L.LightningModule) -> None:
-        """検証 epoch の公平性指標を `val/<attribute>/<metric>` に記録する。"""
+        """検証 epoch の公平性指標を `val/<attribute>/<metric>` に記録する。
+
+        Args:
+            trainer: 呼び出し元の Trainer
+            pl_module: ログ先の LightningModule
+
+        Returns:
+            None
+        """
         self._log_attribute_metrics(pl_module, "val", self._val_buffer)
 
     def on_test_epoch_end(self, trainer: L.Trainer, pl_module: L.LightningModule) -> None:
-        """テスト epoch の公平性指標を `test/<attribute>/<metric>` に記録する。"""
+        """テスト epoch の公平性指標を `test/<attribute>/<metric>` に記録する。
+
+        Args:
+            trainer: 呼び出し元の Trainer
+            pl_module: ログ先の LightningModule
+
+        Returns:
+            None
+        """
         self._log_attribute_metrics(pl_module, "test", self._test_buffer)
 
     def _log_attribute_metrics(self, pl_module: L.LightningModule, prefix: str, buffer: list[dict]) -> None:

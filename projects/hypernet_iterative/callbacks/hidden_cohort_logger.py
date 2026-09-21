@@ -1,3 +1,10 @@
+"""固定 cohort の前提を検証し、cohort 別の指標を記録する callback 群。
+
+`CohortSingleProcessCallback` は group ID を仮定できる実行構成かを、
+`CohortValidityCallback` は sidecar の group ID が範囲内かを開始時に確かめる。
+`HiddenCohortMetricsCallback` は cohort ごとの AUROC と worst-group 指標をログする。
+"""
+
 import lightning as L
 import pandas as pd
 import torch
@@ -26,7 +33,20 @@ class CohortValidityCallback(L.Callback):
         self.target_column = target_column
 
     def on_fit_start(self, trainer: L.Trainer, pl_module: L.LightningModule) -> None:
-        """学習開始時に validation dataset の DataFrame を取得し、cohort の妥当性を検証する。"""
+        """学習開始時に validation dataset の DataFrame を取得し、cohort の妥当性を検証する。
+
+        Args:
+            trainer: `datamodule.data_val` の取得元
+            pl_module: 呼び出し元の LightningModule（検証には使わない）
+
+        Returns:
+            None
+
+        Raises:
+            TypeError: validation dataset が `.df` を持たない場合。
+            ValueError: 必須列が無い、group ID が欠損・範囲外・未出現、
+                またはいずれかの group が片方のクラスしか持たない場合。
+        """
         dataset = getattr(trainer.datamodule, "data_val", None)
         frame = getattr(dataset, "df", None)
         if not isinstance(frame, pd.DataFrame):
@@ -75,7 +95,18 @@ class CohortSingleProcessCallback(L.Callback):
     """固定 cohort の学習を single-process に制限する。"""
 
     def on_fit_start(self, trainer: L.Trainer, pl_module: L.LightningModule) -> None:
-        """GroupDRO の q や hidden-cohort 指標が distributed 未対応であるため、multi-process 実行を拒否する。"""
+        """GroupDRO の q や hidden-cohort 指標が distributed 未対応であるため、multi-process 実行を拒否する。
+
+        Args:
+            trainer: `world_size` の取得元
+            pl_module: 呼び出し元の LightningModule（判定には使わない）
+
+        Returns:
+            None
+
+        Raises:
+            RuntimeError: `trainer.world_size` が 1 でない場合。
+        """
         if trainer.world_size != 1:
             raise RuntimeError("fixed cohort experiments require trainer.world_size=1 because GroupDRO q and hidden-cohort metrics are not distributed")
 
@@ -100,29 +131,89 @@ class HiddenCohortMetricsCallback(L.Callback):
         self._buffers: dict[str, list[dict]] = {"val": [], "test": []}
 
     def on_validation_epoch_start(self, trainer: L.Trainer, pl_module: L.LightningModule) -> None:
-        """検証エポック開始時にバッファをクリアする。"""
+        """検証エポック開始時にバッファをクリアする。
+
+        Args:
+            trainer: 呼び出し元の Trainer
+            pl_module: ログ先の LightningModule
+
+        Returns:
+            None
+        """
         self._buffers["val"] = []
 
     def on_test_epoch_start(self, trainer: L.Trainer, pl_module: L.LightningModule) -> None:
-        """テストエポック開始時にバッファをクリアする。"""
+        """テストエポック開始時にバッファをクリアする。
+
+        Args:
+            trainer: 呼び出し元の Trainer
+            pl_module: ログ先の LightningModule
+
+        Returns:
+            None
+        """
         self._buffers["test"] = []
 
     def on_validation_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx: int = 0) -> None:
-        """検証バッチの step output をバッファへ追加する（属性データがないバッチは無視）。"""
+        """検証バッチの step output をバッファへ追加する（属性データがないバッチは無視）。
+
+        Args:
+            trainer: 呼び出し元の Trainer
+            pl_module: 呼び出し元の LightningModule（バッファリングには使わない）
+            outputs: step が返した `logits` / `target` / `attributes` を持つ dict
+            batch: 呼び出し元が渡す batch（集計には使わない）
+            batch_idx: batch の index（集計には使わない）
+            dataloader_idx: 複数 dataloader 時の index
+
+        Returns:
+            None
+        """
         if outputs is not None:
             self._buffers["val"].append(outputs)
 
     def on_test_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx: int = 0) -> None:
-        """テストバッチの step output をバッファへ追加する（属性データがないバッチは無視）。"""
+        """テストバッチの step output をバッファへ追加する（属性データがないバッチは無視）。
+
+        Args:
+            trainer: 呼び出し元の Trainer
+            pl_module: 呼び出し元の LightningModule（バッファリングには使わない）
+            outputs: step が返した `logits` / `target` / `attributes` を持つ dict
+            batch: 呼び出し元が渡す batch（集計には使わない）
+            batch_idx: batch の index（集計には使わない）
+            dataloader_idx: 複数 dataloader 時の index
+
+        Returns:
+            None
+        """
         if outputs is not None:
             self._buffers["test"].append(outputs)
 
     def on_validation_epoch_end(self, trainer: L.Trainer, pl_module: L.LightningModule) -> None:
-        """検証エポック末にバッファを集計し、cohort ごとの指標をログする。"""
+        """検証エポック末にバッファを集計し、cohort ごとの指標をログする。
+
+        Args:
+            trainer: sanity check 中かどうかの判定に使う
+            pl_module: ログ先の LightningModule
+
+        Returns:
+            None
+
+        Raises:
+            ValueError: `require_binary_val_groups` が真で、sanity check 以外の検証 epoch に
+                片方のクラスしか持たない cohort があった場合。
+        """
         self._log_metrics(trainer, pl_module, "val")
 
     def on_test_epoch_end(self, trainer: L.Trainer, pl_module: L.LightningModule) -> None:
-        """テストエポック末にバッファを集計し、cohort ごとの指標をログする。"""
+        """テストエポック末にバッファを集計し、cohort ごとの指標をログする。
+
+        Args:
+            trainer: 呼び出し元の Trainer
+            pl_module: ログ先の LightningModule
+
+        Returns:
+            None
+        """
         self._log_metrics(trainer, pl_module, "test")
 
     def _log_empty_metrics(self, pl_module: L.LightningModule, phase: str) -> None:
@@ -225,6 +316,13 @@ class GroupDRODiagnosticsCallback(L.Callback):
 
         `training_objective` が GroupDRO でない、または `adv_probs` を持たない場合は何もしない。
         weight の最大値と、分布の偏りを示す entropy も併せて記録する。
+
+        Args:
+            trainer: 呼び出し元の Trainer（ログには使わない）
+            pl_module: `training_objective` の取得元であり、ログ先
+
+        Returns:
+            None
         """
         objective = getattr(pl_module, "training_objective", None)
         probabilities = getattr(objective, "adv_probs", None)
