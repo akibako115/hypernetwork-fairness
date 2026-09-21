@@ -79,8 +79,10 @@ def test_configure_optimizers_uses_only_trainable_net_parameters() -> None:
     assert isinstance(config["optimizer"], torch.optim.SGD)
 
 
-def test_freeze_backbone_keeps_it_in_eval_mode_at_epoch_boundary() -> None:
-    module = _module(freeze_backbone=True)
+def test_freeze_backbone_keeps_it_in_eval_mode_at_epoch_boundary(tmp_path) -> None:
+    path = tmp_path / "backbone.ckpt"
+    torch.save({"state_dict": {f"net.{key}": value for key, value in _Net().state_dict().items()}}, path)
+    module = _module(freeze_backbone=True, backbone_checkpoint_path=str(path))
     module.setup("fit")
     assert all(not parameter.requires_grad for parameter in module.net.backbone.parameters())
     assert not module.net.backbone.training
@@ -154,3 +156,8 @@ def test_optimizer_factory_stays_out_of_the_checkpoint_hparams() -> None:
     assert "scheduler" not in module.hparams
     # 残る hparams は checkpoint に安全に書ける値だけであること。
     assert not [name for name, value in module.hparams.items() if callable(value)]
+
+
+def test_freezing_the_backbone_requires_a_checkpoint_to_freeze() -> None:
+    with pytest.raises(ValueError, match="backbone_checkpoint_path"):
+        _module(freeze_backbone=True)

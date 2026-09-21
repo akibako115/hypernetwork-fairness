@@ -49,3 +49,14 @@ def test_hydra_job_logging_keeps_no_shared_log_file_outside_the_run_directory() 
 
     assert set(cfg.hydra.job_logging.handlers) == {"console"}
     assert list(cfg.hydra.job_logging.root.handlers) == ["console"]
+
+
+def test_from_resnet_preset_freezes_the_backbone_and_demands_a_stage1_checkpoint() -> None:
+    config_dir = Path(__file__).parent.parent / "configs"
+    with initialize_config_dir(version_base="1.3", config_dir=str(config_dir)):
+        cfg = compose(config_name="train", overrides=["experiment=spatial_lora_chexpert_from_resnet"])
+
+    assert cfg.model.freeze_backbone is True
+    assert cfg.model.backbone_checkpoint_path is None
+    with pytest.raises(Exception, match="backbone_checkpoint_path"):
+        instantiate(cfg.model)

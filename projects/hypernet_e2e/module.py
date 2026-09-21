@@ -26,6 +26,7 @@ class LitModule(L.LightningModule):
     名前を表す。
     train は ``loss_fn``、validation/test は実験条件をまたいで比較できる通常の
     cross-entropy を用いる。``use_attributes=True`` のときだけ attributes を net に渡す。
+    ``freeze_backbone=True`` は ``backbone_checkpoint_path`` を伴う必要がある。
     """
 
     def __init__(
@@ -43,6 +44,11 @@ class LitModule(L.LightningModule):
     ) -> None:
         """モデル、目的関数、および単段 fit の初期化設定を保持する。"""
         super().__init__()
+        # backbone の重みは backbone_checkpoint_path からしか入らない。path 無しで凍結すると
+        # ランダム初期化のまま固定された backbone で学習が完走し、artifact 上は成功した run に
+        # 見えてしまう。2 段目 run の設定ミスをここで止める。
+        if freeze_backbone and backbone_checkpoint_path is None:
+            raise ValueError("freeze_backbone=True には backbone_checkpoint_path が必要")
         # optimizer / scheduler factory は lambda や Hydra partial を取り得る。hparams に残すと
         # checkpoint に pickle され、load 側が同じ import を解決できることを要求してしまう。
         # ignore して実行中の module だけが保持し、Lightning のシリアライズ経路から切り離す。

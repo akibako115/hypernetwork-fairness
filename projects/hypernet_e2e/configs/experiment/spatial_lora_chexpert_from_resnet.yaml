@@ -1,0 +1,18 @@
+# @package _global_
+# 2 段学習の 2 段目。1 段目 ResNet run の best val/auroc checkpoint を
+# model.backbone_checkpoint_path に渡して起動する。
+#
+#   uv run python -m projects.hypernet_e2e.run \
+#     experiment=spatial_lora_chexpert_from_resnet \
+#     model.backbone_checkpoint_path=projects/hypernet_e2e/runs/<1段目 run-id>/checkpoints/<best>.ckpt
+#
+# path を渡さない run は LitModule が起動時に失敗する（凍結した乱数 backbone での学習を防ぐ）。
+defaults:
+  - spatial_lora_chexpert
+  - _self_
+
+experiment_name: spatial-lora-chexpert-from-resnet
+tags: [chexpert, spatial_lora_resnet50, two_stage]
+
+model:
+  freeze_backbone: true
