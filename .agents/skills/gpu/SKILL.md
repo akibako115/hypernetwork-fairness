@@ -21,7 +21,7 @@ ps -eo pid,lstart,args | \
   grep -v grep
 ```
 
-- `projects.<project>.run` … この repo の学習（`hypernet_e2e` / `hypernet_two_stage` 等）
+- `projects.<project>.run` … この repo の学習（`hypernet_e2e` / `hypernet_iterative` 等）
 - `src.experiments.*` / `src.training.worker` … 旧 repo の学習
 - DataLoader worker は親と同じ引数で出るため、同一 run が複数行に見える。PID と開始時刻で親を判別する
 

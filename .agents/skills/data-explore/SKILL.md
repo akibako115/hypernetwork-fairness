@@ -84,7 +84,7 @@ wc -l data/<dataset>/splits/*.csv data/<dataset>/cv_splits/fold_*/*.csv
 - `fairness_age_groups` の派生属性（例: `age_group_65`）が raw 列から作れるか
 - `_target_` の DataModule が該当 project に存在するか
 
-project ごとに config は独立している。`hypernet_e2e` と `hypernet_two_stage` の
+project ごとに config は独立している。`hypernet_e2e` と `hypernet_iterative` の
 `configs/data/<dataset>.yaml` は別物なので、調査対象の project を明示する。
 
 ### 5. 既存 run との突き合わせ（あれば）

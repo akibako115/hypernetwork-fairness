@@ -1,3 +1,0 @@
-metrics_logger:
-  _target_: projects.hypernet_two_stage.callbacks.metrics_logger.MetricsLogger
-  num_classes: ${data.num_classes}

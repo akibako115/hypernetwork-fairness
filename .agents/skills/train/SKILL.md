@@ -18,7 +18,7 @@ allowed-tools: Bash(uv:*) Bash(nvidia-smi:*) Bash(ps:*) Bash(git:*) Bash(ssh:*) 
 | データ | `DATA_FOLDER=/data` | `paths.data_dir=data`（repo root 基準）。env で渡さない |
 | 出力 | `logs_<dataset>/train/...` と `docs/experiments/*.md` | `projects/<project>/runs/<run-id>/` が正本。人手の実験記録 md は作らない |
 | 再開 | `--resume` / `--reconcile` | **無い。** 再実行は必ず新しい run directory |
-| 単位 | 親 run + stage + attempt | `hypernet_e2e` は 1 run = 1 fit、`hypernet_two_stage` は 1 run = 固定 2 fit |
+| 単位 | 親 run + stage + attempt | `hypernet_e2e` は 1 run = 1 fit、`hypernet_iterative` は 1 run = warmup + 任意回数の cohort stage |
 
 ## 条件の準備
 

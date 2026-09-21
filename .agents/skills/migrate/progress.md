@@ -94,7 +94,7 @@ CheXpert の Spatial LoRA は、モデル入力に `sex` / `race` / `ethnicity` 
 `frontal_lateral` / `ap_pa` / `age` を使い、公平性ログには raw age から作る
 `age_group_65` を加えた `sex` / `race` / `ethnicity` / `age_group_65` を使う。
 この設定で 1 train batch・1 validation batch の最小 fit が完走した。
-e2e の cohort artifact と GroupDRO objective は、現時点のスコープ外として保留する。
+e2e の GroupDRO は demographic group（`sex` × `age_group_65`）に対して実装済みである。学習中に更新される cohort artifact はスコープ外とする。
 
 e2e の生成物は `projects/hypernet_e2e/runs/<run-id>/` が所有する。`data/chexpert` は
 固定入力だけを置き、cohort は生成 run の `artifacts/cohorts/` に保存する。詳細な出力契約は
@@ -105,15 +105,15 @@ e2e の生成物は `projects/hypernet_e2e/runs/<run-id>/` が所有する。`da
 どこにも残らず、Hydra の job log も repo 直下の共有 `run.log` に落ちていた。現在は
 run ごとの `logs/train.log` と `runs/<run-id>/wandb/` に収め、wandb run の `name` / `id` / `url` を
 run 記録に残す。project 名は旧 repo とは分け、`fairness_hypernet_e2e` /
-`fairness_hypernet_two_stage` とする。旧 repo の `config_tree.log` / `tags.log` / `.hydra/` は
+`fairness_hypernet_iterative` とする。旧 repo の `config_tree.log` / `tags.log` / `.hydra/` は
 解決済み `config.yaml` と重複するため再現しない。
 
-two-stage は `projects/hypernet_two_stage/` として独立させる。Stage 1 の最良
-`val/auroc` checkpoint を入力に、共有 backbone / classifier を凍結した Stage 2 Spatial LoRA を
-学習する固定2段の workflow を持つ。ResNet、MetadataEncoder、HyperLinear、Spatial LoRA、model utility
-に加え、CheXpert data、callbacks、Lightning module、Hydra configs、workflow、学習 CLI を移植済みである。
-各 stage を1 train batch・1 validation batch に制限した CheXpert 最小実行が完走した。cohort の再生成や
-任意回数の反復は持たない。
+two-stage は当初 `projects/hypernet_two_stage/` として独立させ、固定2段の workflow を1 CLI 実行に
+まとめていた。現在は `hypernet_e2e` の run を 2 回起動する形に畳み、project を削除した。
+1 CLI にまとめると、1つの config tree から stage 1回分を切り出す手術、`trainer` の差分を
+null で表す規約、両 stage が参照する `class_weight` の間接参照、stage ごとに二重化される
+config group が必要になり、比較条件を増やすたびに置き場所を決め直すことになるため。
+段をまたぐ checkpoint の来歴は `run.json` の `checkpoints` と `parent_run` が持つ。
 
 `hypernet_iterative` は warmup、checkpoint の metadata embedding に基づく cohort 再生成、独立 child
 process の cohort stage、stage 間 warm-start を実装済み。cohort artifact、全 split の data manifest、

@@ -1,9 +1,0 @@
-_target_: lightning.pytorch.trainer.Trainer
-min_epochs: 1
-max_epochs: 30
-accelerator: cpu
-devices: 1
-precision: 32-true
-check_val_every_n_epoch: 1
-enable_progress_bar: false
-deterministic: false

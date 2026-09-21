@@ -27,7 +27,9 @@ uv run python -m projects.hypernet_e2e.run \
   data.num_workers=0 data.persistent_workers=false data.prefetch_factor=null
 ```
 
-two-stage は同じ形で `projects.hypernet_two_stage.run` を使う。Stage 2 の変調箇所は
+二段学習は `hypernet_e2e` の run を 2 回起動する。2 段目は
+`experiment=spatial_lora_chexpert_from_resnet` を選び、1 段目 run の `run.json` が記録した best
+checkpoint の path を `model.backbone_checkpoint_path=` で渡す。Stage 2 の変調箇所は
 `model.net.modulation_stages=[stage4,fc]` のように指定する。
 
 ## run directory の特定
@@ -54,6 +56,5 @@ python -c 'import json,sys; print(json.load(open(sys.argv[1]))["exit_code"])' \
 - `metrics/fit.json` は fit が正常終了した後にだけ書かれる。進行中は存在しない
 - `logs/` は run artifact 契約上の予約領域で、現在の `run.py` は書かない。実行中のログは controller log を見る
 - `checkpoints/` に `best_val_auroc_*.ckpt` と `last.ckpt` が出る。`val/auroc` が最良を更新したときだけ増える
-- two-stage は `stages/stage1/` と `stages/stage2/` の下に各 stage の `config.yaml`・`metrics`・
-  `checkpoints` を持つ。stage1 が失敗すると stage2 は実行されず、`run.json` の
-  `selected_checkpoint` は null のまま残る
+- 二段学習は段ごとに別 run directory を持つ。2 段目の `run.json` の `parent_run` が、読み込んだ
+  checkpoint の path・SHA-256 と 1 段目の run ID を持つ
