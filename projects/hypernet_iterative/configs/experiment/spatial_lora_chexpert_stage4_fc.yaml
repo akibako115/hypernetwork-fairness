@@ -1,0 +1,11 @@
+# @package _global_
+defaults:
+  - spatial_lora_chexpert
+  - _self_
+
+experiment_name: spatial-lora-iterative-chexpert-stage4-fc
+tags: [chexpert, spatial_lora, iterative, modulation_stage4_fc]
+model:
+  net:
+    # 最終 stage と分類ヘッドを変調する。stage3 を外して変調範囲を 1 段浅くした条件。
+    modulation_stages: [stage4, fc]

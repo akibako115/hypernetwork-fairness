@@ -123,3 +123,35 @@ def test_cohort_stage_config_matches_the_checkpoint_selection_group_it_declares(
 
         assert _checkpoint_callbacks(stage) == _checkpoint_callbacks(declared)
         assert stage.checkpoint_selection.name == declared.checkpoint_selection.name
+
+
+def test_modulation_presets_change_only_the_modulated_stages() -> None:
+    expected = {
+        "spatial_lora_chexpert_fc": ["fc"],
+        "spatial_lora_chexpert_stage4_fc": ["stage4", "fc"],
+    }
+    baseline = _compose()
+
+    for preset, stages in expected.items():
+        config = _compose(f"experiment={preset}")
+
+        assert list(config.model.net.modulation_stages) == stages
+        # 変調範囲以外は既定の preset と同じでなければ、条件の比較にならない。
+        assert config.model.net.rank == baseline.model.net.rank
+        assert config.model.net.backbone == baseline.model.net.backbone
+        assert config.model.backbone_checkpoint_path == baseline.model.backbone_checkpoint_path
+        assert config.weighting == baseline.weighting
+        assert instantiate(config.model) is not None
+
+
+def test_modulation_presets_reach_the_cohort_stage_config() -> None:
+    warmup = _compose("experiment=spatial_lora_chexpert_fc")
+
+    stage = workflow.cohort_stage_config(
+        warmup,
+        assignment_path=Path("assignments.parquet"),
+        checkpoint_path=Path("last.ckpt"),
+        reference_id="warmup",
+    )
+
+    assert list(stage.model.net.modulation_stages) == ["fc"]
