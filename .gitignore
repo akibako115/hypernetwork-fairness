@@ -156,18 +156,18 @@ checkpoints/*.pth
 .envrc
 .direnv/
 
-# Experiment packages
-# 仮説パッケージ（experiments/<slug>/）の重い実体は追跡しない。
+# Analysis packages
+# 分析パッケージ（analysis/<slug>/）の重い実体は追跡しない。
 # 成果物パッケージは README / runs.md / reports / figures / results を追跡する。
-# 構成と追跡境界の説明は experiments/README.md を参照する。
-/experiments/**/checkpoints/
-/experiments/**/outputs/
-/experiments/**/cache/
-/experiments/**/*.npz
-/experiments/**/*.pt
-/experiments/**/*.pth
+# 構成と追跡境界の説明は analysis/README.md を参照する。
+/analysis/**/checkpoints/
+/analysis/**/outputs/
+/analysis/**/cache/
+/analysis/**/*.npz
+/analysis/**/*.pt
+/analysis/**/*.pth
 # 上の *.png 一括除外を、レポートが参照する採用図だけ打ち消す。
-!/experiments/*/figures/**/*.png
+!/analysis/*/figures/**/*.png
 
 # Aim logging
 .aim
