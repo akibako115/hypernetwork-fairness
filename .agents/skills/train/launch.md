@@ -1,0 +1,59 @@
+# ローカル起動と監視
+
+Python・pytest・学習はすべて `uv run` 経由。長時間 run は detached で起動し、controller log を
+`run_logs/` に残す（`run_logs/` は .gitignore 済み）。
+
+## 起動
+
+```bash
+mkdir -p run_logs
+NAME="e2e_spatial_lora_erm_s42_$(date -u +%Y%m%dT%H%M%SZ)"
+nohup uv run python -m projects.hypernet_e2e.run \
+  experiment=spatial_lora_chexpert_erm seed=42 \
+  > "run_logs/${NAME}.log" 2>&1 < /dev/null &
+```
+
+- trailing `&` だけの foreground command を長時間 run に使わない。`nohup` と
+  `< /dev/null`、明示的な log 先を必ず付ける
+- tmux を使う場合: `tmux new -d -s "$NAME" "uv run python -m projects.hypernet_e2e.run ... 2>&1 | tee run_logs/${NAME}.log"`
+- controller log 名は run ID とは別物。衝突しない名前を選び、複数 seed で使い回さない
+- `DATA_FOLDER` や `CONDITION` のような env は渡さない。条件はすべて Hydra override で表す
+
+CPU で経路だけ確認する最小実行:
+
+```bash
+uv run python -m projects.hypernet_e2e.run \
+  trainer=cpu trainer.max_epochs=1 \
+  data.num_workers=0 data.persistent_workers=false data.prefetch_factor=null
+```
+
+two-stage は同じ形で `projects.hypernet_two_stage.run` を使う。Stage 2 の変調箇所は
+`model.net.modulation_stages=[stage4,fc]` のように指定する。
+
+## run directory の特定
+
+`run.py` は完了時に run directory を標準出力へ出すので、成功すれば controller log の末尾に残る。
+実行中は作成時刻で引く。
+
+```bash
+ls -1dt projects/hypernet_e2e/runs/*/ | head -3
+```
+
+並行起動した場合は、各 run の `config.yaml` の `seed` と `experiment_name` で対応を取る。
+run ID の suffix はランダムであり、対応付けの根拠にしない。
+
+## 監視
+
+```bash
+tail -f run_logs/<name>.log
+cat projects/hypernet_e2e/runs/<run-id>/run.json
+python -c 'import json,sys; print(json.load(open(sys.argv[1]))["exit_code"])' \
+  projects/hypernet_e2e/runs/<run-id>/preflight.json
+```
+
+- `metrics/fit.json` は fit が正常終了した後にだけ書かれる。進行中は存在しない
+- `logs/` は run artifact 契約上の予約領域で、現在の `run.py` は書かない。実行中のログは controller log を見る
+- `checkpoints/` に `best_val_auroc_*.ckpt` と `last.ckpt` が出る。`val/auroc` が最良を更新したときだけ増える
+- two-stage は `stages/stage1/` と `stages/stage2/` の下に各 stage の `config.yaml`・`metrics`・
+  `checkpoints` を持つ。stage1 が失敗すると stage2 は実行されず、`run.json` の
+  `selected_checkpoint` は null のまま残る
