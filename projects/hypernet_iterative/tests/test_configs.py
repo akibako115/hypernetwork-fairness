@@ -45,6 +45,7 @@ def test_cohort_stage_preset_connects_sidecar_group_dro_and_hidden_callbacks() -
         "cohort_metadata_kmeans",
     ]
     assert config.model.loss_fn.num_groups == config.cohort.num_groups
+    assert config.model.loss_fn.step_size == config.iteration.group_dro_step_size
     assert instantiate(config.model) is not None
 
 
@@ -61,7 +62,6 @@ def test_hidden_min_auroc_selection_adds_its_checkpoint() -> None:
 def test_cohort_stage_can_select_each_supported_group_objective() -> None:
     expected = {
         "group_dro": ("GroupDROTaskLoss", True),
-        "group_dro_balanced": ("ClassBalancedGroupDROTaskLoss", True),
         "uniform_group": ("UniformGroupTaskLoss", False),
         "uniform_group_iterative": ("UniformGroupTaskLoss", True),
     }
@@ -79,7 +79,7 @@ def test_cohort_stage_config_matches_the_training_strategy_group_it_declares(tmp
     `cohort_stage_config` は step_size などの数値を自前で持つため、`configs/training_strategy/`
     と二重定義になる。片方だけを変えたら落ちるように、ここで両者を比較する。
     """
-    for strategy in ("group_dro", "group_dro_balanced", "uniform_group", "uniform_group_iterative"):
+    for strategy in ("group_dro", "uniform_group", "uniform_group_iterative"):
         warmup = _compose(f"iteration.cohort_training_strategy={strategy}")
         stage = workflow.cohort_stage_config(
             warmup,

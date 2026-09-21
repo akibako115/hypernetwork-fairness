@@ -1,11 +1,3 @@
-"""hypernet_iterative の学習で使う目的関数を定義する。
-
-通常の cross-entropy に加え、固定 cohort への group 目的関数（uniform group / Group DRO /
-class-balanced Group DRO）を持つ。group を使う目的関数は ``attributes[group_key]`` に
-``[0, num_groups)`` の group ID を要求し、その供給と範囲検証は
-``data.cohort_datamodule.CohortImageDataModule`` が所有する。
-"""
-
 import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -43,6 +35,62 @@ def _class_weight_tensor(
     return weight
 
 
+def _group_class_weight_tensor(
+    class_weight: Sequence[Sequence[float]] | None,
+    *,
+    num_groups: int,
+) -> torch.Tensor | None:
+    """group 目的関数の class weight を検証して `[num_groups, num_classes]` の Tensor にする。
+
+    group 目的関数が受け取るのは `None` か group ごとの重みだけで、全 group 共通の
+    `[num_classes]` は受け取らない。共通の重みでは group loss がその group の陽性率に
+    依存したままになり、adversarial weight が「識別が難しい group」ではなく「陽性が多い
+    group」へ寄る。重みを掛けるなら group ごとに掛ける、を型で固定する。
+
+    group ごとに重みを変えるときは、標本平均 `sum_c f_{g,c} * w[g,c]`（`f_{g,c}` は group g
+    内のクラス c の比率）が group によらず一定でなければならない。一定でないと group loss の
+    尺度が group ごとに変わり、adversarial weight が group の難しさではなく尺度を追う。
+    `w[g,c] = 1 / (num_classes * f_{g,c})` はどの group でも標本平均が 1 になり、かつ group
+    loss の期待値が群内クラス平均 `mean_c mean_{i in (g,c)} loss_i` に一致する。
+
+    Args:
+        class_weight: `None`、または `[num_groups, num_classes]`
+        num_groups: 固定cohortのgroup数
+
+    Returns:
+        torch.Tensor | None: `[num_groups, num_classes]` の重み。`class_weight` が
+            `None` なら `None`
+
+    Raises:
+        ValueError: 空の場合、`[num_groups, num_classes]` の入れ子でない場合、行の長さが
+            揃っていない場合、行数が `num_groups` と違う場合、または有限の正値でない値を
+            含む場合。
+    """
+    if class_weight is None:
+        return None
+
+    rows = list(class_weight)
+    if not rows:
+        raise ValueError(f"class_weight must not be empty, got {rows}")
+    if not isinstance(rows[0], Sequence) or isinstance(rows[0], (str, bytes)):
+        raise ValueError(f"group 目的関数の class_weight は [num_groups, num_classes] である必要があるが、{rows} が指定された")
+
+    values = [list(row) for row in rows]
+    if len(values) != num_groups:
+        raise ValueError(f"group ごとの class_weight は {num_groups} 行である必要があるが、{len(values)} 行が指定された")
+    if len({len(row) for row in values}) != 1:
+        raise ValueError(f"group ごとの class_weight は全行が同じ長さである必要がある、got {[len(row) for row in values]}")
+    if not values[0]:
+        raise ValueError(f"class_weight must not be empty, got {values}")
+
+    weight = torch.tensor(values, dtype=torch.float32)
+    if not torch.isfinite(weight).all():
+        raise ValueError(f"class_weight must contain only finite values, got {values}")
+    if (weight <= 0).any():
+        raise ValueError(f"class_weight must contain only positive values, got {values}")
+    return weight
+
+
 class TaskLoss(nn.Module):
     """分類タスクの cross-entropy 学習目的を計算する。
 
@@ -54,7 +102,14 @@ class TaskLoss(nn.Module):
         self,
         class_weight: Sequence[float] | None = None,
     ):
-        """class_weight を buffer 化して保持する。"""
+        """class_weight を buffer 化して保持する。
+
+        Args:
+            class_weight: クラスごとのcross-entropy重み
+
+        Returns:
+            None
+        """
         super().__init__()
 
         class_w = _class_weight_tensor(class_weight)
@@ -72,16 +127,35 @@ class TaskLoss(nn.Module):
         """class_weight 付き cross-entropy loss を計算する。
 
         Args:
-            inputs: `logits` `[B, num_classes]`、`target` `[B]`、`attributes`（未使用）
+            inputs: logits・target・属性を持つ1バッチ分の入力
 
         Returns:
-            torch.Tensor: batch 平均の scalar loss
+            torch.Tensor: スカラーの loss
         """
         return F.cross_entropy(
             inputs.logits,
             inputs.target,
             weight=self._class_weight,
         )
+
+
+def _per_sample_loss(
+    logits: torch.Tensor,
+    target: torch.Tensor,
+    group_ids: torch.Tensor,
+    weight: torch.Tensor | None,
+) -> torch.Tensor:
+    """group ごとの class weight を掛けた per-sample cross-entropy を返す。
+
+    `F.cross_entropy(weight=...)` は全 group 共通の重みしか取れないため、重みは
+    cross-entropy の外で掛ける。`reduction="none"` の戻り値へ `w[y_i]` を掛けた値は
+    `F.cross_entropy(weight=...)` の per-sample 出力と一致するので、全 group 共通の
+    重みを渡したときの数値は従来と変わらない。
+    """
+    losses = F.cross_entropy(logits, target, reduction="none")
+    if weight is None:
+        return losses
+    return losses * weight[group_ids, target.long()]
 
 
 def _group_losses(
@@ -92,6 +166,10 @@ def _group_losses(
     group_key: str,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """全groupの平均loss（欠損groupは0）と観測マスクを返す。
+
+    平均の分母は group の**サンプル数**であり、重みの総和ではない。`class_weight` に
+    `1 / (num_classes * f_{g,c})` を渡したとき、この平均の期待値がちょうど群内クラス平均に
+    なるのはそのためである。
 
     group ID が [0, num_groups-1] に収まることは `CohortImageDataModule` がロード時に
     sidecar 全体へ対して検証済みのため、step ごとには再検証しない（`.any()` を Python の
@@ -109,63 +187,39 @@ def _group_losses(
     return group_losses, observed
 
 
-def _group_class_losses(
-    per_sample_loss: torch.Tensor,
-    group_ids: torch.Tensor,
-    target: torch.Tensor,
-    *,
-    num_groups: int,
-    num_classes: int,
-    group_key: str,
-) -> tuple[torch.Tensor, torch.Tensor]:
-    """(group, class) セルごとの平均lossと観測マスクを返す。
-
-    戻り値はどちらも `[num_groups, num_classes]`。未観測セルの平均lossは0で埋める。
-    group ID の範囲は `_group_losses` と同じく `CohortImageDataModule` がロード時に
-    検証済みのため、step ごとには再検証しない。
-    """
-    if group_ids.ndim != 1 or group_ids.shape != per_sample_loss.shape:
-        raise ValueError(f"attributes[{group_key!r}] must have shape [batch_size]")
-    cell_ids = group_ids * num_classes + target
-    totals = torch.zeros(num_groups * num_classes, device=per_sample_loss.device, dtype=per_sample_loss.dtype)
-    counts = torch.zeros_like(totals)
-    totals = totals.scatter_add(0, cell_ids, per_sample_loss)
-    counts.scatter_add_(0, cell_ids, torch.ones_like(per_sample_loss))
-    observed = counts > 0
-    cell_losses = torch.zeros_like(totals)
-    cell_losses[observed] = totals[observed] / counts[observed]
-    return cell_losses.view(num_groups, num_classes), observed.view(num_groups, num_classes)
-
-
-def _balanced_group_losses(cell_losses: torch.Tensor, observed: torch.Tensor) -> torch.Tensor:
-    """group内でクラス平均を取り、陽性率に依存しないgroup lossを返す。
-
-    観測されたクラスだけで平均するため、片方のクラスしか含まない batch では
-    そのクラスの平均lossがそのまま group loss になる。
-    """
-    present_classes = observed.sum(dim=1)
-    group_losses = torch.zeros(cell_losses.shape[0], device=cell_losses.device, dtype=cell_losses.dtype)
-    has_class = present_classes > 0
-    group_losses[has_class] = cell_losses.sum(dim=1)[has_class] / present_classes[has_class]
-    return group_losses
-
-
 class UniformGroupTaskLoss(nn.Module):
-    """観測されたgroupごとの平均cross-entropyを等重みで最適化する。"""
+    """観測されたgroupごとの平均cross-entropyを等重みで最適化する。
+
+    `class_weight` の解釈は `GroupDROTaskLoss` と同じで、`None` か group ごとの
+    `[num_groups, num_classes]` だけを受け取る。
+    """
 
     def __init__(
         self,
         num_groups: int,
-        class_weight: Sequence[float] | None = None,
+        class_weight: Sequence[Sequence[float]] | None = None,
         group_key: str = "group_id",
     ):
-        """num_groups・group_key を検証し、class_weight を buffer 化する。"""
+        """num_groups・group_key を検証し、class_weight を buffer 化する。
+
+        Args:
+            num_groups: 固定cohortのgroup数
+            class_weight: `None`、または group ごとの `[num_groups, num_classes]`
+            group_key: ObjectiveInput.attributes 内のグループIDのキー
+
+        Returns:
+            None
+
+        Raises:
+            ValueError: num_groups が 2 未満、group_key が空、または class_weight が
+                不正な場合。
+        """
         super().__init__()
         if num_groups < 2:
             raise ValueError(f"num_groups must be at least 2, got {num_groups}")
         if not group_key:
             raise ValueError("group_key must not be empty")
-        self.register_buffer("_class_weight", _class_weight_tensor(class_weight), persistent=False)
+        self.register_buffer("_class_weight", _group_class_weight_tensor(class_weight, num_groups=num_groups), persistent=False)
         self.num_groups = num_groups
         self.group_key = group_key
 
@@ -173,23 +227,15 @@ class UniformGroupTaskLoss(nn.Module):
         """観測されたgroupごとの平均lossを一様平均して返す。
 
         Args:
-            inputs: `logits` `[B, num_classes]`、`target` `[B]`、`attributes[group_key]` `[B]`
+            inputs: logits・target・group ID を含む属性を持つ1バッチ分の入力
 
         Returns:
-            torch.Tensor: batch に現れた group の平均 loss を等重みで平均した scalar
-
-        Raises:
-            ValueError: `attributes[group_key]` の shape が `[B]` でない場合。
+            torch.Tensor: スカラーの loss
         """
-        per_sample_loss = F.cross_entropy(
-            inputs.logits,
-            inputs.target,
-            weight=self._class_weight,
-            reduction="none",
-        )
+        group_ids = inputs.attributes[self.group_key].long()
         group_losses, observed = _group_losses(
-            per_sample_loss,
-            inputs.attributes[self.group_key].long(),
+            _per_sample_loss(inputs.logits, inputs.target, group_ids, self._class_weight),
+            group_ids,
             num_groups=self.num_groups,
             group_key=self.group_key,
         )
@@ -197,16 +243,45 @@ class UniformGroupTaskLoss(nn.Module):
 
 
 class GroupDROTaskLoss(nn.Module):
-    """固定hidden cohortに対するonline Group DROの学習目的を計算する。"""
+    """固定hidden cohortに対するonline Group DROの学習目的を計算する。
+
+    group loss は group ごとの重み付き平均 cross-entropy で、`class_weight` が
+    その意味を決める。
+
+    | class_weight | group loss | adversarial weight の寄り方 |
+    | --- | --- | --- |
+    | `None` | 素の平均 CE | group の陽性率とほぼ単調に対応するため、「識別が難しい group」ではなく「陽性が多い group」へ寄る |
+    | `[num_groups, num_classes]` | `w[g,c] = 1 / (C * f_{g,c})` なら期待値が群内クラス平均 | 陽性率依存が消える |
+
+    全 group 共通の `[num_classes]` は受け取らない。それでは陽性率依存が group 間に
+    残るためで、重みを掛けるなら group ごとに掛ける。group ごとの重みは cohort の構成から
+    決まるので、cohort を作り直すたびに解き直す。制約は `_group_class_weight_tensor` を参照する。
+    """
 
     def __init__(
         self,
         num_groups: int,
-        class_weight: Sequence[float] | None = None,
+        class_weight: Sequence[Sequence[float]] | None = None,
         step_size: float = 0.01,
         group_key: str = "group_id",
     ):
-        """num_groups・step_size・group_key を検証し、一様初期化した adv_probs buffer を作る。"""
+        """num_groups・step_size・group_key を検証し、一様初期化した adv_probs buffer を作る。
+
+        Args:
+            num_groups: 固定cohortのgroup数
+            class_weight: `None`、または group ごとの `[num_groups, num_classes]`
+            step_size: adversarial weightの指数勾配ステップ幅。group loss の大きさと
+                1 epoch あたりの step 数に合わせる。class weight を変えると group loss の
+                大きさも変わるため、独立に選べる値ではない
+            group_key: ObjectiveInput.attributes 内のグループIDのキー
+
+        Returns:
+            None
+
+        Raises:
+            ValueError: num_groups が 2 未満、step_size が非正または非有限、group_key が
+                空、または class_weight が不正な場合。
+        """
         super().__init__()
         if num_groups < 2:
             raise ValueError(f"num_groups must be at least 2, got {num_groups}")
@@ -215,7 +290,7 @@ class GroupDROTaskLoss(nn.Module):
         if not group_key:
             raise ValueError("group_key must not be empty")
         self.register_buffer("adv_probs", torch.full((num_groups,), 1.0 / num_groups))
-        self.register_buffer("_class_weight", _class_weight_tensor(class_weight), persistent=False)
+        self.register_buffer("_class_weight", _group_class_weight_tensor(class_weight, num_groups=num_groups), persistent=False)
         self.num_groups = num_groups
         self.step_size = float(step_size)
         self.group_key = group_key
@@ -223,134 +298,23 @@ class GroupDROTaskLoss(nn.Module):
     def forward(self, inputs: ObjectiveInput) -> torch.Tensor:
         """group lossでexponentiated gradient更新したadv_probsとの加重和を返す。
 
-        `adv_probs` は buffer なので、この呼び出しが状態を進める。勾配は更新側へ流さない。
-
         Args:
-            inputs: `logits` `[B, num_classes]`、`target` `[B]`、`attributes[group_key]` `[B]`
+            inputs: logits・target・group ID を含む属性を持つ1バッチ分の入力
 
         Returns:
-            torch.Tensor: 更新後の `adv_probs` と group loss の内積となる scalar
-
-        Raises:
-            ValueError: `attributes[group_key]` の shape が `[B]` でない場合。
+            torch.Tensor: スカラーの loss
         """
-        per_sample_loss = F.cross_entropy(
-            inputs.logits,
-            inputs.target,
-            weight=self._class_weight,
-            reduction="none",
-        )
+        group_ids = inputs.attributes[self.group_key].long()
         group_losses, _ = _group_losses(
-            per_sample_loss,
-            inputs.attributes[self.group_key].long(),
+            _per_sample_loss(inputs.logits, inputs.target, group_ids, self._class_weight),
+            group_ids,
             num_groups=self.num_groups,
             group_key=self.group_key,
         )
-        # exponentiated gradientでadv_probsを更新する（勾配はここに流さない）
+        # exponentiated gradientでadv_probsを更新する（勾配はここに流さない）。
+        # max を引いてから exp する。正規化後の値は同じで、overflow だけを避ける。
         with torch.no_grad():
-            updated = self.adv_probs * torch.exp(self.step_size * group_losses.detach())
+            shifted = group_losses.detach()
+            updated = self.adv_probs * torch.exp(self.step_size * (shifted - shifted.max()))
             self.adv_probs.copy_(updated / updated.sum())
         return torch.dot(self.adv_probs, group_losses)
-
-
-class ClassBalancedGroupDROTaskLoss(nn.Module):
-    """group内クラス平均lossに対するonline Group DROの学習目的を計算する。
-
-    `GroupDROTaskLoss` は group ごとの素の平均 cross-entropy を使うため、
-    group loss がその group の陽性率とほぼ単調に対応してしまい、adversarial weight が
-    「識別が難しい group」ではなく「陽性が多い group」へ集中する。ここでは group loss を
-    クラス平均 `mean_c mean_{i in (g,c)} loss_i` に置き換え、陽性率に依存しない量にする。
-
-    batch 単位では (group, class) セルの多くが空になる（陽性率が低い group ほど頻繁に空く）。
-    セルが空いた batch をそのまま使うと group loss が陰性側へ引かれ、陽性率依存が
-    別経路で復活するため、adversarial weight の更新には batch 横断の EMA を使う。
-    backward する目的関数側は、その batch に実在するセルだけで構成する。
-
-    Args:
-        num_groups: 固定cohortのgroup数
-        num_classes: 分類クラス数。(group, class) セルの構成に使う
-        class_weight: クラスごとのcross-entropy重み
-        step_size: adversarial weightの指数勾配ステップ幅
-        loss_ema_momentum: セル平均lossのEMA係数。セルが観測されたstepでのみ更新する
-        group_key: ObjectiveInput.attributes 内のグループIDのキー
-    """
-
-    def __init__(
-        self,
-        num_groups: int,
-        num_classes: int = 2,
-        class_weight: Sequence[float] | None = None,
-        step_size: float = 0.0001,
-        loss_ema_momentum: float = 0.01,
-        group_key: str = "group_id",
-    ):
-        """引数を検証し、adv_probs と (group, class) セル用のEMA buffer を初期化する。"""
-        super().__init__()
-        if num_groups < 2:
-            raise ValueError(f"num_groups must be at least 2, got {num_groups}")
-        if num_classes < 2:
-            raise ValueError(f"num_classes must be at least 2, got {num_classes}")
-        if not math.isfinite(step_size) or step_size <= 0:
-            raise ValueError(f"step_size must be finite and positive, got {step_size}")
-        if not 0.0 < loss_ema_momentum <= 1.0:
-            raise ValueError(f"loss_ema_momentum must be in (0, 1], got {loss_ema_momentum}")
-        if not group_key:
-            raise ValueError("group_key must not be empty")
-        self.register_buffer("adv_probs", torch.full((num_groups,), 1.0 / num_groups))
-        # EMA本体と、その累積重み。後者はbias補正（Adamのstep補正と同じ役割）に使う。
-        self.register_buffer("cell_loss_ema", torch.zeros(num_groups, num_classes))
-        self.register_buffer("cell_ema_weight", torch.zeros(num_groups, num_classes))
-        self.register_buffer("_class_weight", _class_weight_tensor(class_weight), persistent=False)
-        self.num_groups = num_groups
-        self.num_classes = num_classes
-        self.step_size = float(step_size)
-        self.loss_ema_momentum = float(loss_ema_momentum)
-        self.group_key = group_key
-
-    def _update_adversarial_weights(self, cell_losses: torch.Tensor, observed: torch.Tensor) -> None:
-        """観測セルのEMAを進め、bias補正済みのgroup lossでadversarial weightを更新する。"""
-        momentum = self.loss_ema_momentum * observed.to(self.cell_loss_ema.dtype)
-        self.cell_loss_ema.mul_(1.0 - momentum).add_(momentum * cell_losses)
-        self.cell_ema_weight.mul_(1.0 - momentum).add_(momentum)
-
-        seen = self.cell_ema_weight > 0
-        corrected = torch.zeros_like(self.cell_loss_ema)
-        corrected[seen] = self.cell_loss_ema[seen] / self.cell_ema_weight[seen]
-        smoothed = _balanced_group_losses(corrected, seen)
-
-        # max を引いてから exp する。正規化後の値は同じで、overflow だけを避ける。
-        updated = self.adv_probs * torch.exp(self.step_size * (smoothed - smoothed.max()))
-        self.adv_probs.copy_(updated / updated.sum())
-
-    def forward(self, inputs: ObjectiveInput) -> torch.Tensor:
-        """(group, class) セルのlossでadv_probsを更新し、balanced group lossとの加重和を返す。
-
-        `adv_probs` と セル平均 loss の EMA buffer は、この呼び出しが状態を進める。
-
-        Args:
-            inputs: `logits` `[B, num_classes]`、`target` `[B]`、`attributes[group_key]` `[B]`
-
-        Returns:
-            torch.Tensor: 更新後の `adv_probs` と、その batch に実在するセルだけで構成した
-                balanced group loss の内積となる scalar
-
-        Raises:
-            ValueError: `attributes[group_key]` の shape が `[B]` でない場合。
-        """
-        per_sample_loss = F.cross_entropy(
-            inputs.logits,
-            inputs.target,
-            weight=self._class_weight,
-            reduction="none",
-        )
-        cell_losses, observed = _group_class_losses(
-            per_sample_loss,
-            inputs.attributes[self.group_key].long(),
-            inputs.target.long(),
-            num_groups=self.num_groups,
-            num_classes=self.num_classes,
-            group_key=self.group_key,
-        )
-        with torch.no_grad():
-            self._update_adversarial_weights(cell_losses.detach(), observed)
-        return torch.dot(self.adv_probs, _balanced_group_losses(cell_losses, observed))

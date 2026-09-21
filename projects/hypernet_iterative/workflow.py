@@ -24,6 +24,9 @@ from .run_logging import log_stage, parent_wandb, text_log
 
 _REPOSITORY_ROOT = Path(__file__).parents[2]
 
+# class weight の有無。`inverse` の cohort stage は必ず group ごとの重みを使う。
+_WEIGHTING_MODES = ("none", "inverse")
+
 
 @dataclass(frozen=True)
 class Stage:
@@ -77,16 +80,20 @@ def reserve_parent_run(config: DictConfig) -> Path:
     raise RuntimeError("一意な parent run directory を予約できない")
 
 
-def _validate_iteration(config: DictConfig) -> None:
-    """反復計画の数値を、GPU 時間を使う前に検証する。
+def _validate_plan(config: DictConfig) -> None:
+    """run 全体の計画を、GPU 時間を使う前に検証する。
 
     `plan()` は `dry_run` からしか呼ばれないので、ここを `plan()` の中に置くと実 run では
     発火しない。`iteration.clusters` の打ち間違いは warmup fit を消費し切ったあと
     `cohorts.build.save_artifact` で初めて落ちる。`run_iterative()` も先頭でこれを呼ぶ。
+    `weighting` をここで見るのは、dry-run でも打ち間違いが出るようにするためである。
     """
     iteration = config.iteration
     if min(int(iteration.warmup_epochs), int(iteration.stage_epochs), int(iteration.stages), int(iteration.clusters), int(iteration.n_init)) < 1:
         raise ValueError("iteration counts must be positive")
+    weighting = str(config.get("weighting", "none"))
+    if weighting not in _WEIGHTING_MODES:
+        raise ValueError(f"unsupported weighting: {weighting}（{', '.join(_WEIGHTING_MODES)} のいずれか）")
 
 
 def plan(config: DictConfig) -> list[Stage]:
@@ -101,7 +108,7 @@ def plan(config: DictConfig) -> list[Stage]:
     Raises:
         ValueError: `iteration.*` のいずれかが 1 未満の場合。
     """
-    _validate_iteration(config)
+    _validate_plan(config)
     iteration = config.iteration
     result = [Stage("warmup", "fit")]
     for number in range(1, int(iteration.stages) + 1):
@@ -196,6 +203,7 @@ def cohort_stage_config(
     assignment_path: Path,
     checkpoint_path: Path,
     reference_id: str,
+    class_weight: list[list[float]] | None = None,
 ) -> DictConfig:
     """warmup config から、固定 cohort を使う次 stage の config を作る。
 
@@ -203,11 +211,13 @@ def cohort_stage_config(
     adversarial weight は子 process ごとに新しく構築される。
 
     Args:
-        warmup_config: warmup の解決済み設定。class weight もここから引き継ぐ
+        warmup_config: warmup の解決済み設定
         assignment_path: この stage が使う固定 cohort の `assignments.parquet`
         checkpoint_path: warm-start 元の checkpoint。strategy が warm-start に対応しない
             場合は設定しない
         reference_id: この cohort を生成した stage 名
+        class_weight: この cohort 向けに解いた `[clusters, num_classes]` の class weight。
+            `weighting=inverse` のときだけ渡す。warmup の全体重みは引き継がない
 
     Returns:
         DictConfig: cohort DataModule、group 目的関数、hidden cohort callback、
@@ -234,7 +244,6 @@ def cohort_stage_config(
     strategy_name = str(result.iteration.get("cohort_training_strategy", "group_dro"))
     strategy_target = {
         "group_dro": "projects.hypernet_iterative.loss.GroupDROTaskLoss",
-        "group_dro_balanced": "projects.hypernet_iterative.loss.ClassBalancedGroupDROTaskLoss",
         "uniform_group": "projects.hypernet_iterative.loss.UniformGroupTaskLoss",
         "uniform_group_iterative": "projects.hypernet_iterative.loss.UniformGroupTaskLoss",
     }.get(strategy_name)
@@ -243,17 +252,17 @@ def cohort_stage_config(
     # `uniform_group` と `uniform_group_iterative` は同じ目的関数で、warm-start の可否だけが違う。
     # 反復条件で前者を選ぶと各 stage が ImageNet 初期化からやり直しになり、GroupDRO 条件と
     # 比較できる対照でなくなるため、名前を分けて warm-start の許可を明示する。
-    supports_warm_start = strategy_name in {"group_dro", "group_dro_balanced", "uniform_group_iterative"}
+    supports_warm_start = strategy_name in {"group_dro", "uniform_group_iterative"}
+    # 群内クラス均衡は目的関数ではなく class weight で表す。`weighting=inverse` が cohort
+    # ごとに解いた `[clusters, num_classes]` を渡すと group loss が群内クラス平均になる。
     loss_config: dict[str, Any] = {
         "_target_": strategy_target,
         "num_groups": clusters,
-        "class_weight": result.model.loss_fn.get("class_weight"),
+        "class_weight": class_weight,
         "group_key": group_key,
     }
     if strategy_name == "group_dro":
-        loss_config["step_size"] = 0.01
-    elif strategy_name == "group_dro_balanced":
-        loss_config.update(num_classes=int(result.data.num_classes), step_size=0.0001, loss_ema_momentum=0.01)
+        loss_config["step_size"] = float(result.iteration.group_dro_step_size)
     OmegaConf.update(
         result,
         "training_strategy",
@@ -353,18 +362,74 @@ def write_preflight(run_dir: Path) -> None:
 
 
 def _resolve_inverse_class_weights(config: DictConfig) -> None:
-    """inverse weighting 時に train split から class weight を設定する。
+    """`weighting=inverse` のとき warmup が使う全体 class weight を設定する。
 
-    parent run の予約より前に解決する。`cohort_stage_config` は warmup config の
-    `model.loss_fn.class_weight` をそのまま次 stage へ渡すので、解決先はここ1箇所に保つ。
+    parent run の予約より前に解決する。ここで解くのは warmup の重みだけである。warmup に
+    cohort は無いので全 train split の逆頻度を使い、cohort stage の重みは
+    `resolve_group_class_weights` が cohort ごとに解き直す。cohort stage で全 group 共通の
+    重みを使う条件は持たない（group loss に陽性率依存が残るため）。
+
+    Args:
+        config: 解決対象の設定。`model.loss_fn.class_weight` を書き換える
+
+    Returns:
+        None
     """
-    if config.get("weighting", "none") != "inverse":
+    if str(config.get("weighting", "none")) != "inverse":
         return
     frame = pd.read_csv(Path(str(config.data.cv_splits_dir)) / "train.csv")
     labels = [int(value) for value in frame["target"]]
     num_classes = int(config.data.num_classes)
     weights = _inverse_frequency_weights(labels, num_classes)
     OmegaConf.update(config, "model.loss_fn.class_weight", weights, merge=False)
+
+
+def resolve_group_class_weights(config: DictConfig, assignment_path: Path) -> list[list[float]]:
+    """固定 cohort の train 行から `w[g,c] = 1 / (C * f_{g,c})` を解く。
+
+    この重みを group 目的関数へ渡すと group loss の期待値が群内クラス平均になり、group の
+    陽性率に依存しなくなる。群ごとに重みを解くので cohort を作り直すたびに解き直す。
+
+    正規化しない生の `1 / (C * f_{g,c})` を返す。group ごとにさらに正規化すると group loss
+    の尺度が group ごとに変わり、adversarial weight が難しさではなく尺度を追う。全体に同じ
+    定数を掛ける正規化は AdamW では効果が無いので入れない。
+
+    Args:
+        config: `data.cv_splits_dir`・`data.num_classes`・`iteration.clusters` を持つ設定
+        assignment_path: この stage が使う cohort の `assignments.parquet`
+
+    Returns:
+        list[list[float]]: `[clusters, num_classes]` の class weight
+
+    Raises:
+        ValueError: train 行が cohort sidecar と1対1で対応しない場合、group ID や target が
+            範囲外の場合、または空の (group, class) セルがある場合。空セルは重みが発散する
+            ので、黙って落とさずここで止める。
+    """
+    clusters = int(config.iteration.clusters)
+    num_classes = int(config.data.num_classes)
+    assignments = pd.read_parquet(assignment_path)
+    assignments = assignments[assignments["split"] == "train"]
+    targets = pd.read_csv(Path(str(config.data.cv_splits_dir)) / "train.csv", usecols=["image", "target"])
+    merged = targets.merge(assignments[["image", "group_id"]], on="image", how="inner")
+    if len(merged) != len(targets):
+        raise ValueError(f"train split の {len(targets)} 行に対し cohort sidecar と対応したのは {len(merged)} 行")
+
+    counts = [[0] * num_classes for _ in range(clusters)]
+    for (group_id, target), size in merged.groupby(["group_id", "target"]).size().items():
+        if not 0 <= int(group_id) < clusters:
+            raise ValueError(f"group_id は [0, {clusters - 1}] である必要があるが、{int(group_id)} が現れた")
+        if not 0 <= int(target) < num_classes:
+            raise ValueError(f"target は [0, {num_classes - 1}] である必要があるが、{int(target)} が現れた")
+        counts[int(group_id)][int(target)] = int(size)
+
+    weights = []
+    for group_id, row in enumerate(counts):
+        if min(row) == 0:
+            raise ValueError(f"cohort group {group_id} に空の (group, class) セルがある: {row}")
+        total = sum(row)
+        weights.append([round(total / (num_classes * cell), 6) for cell in row])
+    return weights
 
 
 def _inverse_frequency_weights(labels: list[int], num_classes: int) -> list[float]:
@@ -382,6 +447,17 @@ def _inverse_frequency_weights(labels: list[int], num_classes: int) -> list[floa
     return [round(weight / mean_weight, 6) for weight in raw_weights]
 
 
+def _group_class_weight_for_stage(config: DictConfig, assignment_path: Path) -> list[list[float]] | None:
+    """`weighting=inverse` のときだけ、この cohort 向けの class weight を解く。
+
+    warmup の全体重みは cohort stage へ引き継がない。group 目的関数に共通の重みを渡すと
+    group loss が陽性率に依存したままになるため、cohort があるなら必ず group ごとに解く。
+    """
+    if str(config.get("weighting", "none")) != "inverse":
+        return None
+    return resolve_group_class_weights(config, assignment_path)
+
+
 def run_iterative(config: DictConfig) -> Path:
     """warmup → cohort 再生成 → warm-start stage を指定回数だけ実行する。
 
@@ -389,8 +465,9 @@ def run_iterative(config: DictConfig) -> Path:
     `run.json` には失敗として確定した状態が残る。
 
     Args:
-        config: `iteration.*` を含む解決済み設定。`weighting=inverse` ならここで class
-            weight を解決し、全 stage へ配る
+        config: `iteration.*` を含む解決済み設定。`weighting=inverse` なら warmup の全体
+            class weight をここで解き、cohort stage の重みは cohort を作り直すたびに group
+            ごとに解き直す
 
     Returns:
         Path: 親 run directory
@@ -399,7 +476,7 @@ def run_iterative(config: DictConfig) -> Path:
         ValueError: `iteration.*` のいずれかが 1 未満の場合。
         RuntimeError: golden preflight に失敗した場合。
     """
-    _validate_iteration(config)
+    _validate_plan(config)
     _resolve_inverse_class_weights(config)
     run_dir = reserve_parent_run(config)
     record_path = run_dir / "run.json"
@@ -437,6 +514,7 @@ def run_iterative(config: DictConfig) -> Path:
                     assignment_path=assignment_path,
                     checkpoint_path=checkpoint_path,
                     reference_id=cohort_name,
+                    class_weight=_group_class_weight_for_stage(warmup, assignment_path),
                 )
                 result = run_stage(stage_config, run_dir / "stages" / stage_name)
                 record["stages"][stage_name] = result

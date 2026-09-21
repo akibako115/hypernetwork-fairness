@@ -19,7 +19,7 @@ def _config(tmp_path: Path):
             "model": {"loss_fn": {"_target_": "unused"}, "attribute_names": {}},
             "callbacks": {"model_checkpoint": {}},
             "trainer": {"max_epochs": 1},
-            "iteration": {"warmup_epochs": 1, "stage_epochs": 2, "stages": 2, "clusters": 2, "n_init": 1},
+            "iteration": {"warmup_epochs": 1, "stage_epochs": 2, "stages": 2, "clusters": 2, "n_init": 1, "group_dro_step_size": 0.01},
         }
     )
 
@@ -122,7 +122,7 @@ def test_data_manifest_records_all_splits_and_input_identity(tmp_path: Path) -> 
 
 def test_cohort_stage_config_supports_the_declared_strategy_and_selection(tmp_path: Path) -> None:
     config = _config(tmp_path)
-    config.iteration.cohort_training_strategy = "group_dro_balanced"
+    config.iteration.cohort_training_strategy = "group_dro"
     config.iteration.cohort_checkpoint_selection = "hidden_min_auroc"
 
     stage = workflow.cohort_stage_config(
@@ -132,43 +132,33 @@ def test_cohort_stage_config_supports_the_declared_strategy_and_selection(tmp_pa
         reference_id="warmup",
     )
 
-    assert stage.model.loss_fn._target_.endswith("ClassBalancedGroupDROTaskLoss")
-    assert stage.model.loss_fn.num_classes == 2
+    assert stage.model.loss_fn._target_.endswith("GroupDROTaskLoss")
+    assert stage.model.loss_fn.step_size == config.iteration.group_dro_step_size
     assert stage.checkpoint_selection.name == "hidden_min_auroc"
     assert stage.callbacks.hidden_min_auroc_checkpoint.monitor == "val/hidden_min_auroc"
 
 
-def test_inverse_weighting_resolves_the_class_weight_once_and_carries_it_into_every_stage(tmp_path: Path, monkeypatch) -> None:
-    split_dir = tmp_path / "splits"
-    split_dir.mkdir()
-    (split_dir / "train.csv").write_text("image,target\na.png,0\nb.png,1\nc.png,1\nd.png,1\n")
+def test_cohort_stage_does_not_inherit_the_warmup_class_weight(tmp_path: Path) -> None:
+    """warmup の全体重みは cohort stage へ渡らない。渡ると陽性率依存が残る。"""
     config = _config(tmp_path)
-    config.weighting = "inverse"
-    config.data.cv_splits_dir = str(split_dir)
-    observed_stages = []
+    config.model.loss_fn.class_weight = [0.201358, 1.798642]
 
-    def fake_run_stage(stage_config, stage_dir):
-        observed_stages.append(stage_config)
-        checkpoint = tmp_path / f"{stage_dir.name}.ckpt"
-        checkpoint.touch()
-        return {"metrics": {}, "checkpoints": {"val/auroc": {"path": str(checkpoint)}}}
+    inherited = workflow.cohort_stage_config(
+        config,
+        assignment_path=tmp_path / "assignments.parquet",
+        checkpoint_path=tmp_path / "reference.ckpt",
+        reference_id="warmup",
+    )
+    solved = workflow.cohort_stage_config(
+        config,
+        assignment_path=tmp_path / "assignments.parquet",
+        checkpoint_path=tmp_path / "reference.ckpt",
+        reference_id="warmup",
+        class_weight=[[0.6, 3.0], [0.55, 5.5]],
+    )
 
-    def fake_build_cohort(stage_config, *, checkpoint_path, reference_id, output_dir):
-        output_dir.mkdir(parents=True)
-        assignment = output_dir / "assignments.parquet"
-        assignment.touch()
-        return assignment
-
-    monkeypatch.setattr(workflow, "run_stage", fake_run_stage)
-    monkeypatch.setattr(workflow, "build_cohort", fake_build_cohort)
-    monkeypatch.setattr(workflow, "write_data_manifest", lambda *_: None)
-    monkeypatch.setattr(workflow, "write_preflight", lambda *_: None)
-
-    run_dir = workflow.run_iterative(config)
-
-    assert [list(stage.model.loss_fn.class_weight) for stage in observed_stages] == [[1.5, 0.5]] * 3
-    # 親 run の config.yaml も解決済みの重みを持つ。後から run を読む側が再計算しなくてよい。
-    assert list(OmegaConf.load(run_dir / "config.yaml").model.loss_fn.class_weight) == [1.5, 0.5]
+    assert inherited.model.loss_fn.class_weight is None
+    assert OmegaConf.to_container(solved.model.loss_fn.class_weight) == [[0.6, 3.0], [0.55, 5.5]]
 
 
 def test_inverse_frequency_weights_reject_missing_class_and_matches_old_normalization() -> None:
@@ -183,3 +173,94 @@ def test_weighting_none_leaves_the_class_weight_untouched(tmp_path: Path) -> Non
     workflow._resolve_inverse_class_weights(config)
 
     assert "class_weight" not in config.model.loss_fn
+
+
+def _cohort_split(tmp_path: Path, *, targets: list[int], groups: list[int]) -> tuple[Path, Path]:
+    """train.csv と同じ image 列を持つ cohort sidecar を書き出す。"""
+    import pandas as pd
+
+    split_dir = tmp_path / "splits"
+    split_dir.mkdir(exist_ok=True)
+    images = [f"{index}.png" for index in range(len(targets))]
+    pd.DataFrame({"image": images, "target": targets}).to_csv(split_dir / "train.csv", index=False)
+    assignment_path = tmp_path / "assignments.parquet"
+    pd.DataFrame({"split": ["train"] * len(images), "image": images, "group_id": groups}).to_parquet(assignment_path)
+    return split_dir, assignment_path
+
+
+def test_group_class_weights_are_the_inverse_of_each_cohort_cell_frequency(tmp_path: Path) -> None:
+    """w[g, c] = 1 / (C * f_{g,c})。group 内で標本平均が 1 になるので group 間の尺度が揃う。"""
+    split_dir, assignment_path = _cohort_split(
+        tmp_path,
+        targets=[0, 0, 1, 1, 0, 0, 0, 1],
+        groups=[0, 0, 0, 0, 1, 1, 1, 1],
+    )
+    config = _config(tmp_path)
+    config.data.cv_splits_dir = str(split_dir)
+
+    weights = workflow.resolve_group_class_weights(config, assignment_path)
+
+    # group 0 は 2陰性 + 2陽性、group 1 は 3陰性 + 1陽性。
+    assert weights == [[1.0, 1.0], [0.666667, 2.0]]
+
+
+def test_group_class_weights_reject_an_empty_cohort_cell(tmp_path: Path) -> None:
+    """空セルは重みが発散する。黙って落とさず、学習を始める前に止める。"""
+    split_dir, assignment_path = _cohort_split(
+        tmp_path,
+        targets=[0, 0, 1, 1, 0, 0, 0, 0],
+        groups=[0, 0, 0, 0, 1, 1, 1, 1],
+    )
+    config = _config(tmp_path)
+    config.data.cv_splits_dir = str(split_dir)
+
+    with pytest.raises(ValueError, match="空の \\(group, class\\) セル"):
+        workflow.resolve_group_class_weights(config, assignment_path)
+
+
+def test_inverse_weighting_resolves_a_group_weight_for_every_cohort(tmp_path: Path, monkeypatch) -> None:
+    """cohort を作り直すたびに group ごとの重みを解き直し、warmup だけ全体重みを使う。"""
+    split_dir, assignment_path = _cohort_split(
+        tmp_path,
+        targets=[0, 0, 1, 1, 0, 0, 0, 1],
+        groups=[0, 0, 0, 0, 1, 1, 1, 1],
+    )
+    config = _config(tmp_path)
+    config.weighting = "inverse"
+    config.data.cv_splits_dir = str(split_dir)
+    observed_stages = []
+
+    def fake_run_stage(stage_config, stage_dir):
+        observed_stages.append(stage_config)
+        checkpoint = tmp_path / f"{stage_dir.name}.ckpt"
+        checkpoint.touch()
+        return {"metrics": {}, "checkpoints": {"val/auroc": {"path": str(checkpoint)}}}
+
+    def fake_build_cohort(stage_config, *, checkpoint_path, reference_id, output_dir):
+        output_dir.mkdir(parents=True)
+        return assignment_path
+
+    monkeypatch.setattr(workflow, "run_stage", fake_run_stage)
+    monkeypatch.setattr(workflow, "build_cohort", fake_build_cohort)
+    monkeypatch.setattr(workflow, "write_data_manifest", lambda *_: None)
+    monkeypatch.setattr(workflow, "write_preflight", lambda *_: None)
+
+    run_dir = workflow.run_iterative(config)
+
+    warmup, *stages = [OmegaConf.to_container(stage.model.loss_fn.class_weight) for stage in observed_stages]
+    assert warmup == [0.75, 1.25]
+    assert stages == [[[1.0, 1.0], [0.666667, 2.0]]] * 2
+    # 親 run の config.yaml も解決済みの重みを持つ。後から run を読む側が再計算しなくてよい。
+    assert list(OmegaConf.load(run_dir / "config.yaml").model.loss_fn.class_weight) == [0.75, 1.25]
+
+
+@pytest.mark.parametrize("entry_point", [workflow.plan, workflow.run_iterative])
+def test_unsupported_weighting_is_rejected_by_the_dry_run_and_the_real_run(tmp_path: Path, entry_point) -> None:
+    """dry-run でも打ち間違いが出ること。実 run では run directory を作る前に落ちること。"""
+    config = _config(tmp_path)
+    config.weighting = "balanced"
+
+    with pytest.raises(ValueError, match="unsupported weighting"):
+        entry_point(config)
+
+    assert not (tmp_path / "runs").exists()

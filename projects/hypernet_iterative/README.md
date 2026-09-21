@@ -66,14 +66,31 @@ callbacks/      # metrics、fairness、hidden cohort 指標、GroupDRO diagnosti
 | `iteration.stage_epochs` | 各 cohort stage の epoch 数 |
 | `iteration.clusters` | KMeans の k。cohort の group 数の正本 |
 | `iteration.n_init` | KMeans の初期化回数 |
-| `iteration.cohort_training_strategy` | `group_dro` / `group_dro_balanced` / `uniform_group_iterative`（`uniform_group` は warm-start なし） |
+| `iteration.cohort_training_strategy` | `group_dro` / `uniform_group_iterative`（`uniform_group` は warm-start なし） |
+| `iteration.group_dro_step_size` | GroupDRO の adversarial weight の指数勾配ステップ幅 |
 | `iteration.cohort_checkpoint_selection` | `global_auroc_bacc` / `hidden_min_auroc` |
 
-class weight は run 単位のつまみです。`weighting=inverse` を `workflow._resolve_inverse_class_weights()`
-が train split から1度だけ解決し、`cohort_stage_config()` が全 stage へそのまま配ります。stage ごとに
-別の重みを与える口はありません。`group_dro_balanced` は group loss を群内クラス平均へ置き換えて
-陽性率依存を取り除く目的関数なので、共通の class weight と併用できません（`weighting=none` で実行し、
-`validate_training_config()` が組み合わせを弾きます）。
+class weight は `weighting` が持ち、条件は2つだけです。群内クラス均衡は別の目的関数ではなく、
+この重みで表します。
+
+| `weighting` | warmup | 各 cohort stage | group loss |
+| --- | --- | --- | --- |
+| `none` | 重みなし | 重みなし | 素の平均 CE。group の陽性率とほぼ単調に対応する |
+| `inverse` | train split の逆頻度 | cohort ごとに `w[g,c] = 1 / (C * f_{g,c})` | 期待値が群内クラス平均。陽性率に依存しない |
+
+**group 目的関数は全 group 共通の `[num_classes]` を受け取りません。**共通の重みでは group loss が
+その group の陽性率に依存したままで、adversarial weight が「識別が難しい group」ではなく「陽性が
+多い group」へ寄ります。重みを掛けるなら group ごとに掛ける、を loss の型と
+`validate_training_config()` の両方で固定しています。
+
+warmup の重みは `workflow._resolve_inverse_class_weights()` が parent run の予約前に解きます
+（warmup に cohort は無いので全 train split の逆頻度）。cohort stage の重みは cohort の構成から
+決まるので、`workflow.resolve_group_class_weights()` が cohort を作り直すたびに解き直します。
+warmup の全体重みを cohort stage へ引き継ぐことはありません。
+
+group ごとに重みを変えるときは、標本平均が group によらず一定でなければなりません。一定でないと
+group loss の尺度が group ごとに変わり、adversarial weight が group の難しさではなく尺度を追います。
+`1 / (C * f_{g,c})` はどの group でも標本平均が 1 になります。group ごとにさらに正規化しません。
 
 parent run が実際に使う cohort stage の設定は、`workflow.cohort_stage_config()` が warmup の
 解決済み config と `iteration.*` から組み立てます。`configs/training_strategy/`、
@@ -143,8 +160,6 @@ epoch ごとの metric は parent run が持つ 1 つの W&B run（project `fair
 実装側の規約（docstring・コメント、workflow の責務分担）は [AGENTS.md](AGENTS.md) を
 正本とします。
 
-`weighting: inverse` のとき、`workflow.py` が parent run を予約する前に train split の target
-頻度から class weight を解決し、warmup と全 cohort stage が同じ値を使います。
 
 ## テスト
 

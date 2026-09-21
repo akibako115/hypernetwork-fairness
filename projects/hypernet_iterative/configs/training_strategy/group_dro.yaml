@@ -1,4 +1,7 @@
 # @package _global_
+
+# 群内クラス均衡は別の目的関数ではなく class weight の形で表す。`weighting=group_inverse` の
+# とき、workflow が cohort ごとに解いた [clusters, num_classes] の重みをここへ入れる。
 training_strategy:
   name: group_dro
   uses_cohort_group_id: true
@@ -8,5 +11,5 @@ model:
     _target_: projects.hypernet_iterative.loss.GroupDROTaskLoss
     num_groups: ${cohort.num_groups}
     class_weight: null
-    step_size: 0.01
+    step_size: ${iteration.group_dro_step_size}
     group_key: ${cohort.group_key}

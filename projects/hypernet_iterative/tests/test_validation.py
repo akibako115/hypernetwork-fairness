@@ -8,7 +8,7 @@ from projects.hypernet_iterative.validation import validate_training_config
 
 def _config(**overrides: object):
     config = {
-        "cohort": {"name": "metadata_kmeans"},
+        "cohort": {"name": "metadata_kmeans", "num_groups": 3},
         "data": {"group_assignment_path": "assignments.parquet"},
         "trainer": {"devices": 1, "num_nodes": 1},
         "model": {"warm_start_checkpoint_path": None},
@@ -39,21 +39,39 @@ def test_validation_rejects_warm_start_for_unsupported_strategy(tmp_path) -> Non
         validate_training_config(config)
 
 
-def test_validation_rejects_class_weight_under_the_class_balanced_objective() -> None:
+def test_validation_rejects_a_group_class_weight_solved_for_another_cohort() -> None:
+    """行数が cohort の group 数と合わない重みは、別 cohort 向けに解いたものである。"""
     config = _config(
-        model={"warm_start_checkpoint_path": None, "loss_fn": {"class_weight": [0.201358, 1.798642]}},
-        training_strategy={"name": "group_dro_balanced", "uses_cohort_group_id": True, "supports_warm_start": True},
+        model={"warm_start_checkpoint_path": None, "loss_fn": {"class_weight": [[1.0, 2.0], [1.0, 2.0]]}},
     )
 
-    with pytest.raises(ValueError, match="class_weight と併用できない"):
+    with pytest.raises(ValueError, match="3 行である必要がある"):
         validate_training_config(config)
 
 
-def test_validation_accepts_the_class_balanced_objective_without_class_weight() -> None:
+def test_validation_rejects_a_group_class_weight_without_a_cohort() -> None:
     config = _config(
-        model={"warm_start_checkpoint_path": None, "loss_fn": {"class_weight": None}},
-        training_strategy={"name": "group_dro_balanced", "uses_cohort_group_id": True, "supports_warm_start": True},
+        cohort=None,
+        data={"group_assignment_path": None},
+        training_strategy=None,
+        model={"warm_start_checkpoint_path": None, "loss_fn": {"class_weight": [[1.0, 2.0], [1.0, 2.0], [1.0, 2.0]]}},
     )
+
+    with pytest.raises(ValueError, match="cohort を使う stage でのみ"):
+        validate_training_config(config)
+
+
+def test_validation_rejects_a_class_weight_shared_by_every_group_on_a_cohort_stage() -> None:
+    """cohort stage で共通の重みを使うと group loss に陽性率依存が残る。"""
+    config = _config(model={"warm_start_checkpoint_path": None, "loss_fn": {"class_weight": [0.201358, 1.798642]}})
+
+    with pytest.raises(ValueError, match="group ごとの"):
+        validate_training_config(config)
+
+
+@pytest.mark.parametrize("class_weight", [None, [[1.0, 2.0], [1.0, 2.0], [1.0, 2.0]]])
+def test_validation_accepts_every_supported_class_weight_shape(class_weight) -> None:
+    config = _config(model={"warm_start_checkpoint_path": None, "loss_fn": {"class_weight": class_weight}})
 
     validate_training_config(config)
 

@@ -25,8 +25,9 @@
 `cohort.json` に参照 checkpoint の絶対 path と SHA-256、KMeans の設定、group 数を記録し、`assignments.parquet` を
 後続 stage の固定 cohort DataModule へ渡す。optimizer、scheduler、GroupDRO の内部状態は stage をまたいで引き継がない。
 
-`iteration.cohort_training_strategy` は `group_dro`、`group_dro_balanced`、`uniform_group_iterative`、
-`uniform_group` を選べる。`uniform_group` だけは warm-start を持たず、各 stage が backbone の初期化から
-やり直す。反復の対照には `uniform_group_iterative` を使う。`group_dro_balanced` は `weighting=none` と
-組み合わせる。
+`iteration.cohort_training_strategy` は `group_dro`、`uniform_group_iterative`、`uniform_group` を
+選べる。`uniform_group` だけは warm-start を持たず、各 stage が backbone の初期化からやり直す。
+反復の対照には `uniform_group_iterative` を使う。群内クラス均衡は目的関数ではなく `weighting` で選ぶ。
+`weighting=inverse` の cohort stage は必ず group ごとの重みを使い、その重みは cohort ごとに
+解き直すため stage の `config.yaml` に `[clusters, num_classes]` の実数として残る。
 `iteration.cohort_checkpoint_selection` は `global_auroc_bacc` または `hidden_min_auroc` を選べる。
