@@ -62,6 +62,10 @@ uv run python -m projects.hypernet_e2e.run trainer=cpu trainer.max_epochs=1 data
 
 デフォルトは GPU trainer と Spatial LoRA ERM です。`experiment=` で比較条件を選べます。
 
+epoch ごとの metric は既定で wandb（project `fairness_hypernet_e2e`）へ送ります。送信せずに
+試すときは `logger=none` を付けます。実行ログは run ごとに `logs/train.log` へ残るため、
+repository root に共有の log file は作りません。
+
 ## 出力の保存先
 
 実データは repo 直下の `data/chexpert/` に置き、学習出力は

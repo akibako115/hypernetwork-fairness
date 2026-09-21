@@ -32,4 +32,8 @@ uv run python -m projects.hypernet_two_stage.run
 
 Stage 2 の変調箇所は `model.net.modulation_stages=[stage4,fc]` のように指定します。
 
+epoch ごとの metric は既定で wandb（project `fairness_hypernet_two_stage`）へ stage ごとに
+別 run として送ります。送信せずに試すときは `logger=none` を付けます。実行ログは親 run の
+`logs/train.log` に両 stage 分をまとめて残すため、repository root に共有の log file は作りません。
+
 出力の path と必須記録は [run artifact 契約](docs/run-artifacts.md) を参照してください。

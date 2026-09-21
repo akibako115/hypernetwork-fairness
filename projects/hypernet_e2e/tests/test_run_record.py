@@ -82,3 +82,26 @@ def test_preflight_failure_keeps_failed_run(tmp_path: Path, monkeypatch) -> None
 
     run_record = next((tmp_path / "project" / "runs").glob("*/run.json"))
     assert json.loads(run_record.read_text())["status"] == "failed"
+
+
+def test_prepare_fit_points_the_experiment_logger_at_the_reserved_run(tmp_path: Path, monkeypatch) -> None:
+    def fake_run(command: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+        if command[0] == "git":
+            return subprocess.CompletedProcess(command, 0, stdout="deadbeef\n", stderr="")
+        return subprocess.CompletedProcess(command, 0, stdout="1 passed\n", stderr="")
+
+    monkeypatch.setattr("projects.hypernet_e2e.run_record.subprocess.run", fake_run)
+    config = _config(tmp_path)
+    OmegaConf.update(config, "logger", {"wandb": {"save_dir": None, "name": None}}, merge=False)
+
+    recorder = RunRecorder.prepare_fit(config, project_dir=tmp_path / "project")
+
+    assert config.logger.wandb.save_dir == str(recorder.run_dir)
+    assert config.logger.wandb.name == recorder.run_dir.name
+    assert f"save_dir: {recorder.run_dir}" in (recorder.run_dir / "config.yaml").read_text()
+    assert json.loads((recorder.run_dir / "run.json").read_text())["loggers"] == []
+
+    reference = {"logger": "WandbLogger", "id": "abc123", "name": "run-name", "url": "https://wandb.ai/run"}
+    recorder.record_loggers([reference])
+
+    assert json.loads((recorder.run_dir / "run.json").read_text())["loggers"] == [reference]

@@ -35,6 +35,7 @@
 | run ID 内の experiment 部 | 小文字 `kebab-case` | `spatial-lora-chexpert` |
 | run ID | `<UTC>-<experiment>-s<seed>-<suffix>` | `20260918T101530Z-spatial-lora-erm-s42-a1b2` |
 | run 内の固定 directory | 小文字の複数形 | `logs/`、`metrics/`、`checkpoints/`、`artifacts/` |
+| wandb run 名 | run ID をそのまま使う | `20260918T101530Z-spatial-lora-erm-s42-a1b2` |
 | cohort artifact | recipe を表す短い `snake_case`、または意味のあるパラメータ名 | `demographic_groups`、`k15` |
 
 run ID の UTC 時刻は `YYYYMMDDTHHMMSSZ`、seed がない生成処理は `snone` とする。ランダム

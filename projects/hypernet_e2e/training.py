@@ -16,6 +16,7 @@ from hydra.utils import instantiate
 from lightning import Callback, LightningDataModule, LightningModule, Trainer
 from omegaconf import DictConfig, OmegaConf
 
+from projects.hypernet_e2e.run_logging import as_trainer_loggers, experiment_loggers, logger_references, text_log
 from projects.hypernet_e2e.run_record import RunRecorder
 from projects.hypernet_e2e.runtime_paths import normalize_runtime_paths
 
@@ -24,7 +25,8 @@ def run_fit(config: DictConfig) -> Path:
     """解決済み設定から新規 run を記録し、一回だけ Lightning ``fit`` を実行する。
 
     ``weighting=inverse`` の場合、train split の target 頻度から class weight を計算して config に
-    反映する。fit に成功すれば scalar callback metrics を
+    反映する。実行ログは ``logs/train.log``、epoch ごとの metric は ``logger`` group が指す
+    experiment logger が持ち、fit に成功すれば最終の scalar callback metrics を
     ``metrics/fit.json`` と ``run.json`` に保存する。既存 run の再開・test 実行・stage 制御は
     この入口の責務に含めない。
     """
@@ -32,22 +34,24 @@ def run_fit(config: DictConfig) -> Path:
     _resolve_inverse_class_weights(config)
     recorder = RunRecorder.prepare_fit(config)
     try:
-        if config.get("seed") is not None:
-            L.seed_everything(config.seed, workers=True)
+        with text_log(recorder.run_dir / "logs"), experiment_loggers(config) as loggers:
+            recorder.record_loggers(logger_references(loggers))
+            if config.get("seed") is not None:
+                L.seed_everything(config.seed, workers=True)
 
-        datamodule: LightningDataModule = instantiate(config.data)
-        model: LightningModule = instantiate(config.model)
-        callbacks = _instantiate_callbacks(config.get("callbacks"))
-        trainer: Trainer = instantiate(
-            config.trainer,
-            callbacks=callbacks,
-            logger=False,
-            default_root_dir=str(recorder.run_dir),
-        )
-        trainer.fit(model=model, datamodule=datamodule)
+            datamodule: LightningDataModule = instantiate(config.data)
+            model: LightningModule = instantiate(config.model)
+            callbacks = _instantiate_callbacks(config.get("callbacks"))
+            trainer: Trainer = instantiate(
+                config.trainer,
+                callbacks=callbacks,
+                logger=as_trainer_loggers(loggers),
+                default_root_dir=str(recorder.run_dir),
+            )
+            trainer.fit(model=model, datamodule=datamodule)
 
-        metrics = _scalar_metrics(trainer.callback_metrics)
-        _write_metrics(recorder.run_dir / "metrics" / "fit.json", metrics)
+            metrics = _scalar_metrics(trainer.callback_metrics)
+            _write_metrics(recorder.run_dir / "metrics" / "fit.json", metrics)
         recorder.succeed(metrics)
     except BaseException as error:
         recorder.fail(error)

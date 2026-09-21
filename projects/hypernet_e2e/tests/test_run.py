@@ -16,6 +16,10 @@ class _Recorder:
         self.run_dir = run_dir
         self.completed: dict[str, float] | None = None
         self.failed: BaseException | None = None
+        self.loggers: list[dict[str, str]] | None = None
+
+    def record_loggers(self, references: list[dict[str, str]]) -> None:
+        self.loggers = list(references)
 
     def succeed(self, metrics: dict[str, float]) -> None:
         self.completed = metrics
@@ -68,6 +72,8 @@ def test_run_fit_resolves_weights_fits_once_and_records_scalar_metrics(tmp_path:
     assert recorder.completed == {"val/auroc": 0.75, "val/loss": 0.5}
     assert recorder.failed is None
     assert json.loads((run_dir / "metrics" / "fit.json").read_text()) == {"val/auroc": 0.75, "val/loss": 0.5}
+    assert recorder.loggers == []
+    assert (run_dir / "logs" / "train.log").is_file()
 
 
 def test_run_fit_marks_the_reserved_run_failed_when_fit_raises(tmp_path: Path, monkeypatch) -> None:
