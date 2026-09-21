@@ -1,0 +1,9 @@
+# @package _global_
+defaults:
+  - resnet_chexpert
+  - override /data: chexpert_demographic_groups
+  - override /training_strategy: group_dro
+  - _self_
+
+experiment_name: resnet-chexpert-group-dro
+tags: [chexpert, resnet50, group_dro]

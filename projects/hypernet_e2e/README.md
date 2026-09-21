@@ -1,8 +1,9 @@
 # hypernet_e2e
 
 静的に確定した属性を使い、**1 run = 1 fit** で完結する hypernetwork 系モデルの
-学習・性能比較を担う project です。cohort に基づく学習は保留しています。ほかの project を import せず、この directory 配下だけで
-学習・評価できる形を目標にします。
+学習・性能比較を担う project です。fit の前に確定する group（demographic 属性の組）に対する
+公平性手法までを扱い、学習中に更新される cohort は扱いません。ほかの project を import せず、
+この directory 配下だけで学習・評価できる形を目標にします。
 
 ## 現在の実装範囲
 
@@ -33,6 +34,8 @@ models/
 | `continuous` | `(B, num_continuous)` | 連続値 |
 | `continuous_missing` | `(B, num_continuous)` | 連続値の欠損フラグ |
 
+group 系の学習条件では、さらに `group_id`（`(B,)` の long、`[0, num_groups)`）が加わります。
+
 ## Configs
 
 [`configs/train.yaml`](configs/train.yaml) が Hydra の入口です。`run.py` が設定を合成して
@@ -42,9 +45,38 @@ model・data・callbacks・trainer を作成し、1 回の `fit` を実行しま
 - `experiment=spatial_lora_chexpert_erm`
 - 各モデルの `inverse_weighted_loss` / `inverse_weighted_sampling`
 - `experiment=spatial_lora_chexpert_from_resnet`（2 段学習の 2 段目）
+- 各モデルの `group_dro`
 
 `inverse_weighted_loss` の class weight は、`run.py` が train split の target 頻度から算出して
-解決済み config に記録します。cohort artifact / GroupDRO objective は未移植です。
+解決済み config に記録します。学習中に更新される cohort artifact は扱いません。
+
+## Subgroup の公平性手法
+
+group を使う条件は、`data` と `training_strategy` の組で決まります。
+
+| group | 内容 |
+| --- | --- |
+| `data=chexpert_demographic_groups` | `sex` × `age_group_65` の 4 群を `attributes["group_id"]` に供給する |
+| `training_strategy=erm` | 通常の cross-entropy。group ID を読まない |
+| `training_strategy=uniform_group` | 観測された group ごとの平均 loss を等重みで最適化する |
+| `training_strategy=group_dro` | group loss の exponentiated gradient で adversarial weight を更新する |
+| `training_strategy=group_dro_balanced` | group loss を (group, class) セルのクラス平均に置き換えた Group DRO |
+
+`_group_dro` 系の experiment はこの 2 つを組にした preset です。目的関数だけを差し替えるときは
+`training_strategy=` を重ねます。
+
+```bash
+uv run python -m projects.hypernet_e2e.run \
+  experiment=spatial_lora_chexpert_group_dro training_strategy=group_dro_balanced
+```
+
+`num_groups` は `group_cardinalities` の積として data config に明示します。Hydra が乗算できない
+ためで、DataModule が Dataset 構築時に積と突き合わせ、group 属性の欠損・範囲外・train split に
+現れない group を拒否します。目的関数は group ID の範囲を step ごとには再検証しません。
+
+validation と test は学習条件によらず通常の cross-entropy を使うので、`val/auroc` は条件を
+またいで比較できます。段ごとに run が分かれているため、1 段目は ERM、2 段目だけ Group DRO と
+いう組み合わせは `experiment=spatial_lora_chexpert_from_resnet_group_dro` で指定できます。
 
 CheXpert の model 入力は `sex`、`race`、`ethnicity`、連続 `age` と撮影条件の
 `frontal_lateral`、`ap_pa` です。公平性 logging は別の評価属性 `sex`、`race`、`ethnicity`、

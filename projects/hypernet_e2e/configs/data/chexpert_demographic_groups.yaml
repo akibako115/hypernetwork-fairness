@@ -1,0 +1,13 @@
+defaults:
+  - chexpert
+  - _self_
+
+_target_: projects.hypernet_e2e.data.group_datamodule.GroupImageDataModule
+
+# sex × age_group_65 の 4 群。age_group_65 は fairness_age_groups が raw age から作るので、
+# model へ渡す標準化済み age とは独立に決まる。
+group_attribute_names: [sex, age_group_65]
+group_cardinalities: [2, 2]
+# Hydra は乗算できないので group 数を明示し、DataModule 側で積と突き合わせる。
+num_groups: 4
+group_key: group_id

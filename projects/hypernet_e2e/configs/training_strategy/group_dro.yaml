@@ -1,0 +1,11 @@
+# @package _global_
+training_strategy:
+  name: group_dro
+  uses_group_id: true
+model:
+  loss_fn:
+    _target_: projects.hypernet_e2e.loss.GroupDROTaskLoss
+    num_groups: ${data.num_groups}
+    class_weight: null
+    step_size: 0.01
+    group_key: ${data.group_key}

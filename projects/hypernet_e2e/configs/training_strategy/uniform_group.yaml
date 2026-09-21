@@ -1,0 +1,10 @@
+# @package _global_
+training_strategy:
+  name: uniform_group
+  uses_group_id: true
+model:
+  loss_fn:
+    _target_: projects.hypernet_e2e.loss.UniformGroupTaskLoss
+    num_groups: ${data.num_groups}
+    class_weight: null
+    group_key: ${data.group_key}

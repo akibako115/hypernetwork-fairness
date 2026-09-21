@@ -1,0 +1,9 @@
+# @package _global_
+defaults:
+  - spatial_lora_chexpert
+  - override /data: chexpert_demographic_groups
+  - override /training_strategy: group_dro
+  - _self_
+
+experiment_name: spatial-lora-chexpert-group-dro
+tags: [chexpert, spatial_lora_resnet50, group_dro]

@@ -1,0 +1,11 @@
+# @package _global_
+# 2 段学習の 2 段目だけに Group DRO を掛ける条件。1 段目は ERM の単段 run で、
+# model.backbone_checkpoint_path に 1 段目の best checkpoint を渡して起動する。
+defaults:
+  - spatial_lora_chexpert_from_resnet
+  - override /data: chexpert_demographic_groups
+  - override /training_strategy: group_dro
+  - _self_
+
+experiment_name: spatial-lora-chexpert-from-resnet-group-dro
+tags: [chexpert, spatial_lora_resnet50, two_stage, group_dro]

@@ -1,0 +1,13 @@
+# @package _global_
+training_strategy:
+  name: group_dro_balanced
+  uses_group_id: true
+model:
+  loss_fn:
+    _target_: projects.hypernet_e2e.loss.ClassBalancedGroupDROTaskLoss
+    num_groups: ${data.num_groups}
+    num_classes: ${data.num_classes}
+    class_weight: null
+    step_size: 0.0001
+    loss_ema_momentum: 0.01
+    group_key: ${data.group_key}

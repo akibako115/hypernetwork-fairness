@@ -1,0 +1,5 @@
+# @package _global_
+# 目的関数は model config の loss_fn（通常の cross-entropy）をそのまま使う。
+training_strategy:
+  name: erm
+  uses_group_id: false

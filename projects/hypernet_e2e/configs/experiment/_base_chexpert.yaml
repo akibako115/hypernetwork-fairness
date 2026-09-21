@@ -1,6 +1,8 @@
 # @package _global_
 defaults:
   - /data: chexpert
+  # model group より後に置く。group 系の目的関数が model config の loss_fn を上書きする。
+  - /training_strategy: erm
   - _self_
 
 dataset: chexpert
