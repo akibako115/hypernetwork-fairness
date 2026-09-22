@@ -3,7 +3,8 @@
 run 本体もログも Git 管理外なので、この表が参照の正本となる。同じ preset で値だけを override した
 run は run-id では区別できないため、振った水準はここに残す。
 
-run-id・状態・experiment・W&B URL の表は、`run.json` から生成できる。
+run-id・状態・experiment・W&B URL の表は、`run.json` から生成できる。分析対象の表には、
+`project` と repo root からの相対 `run path` も残す。
 
 ```bash
 uv run python analysis/common/studies.py iterative_probe
@@ -19,12 +20,12 @@ uv run python analysis/common/studies.py iterative_probe
 warmup 2 epoch → stage01 5 epoch → stage02 5 epoch、cohort 10 クラスタ、`weighting=inverse`、
 ResNet-50 ImageNet 初期化。ws11 の GPU 5〜8 で並列実行し、4 本とも `succeeded`。
 
-| run-id | 変調範囲 | step size | 所要 |
-|---|---|---|---|
-| `20260921T103222Z-iterative-s42-d24d` | fc | 1e-3 | 54 分 |
-| `20260921T103225Z-iterative-s42-3166` | stage4, fc | 1e-3 | 64 分 |
-| `20260921T103219Z-iterative-s42-e992` | fc | 1e-2 | 54 分 |
-| `20260921T103225Z-iterative-s42-fac5` | stage4, fc | 1e-2 | 64 分 |
+| run-id | project | run path | W&B | 変調範囲 | step size | 所要 |
+|---|---|---|---|---|---|---|
+| `20260921T103222Z-iterative-s42-d24d` | `hypernet_iterative` | `projects/hypernet_iterative/runs/20260921T103222Z-iterative-s42-d24d` | [run](https://wandb.ai/kohki-akiba-kyushu-university/fairness_hypernet/runs/8az23qej) | fc | 1e-3 | 54 分 |
+| `20260921T103225Z-iterative-s42-3166` | `hypernet_iterative` | `projects/hypernet_iterative/runs/20260921T103225Z-iterative-s42-3166` | [run](https://wandb.ai/kohki-akiba-kyushu-university/fairness_hypernet/runs/ic6i26t6) | stage4, fc | 1e-3 | 64 分 |
+| `20260921T103219Z-iterative-s42-e992` | `hypernet_iterative` | `projects/hypernet_iterative/runs/20260921T103219Z-iterative-s42-e992` | [run](https://wandb.ai/kohki-akiba-kyushu-university/fairness_hypernet/runs/1m2xowgf) | fc | 1e-2 | 54 分 |
+| `20260921T103225Z-iterative-s42-fac5` | `hypernet_iterative` | `projects/hypernet_iterative/runs/20260921T103225Z-iterative-s42-fac5` | [run](https://wandb.ai/kohki-akiba-kyushu-university/fairness_hypernet/runs/gexb3ap4) | stage4, fc | 1e-2 | 64 分 |
 
 コードは local の `8c33f20` に、`configs/experiment/spatial_lora_chexpert_{fc,stage4_fc}.yaml` の
 2 ファイルを加えた状態。ws11 側は `.git` を除外して同期しているため、`run.json` の `git_commit` は
@@ -34,9 +35,9 @@ ResNet-50 ImageNet 初期化。ws11 の GPU 5〜8 で並列実行し、4 本と�
 
 global 指標を並べるための通常 ResNet。`projects/hypernet_e2e/runs/` 側にある。
 
-| run-id | 条件 | epoch |
-|---|---|---|
-| `20260921T103036Z-resnet-chexpert-s42-5538` | ResNet-50 全体を ERM、`weighting=inverse` | 30 |
+| run-id | project | run path | W&B | 条件 | epoch |
+|---|---|---|---|---|---|
+| `20260921T103036Z-resnet-chexpert-s42-5538` | `hypernet_e2e` | `projects/hypernet_e2e/runs/20260921T103036Z-resnet-chexpert-s42-5538` | [run](https://wandb.ai/kohki-akiba-kyushu-university/fairness_hypernet/runs/41gsahly) | ResNet-50 全体を ERM、`weighting=inverse` | 30 |
 
 `data_manifest.json` の train / val の sha256、optimizer（AdamW lr 1e-4 / wd 0.01）、batch size 128、
 class weight `[0.201358, 1.798642]`、seed、transform が本実験と一致する。違うのは学習の中身
@@ -65,7 +66,7 @@ step size が小さく GroupDRO が動かなかった run。変調範囲も epoc
 
 ## 数値の出どころ
 
-`projects/hypernet_iterative/runs/<run-id>/` を run-id で開く。
+`runs.md` の `run path` を開く。
 
 - `run.json` — stage ごとの scalar metric と checkpoint
 - `stages/*/metrics/metrics.csv` — epoch 推移の正本

@@ -17,21 +17,21 @@
 
 ## 層と DAG
 
-生成物は一方向にしか流れない。逆流させると「図を 1 枚描き直すために notebook を全部
-実行する」状態になる。
+生成物は一方向にしか流れない。逆流させると「図を 1 枚描き直すために run を読み直す」状態になる。
 
 ```text
-run artifact  →  cache/      →  results/     →  figures/     →  notebook
-(projects/*/runs)  predictions.py  collect.py    plots.py       主張と考察
+run artifact  →  cache/      →  results/     →  notebook     →  figures/（必要な場合）
+(projects/*/runs)  predictions.py  analysis.py   可視化・考察   外部再利用用
                                    groups.py
 ```
 
-- `collect.py` — run artifact を読んで `results/*.csv` を書く。run の形（`run.json`、
-  `stages/*/metrics/metrics.csv`）を知ってよいのはここと `analysis/common/` だけ。
+- `collect.py` — run artifact を読んで `results/*.csv` を書く。run の形（`run.json`、e2e の
+  `metrics/metrics.csv`、iterative の `stages/*/metrics/metrics.csv`）を知ってよいのはここと
+  `analysis/common/` だけ。
 - `groups.py` — 群の定義と群別指標。予測 cache と `results/` を入力に、`results/*.csv` を書く。
-- `plots.py` — `results/*.csv` だけを入力に `figures/*.png` を書く。run artifact を読まない。
-- `*.ipynb` — 主張・表の表示・考察。`results/` と `figures/` を読むだけで、
-  split CSV も checkpoint も直接読まない。
+- `*.ipynb` — `results/*.csv` を入力に、分析固有の可視化・表の表示・主張・考察を行う。
+  split CSV、checkpoint、run artifact は直接読まない。再利用する大きな作図処理や、複数 package
+  で共有する図だけは module / script に出す。
 
 各 script は単独で走り、前段の生成物だけを入力に取る。DAG の 1 辺が 1 コマンドになる。
 
@@ -40,7 +40,7 @@ run artifact  →  cache/      →  results/     →  figures/     →  notebook
 - **1 cell = 1 つの意味のある step**。cell の前に markdown を置き、何を見るのか、
   なぜそれを見るのかを書く。結果だけの cell を並べない。
 - `import` は先頭 1 cell に集める。cell の途中で `import` しない。
-- 20 行を超える関数を notebook に置かない。出す先は `plots.py` か `groups.py`。
+- 20 行を超える関数を notebook に置かない。再利用する処理は package の module / script に出す。
 - `sys.path` を直接触らない。path 解決は下の 1 行だけを使う。
 - 出力は Git 追跡しない（`nbstripout`）。**kernel restart → 全実行が通る状態**で終える。
   通らない notebook は、DAG のどこかを手で飛ばして作った状態になっている。
@@ -51,7 +51,8 @@ run artifact  →  cache/      →  results/     →  figures/     →  notebook
 - 関数は 60 行・引数 6 個を上限の目安にする。超えたら段を分ける。
 - 内包表記をネストしない。中間結果に名前を付ける。1 行に詰め込まない（`line-length = 120`）。
 - 書き出し先は `results/` と `figures/` に限る。`cache/` を書くのは
-  `analysis/common/predictions.py` だけとする。
+  `analysis/common/predictions.py` だけとする。notebook の図は inline 表示を基本とし、レポート等で
+  再利用する図だけ `figures/` に保存する。
 
 ## テスト
 

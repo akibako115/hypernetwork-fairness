@@ -29,7 +29,7 @@ class _DistributedTrainer:
 
 
 def test_hidden_cohort_logger_records_validation_metrics() -> None:
-    callback = HiddenCohortMetricsCallback(num_groups=2)
+    callback = HiddenCohortMetricsCallback(num_groups=2, log_aggregate_metrics=True)
     module = _DummyModule()
     callback.on_validation_epoch_start(None, module)
     callback.on_validation_batch_end(
@@ -54,7 +54,7 @@ def test_hidden_cohort_logger_records_validation_metrics() -> None:
 
 
 def test_hidden_cohort_logger_rejects_single_class_validation_group() -> None:
-    callback = HiddenCohortMetricsCallback(num_groups=2, require_binary_val_groups=True)
+    callback = HiddenCohortMetricsCallback(num_groups=2, require_binary_val_groups=True, log_aggregate_metrics=True)
     module = _DummyModule()
     callback.on_validation_epoch_start(None, module)
     callback.on_validation_batch_end(
@@ -94,7 +94,7 @@ def test_hidden_cohort_logger_rejects_empty_validation_group() -> None:
 
 
 def test_hidden_cohort_logger_does_not_reject_partial_sanity_validation() -> None:
-    callback = HiddenCohortMetricsCallback(num_groups=2, require_binary_val_groups=True)
+    callback = HiddenCohortMetricsCallback(num_groups=2, require_binary_val_groups=True, log_aggregate_metrics=True)
     module = _DummyModule()
     callback.on_validation_epoch_start(_SanityCheckingTrainer(), module)
     callback.on_validation_batch_end(
@@ -134,7 +134,7 @@ def test_cohort_single_process_callback_rejects_distributed_training() -> None:
 
 
 def test_hidden_cohort_logger_records_nan_for_empty_and_single_class_test_groups() -> None:
-    callback = HiddenCohortMetricsCallback(num_groups=2)
+    callback = HiddenCohortMetricsCallback(num_groups=2, log_aggregate_metrics=True)
     module = _DummyModule()
     callback.on_test_epoch_start(None, module)
     callback.on_test_batch_end(
@@ -158,7 +158,7 @@ def test_hidden_cohort_logger_records_nan_for_empty_and_single_class_test_groups
 
 
 def test_hidden_cohort_logger_rejects_multiclass_logits_before_metric_computation() -> None:
-    callback = HiddenCohortMetricsCallback(num_groups=2)
+    callback = HiddenCohortMetricsCallback(num_groups=2, log_aggregate_metrics=True)
     module = _DummyModule()
     callback.on_test_epoch_start(None, module)
     callback.on_test_batch_end(
@@ -178,7 +178,7 @@ def test_hidden_cohort_logger_rejects_multiclass_logits_before_metric_computatio
 
 
 def test_hidden_cohort_logger_records_all_groups_when_test_dataloader_is_empty() -> None:
-    callback = HiddenCohortMetricsCallback(num_groups=2)
+    callback = HiddenCohortMetricsCallback(num_groups=2, log_aggregate_metrics=True)
     module = _DummyModule()
     callback.on_test_epoch_start(None, module)
 
@@ -205,7 +205,7 @@ def test_group_dro_diagnostics_logs_all_weights_and_summary() -> None:
 
 
 def test_group_loss_is_logged_for_every_cohort() -> None:
-    callback = HiddenCohortMetricsCallback(num_groups=2)
+    callback = HiddenCohortMetricsCallback(num_groups=2, log_aggregate_metrics=True)
     module = _DummyModule()
     callback.on_validation_epoch_start(None, module)
     callback.on_validation_batch_end(

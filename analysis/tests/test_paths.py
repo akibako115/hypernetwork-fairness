@@ -2,7 +2,16 @@
 
 from __future__ import annotations
 
-from analysis.common.paths import ANALYSIS_ROOT, REPOSITORY_ROOT, STYLE_SHEET, run_dir, runs_root, split_csv, study_dir
+from analysis.common.paths import (
+    ANALYSIS_ROOT,
+    REPOSITORY_ROOT,
+    STYLE_SHEET,
+    local_data_path,
+    run_dir,
+    runs_root,
+    split_csv,
+    study_dir,
+)
 
 
 def test_repository_root_is_the_directory_that_holds_the_project_root_marker() -> None:
@@ -29,3 +38,27 @@ def test_no_analysis_directory_name_blocks_import() -> None:
     """study slug は package 名でもあるので、`-` を含めると import できなくなる。"""
     studies = [path.name for path in ANALYSIS_ROOT.iterdir() if path.is_dir() and not path.name.startswith(".")]
     assert [name for name in studies if "-" in name] == []
+
+
+def test_recorded_data_paths_are_reread_against_this_repository() -> None:
+    """container で回した run の `config.yaml` は、local に無い絶対 path を記録している。
+
+    ここが素通りすると `FileNotFoundError` で落ちるのではなく、**別の split を読んで
+    静かに間違う**経路が開く（同名の directory が local にあった場合）。
+    """
+    splits = REPOSITORY_ROOT / "data/chexpert/splits"
+    # container の絶対 path、local の絶対 path、repo root からの相対 path。すべて同じ場所を指す。
+    assert local_data_path("/workspaces/hypernet-fairness/data/chexpert/splits") == splits
+    assert local_data_path(REPOSITORY_ROOT / "data/chexpert/splits") == splits
+    assert local_data_path("data/chexpert/splits") == splits
+
+
+def test_the_last_data_component_anchors_the_reread() -> None:
+    """`data` が複数あるときは、dataset に近いほう（最後）を起点にする。"""
+    images = REPOSITORY_ROOT / "data/chexpert/images"
+    assert local_data_path("/mnt/fast/kohkiakiba/fairness_data/data/chexpert/images") == images
+
+
+def test_paths_without_a_data_component_are_taken_as_repository_relative() -> None:
+    """`data` を含まない記録は、repo root からの相対として読む。当て推量で補わない。"""
+    assert local_data_path("chexpert/splits") == REPOSITORY_ROOT / "chexpert/splits"

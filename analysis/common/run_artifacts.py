@@ -1,6 +1,6 @@
 """run が残した artifact の読み方を 1 箇所に集める。
 
-`run.json` / `config.yaml` / `stages/*/metrics/metrics.csv` / W&B の transaction log は
+`run.json` / `config.yaml` / `metrics/metrics.csv` または `stages/*/metrics/metrics.csv` / W&B の transaction log は
 repo が定めた run の形であり、どの仮説から読んでも同じ意味を持つ。ここで共有するのは
 その読み方までで、**群の切り方・指標の定義・図は package に閉じる**。仮説ごとの判断を
 ここへ上げると、別の仮説がその判断を暗黙に引き継いでしまう。
@@ -49,7 +49,7 @@ def read_epoch_metrics(csv_path: Path) -> list[dict[str, float]]:
     指標を表すので落とす。`step` は optimizer step であり epoch と混ざるため除く。
 
     Args:
-        csv_path: `stages/<name>/metrics/metrics.csv`
+        csv_path: `metrics/metrics.csv` または `stages/<name>/metrics/metrics.csv`
 
     Returns:
         list[dict[str, float]]: epoch 昇順の metric
@@ -69,7 +69,7 @@ def read_epoch_metrics(csv_path: Path) -> list[dict[str, float]]:
 def read_wandb_history(run_dir: Path) -> list[dict[str, float]]:
     """`WandbLogger` の transaction log を epoch ごとの 1 行へまとめる。
 
-    CSVLogger を付けずに回した run では、epoch 推移がローカルに残る場所が
+    CSVLogger を付けずに回した過去の run では、epoch 推移がローカルに残る場所が
     `wandb/<run>/run-*.wandb` しかない。この file は leveldb 形式の record 列で、
     `history` record 1 つが `log()` 1 回に対応する。Lightning は train と val を別の
     record に書くので、`read_epoch_metrics` と同じく epoch で束ね直す。

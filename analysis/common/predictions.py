@@ -34,7 +34,7 @@ from omegaconf import OmegaConf
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 
-from analysis.common.paths import REPOSITORY_ROOT, study_dir  # noqa: E402
+from analysis.common.paths import REPOSITORY_ROOT, local_data_path, study_dir  # noqa: E402
 from analysis.common.run_artifacts import read_config, selected_checkpoint  # noqa: E402
 
 SCHEMA_VERSION = 1
@@ -186,6 +186,10 @@ def write_cache(run_dir: Path, split: str, cache_dir: Path, device: torch.device
         Path: 書き出した cache
     """
     config = OmegaConf.load(run_dir / "config.yaml")
+    # container で回した run は `/workspaces/...` を記録している。分析は local の `data/` を読む。
+    for key in ("cv_splits_dir", "data_dir"):
+        if key in config.data:
+            config.data[key] = str(local_data_path(config.data[key]))
     datamodule = instantiate(config.data)
     loader = datamodule.evaluation_dataloader(split)
     network = load_network(run_dir, device)

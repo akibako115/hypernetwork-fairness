@@ -59,6 +59,32 @@ def study_dir(study: str) -> Path:
     return ANALYSIS_ROOT / study
 
 
+def local_data_path(recorded: str | Path) -> Path:
+    """run が記録した data path を、この repo の `data/` 配下へ読み替える。
+
+    `config.yaml` に残るのは**その run を回した環境の path** で、container で回した run は
+    `/workspaces/hypernet-fairness/data/chexpert/splits` のような、local に存在しない絶対 path を
+    持つ。`selected_checkpoint` が checkpoint に対してやっているのと同じ読み替えを data 側にも
+    かける。判断の根拠を「記録された文字列」ではなく「repo の layout」に寄せる。
+
+    `data` 以降だけを使うので、既に解決できる path（local の絶対 path、repo root からの相対
+    path）では同じ Path を返す。`data` を含まない path は repo root からの相対として扱う。
+
+    Args:
+        recorded: `config.yaml` の `data.cv_splits_dir` などに記録された path
+
+    Returns:
+        Path: `data/<dataset>/...` に読み替えた local の path
+    """
+    parts = Path(recorded).parts
+    if "data" in parts:
+        # 同じ名前が複数あるときは最後のものを起点にする。`.../fairness_data/data/chexpert` の
+        # ような入れ子でも、実際の dataset directory に近いほうを選ぶ。
+        anchor = len(parts) - 1 - parts[::-1].index("data")
+        return REPOSITORY_ROOT.joinpath(*parts[anchor:])
+    return REPOSITORY_ROOT.joinpath(*parts)
+
+
 def split_csv(dataset: str, split: str) -> Path:
     """学習が読んだのと同じ split CSV を返す。
 

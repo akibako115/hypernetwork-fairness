@@ -132,8 +132,8 @@ project は repo で 1 つ（`fairness_hypernet`）。1 つの仮説が両 proje
 `analysis/<slug>/` で行う。**生成物は一方向にしか流れない。**
 
 ```text
-run artifact  →  cache/  →  results/  →  figures/  →  notebook
-             predictions.py  collect.py   plots.py    主張と考察
+run artifact  →  cache/  →  results/  →  notebook  →  figures/（必要な場合）
+             predictions.py  analysis.py  可視化・考察   外部再利用用
                              groups.py
 ```
 
@@ -148,11 +148,10 @@ uv run python analysis/common/predictions.py --study my_new_study --split test \
 uv run python analysis/my_new_study/collect.py <run-id> ... --baseline <run-id>
 uv run python analysis/my_new_study/groups.py --split test
 
-# 4. 表から図を作る
-uv run python analysis/my_new_study/plots.py --split test
 ```
 
-notebook は `results/` と `figures/` を読むだけにする。split CSV も checkpoint も直接読まない。
+notebook は `results/` を読み、分析固有の表・図・考察を上から順に作る。split CSV と checkpoint は
+直接読まない。複数 package で再利用する図だけ `figures/` に保存する。
 **kernel restart → 全実行が通る状態**で終える。通らない notebook は DAG のどこかを手で飛ばした
 状態になっている。出力は Git 追跡しない（`nbstripout`）。
 
@@ -163,7 +162,15 @@ notebook は `results/` と `figures/` を読むだけにする。split CSV も 
 
 `study` が記録するのは「**何のために回したか**」だけで、1 run に 1 つしか付かない。
 **どの分析がその run を引用したか**は多対多で、あとから増える（baseline は使い回すため）。
-引用の正本は `analysis/<slug>/runs.md` が持つ。
+引用の正本は `analysis/<slug>/runs.md` が持つ。表には `project`、`run-id`、repo root からの相対
+`run path`、W&B URL を記録する。W&B URL は dashboard の参照、`run path` は checkpoint や
+epoch metrics を読むための入力として使い分ける。
+
+```markdown
+| condition | project | run-id | run path | W&B |
+|---|---|---|---|---|
+| ResNet | `hypernet_e2e` | `2026...` | `projects/hypernet_e2e/runs/2026...` | https://wandb.ai/... |
+```
 
 run 一覧の表は生成できる。人が書くのは「**なぜこの条件なのか**」のほう。
 
@@ -193,7 +200,7 @@ uv run ruff check analysis projects
 | project 間でコードを import する | 一致は golden で縛る。共有すると、片方の変更が黙ってもう片方の結論を変える |
 | `study` を後から書き換える | 起動時の記録なので、書き換えた値はその意味を持たない。引用は `runs.md` へ |
 | analysis の slug に hyphen を使う | package として import できなくなる |
-| notebook に 20 行超の関数を置く | 出す先は `plots.py` か `groups.py` |
+| notebook に 20 行超の関数を置く | 再利用する処理は package の module / script へ出す |
 | `sys.path` を触る / `parents[2]` で root を数える | `rootutils` + `.project-root` に統一している |
 | `config.yaml` を読まずに run-id で条件を語る | run-id は experiment 名までしか持たない |
 

@@ -14,6 +14,8 @@ package の slug は学習側の `study` と同じ値になる。run は起動�
 ただし `study` が記録するのは**生成の理由**だけで、1 run に 1 つしか付かない。**どの package が
 その run を引用したか**は多対多で、あとから増える。こちらの正本は各 package の `runs.md` が
 持つ。baseline のように複数の仮説が読む run は、`study` が指すのと別の package からも参照される。
+`runs.md` には少なくとも `project`、`run-id`、repo root からの相対 `run path`、W&B URL を記録し、
+分析コードが読む入力を明示する。
 
 `scratch/` は例外で、まだ仮説に紐づかない run の逃げ道として置いている。結論の根拠にはしない。
 
@@ -26,8 +28,8 @@ tests/         共有層と、指標の定義が学習側と一致すること�
   runs.md       この仮説に紐づく run の一覧と状態
   collect.py    run artifact → results/*.csv
   groups.py     群の定義と群別指標 → results/*.csv
-  plots.py      results/*.csv → figures/*.png
-  <name>.ipynb  主張・表の表示・考察
+  plots.py      results/*.csv → figures/*.png（再利用・レポート用・一括出力の図だけ）
+  <name>.ipynb  results/*.csv → 分析固有の可視化・主張・考察
   cache/        予測 cache（再生成できる中間物）
   results/      集計した表
   figures/      レポートが参照する図
@@ -37,11 +39,11 @@ tests/         共有層と、指標の定義が学習側と一致すること�
 **生成物は一方向にしか流れない。**
 
 ```text
-run artifact  →  cache/  →  results/  →  figures/  →  notebook
+run artifact  →  cache/  →  results/  →  notebook  →  figures/（必要な場合）
 ```
 
 各 script は単独で走り、前段の生成物だけを入力に取る。notebook から split CSV も checkpoint も
-直接読まない。この向きを守ると、図を 1 枚描き直すために notebook を全部実行する状態にならない。
+直接読まない。分析固有の可視化は notebook で行い、複数 package で再利用する図だけを `figures/` に保存する。
 script と notebook の書き方は [AGENTS.md](AGENTS.md) を正本とする。
 
 `common/` で共有するのは **run 契約の読み方**（`run.json`・`metrics.csv`・W&B transaction log・
@@ -76,7 +78,7 @@ run そのもの（`projects/*/runs/<run-id>/`）と実行ログ（`run_logs/`�
 ## ログの扱い
 
 分析パッケージへログを持ち込まない。hardlink も copy も作らない。分析が読む数値は run artifact
-（`run.json`、`stages/*/metrics/metrics.csv`）にあり、実行ログには入っていない。
+（e2e の `metrics/metrics.csv`、iterative の `stages/*/metrics/metrics.csv`、`run.json`）にあり、実行ログには入っていない。
 
 `run_logs/` のファイル名は起動時に人が付けるため run-id とは対応しないが、ログ本文に run dir が
 出るので run-id から引ける。落ちた run の理由を確かめる時だけこれを使う。

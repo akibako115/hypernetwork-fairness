@@ -2,7 +2,7 @@
 
 `CohortSingleProcessCallback` は group ID を仮定できる実行構成かを、
 `CohortValidityCallback` は sidecar の group ID が範囲内かを開始時に確かめる。
-`HiddenCohortMetricsCallback` は cohort ごとの AUROC と worst-group 指標をログする。
+`HiddenCohortMetricsCallback` は cohort ごとの AUROC・bACC・loss をログする。
 """
 
 import lightning as L
@@ -119,8 +119,14 @@ class HiddenCohortMetricsCallback(L.Callback):
         num_groups: int,
         group_key: str = "group_id",
         require_binary_val_groups: bool = False,
+        log_aggregate_metrics: bool = False,
     ) -> None:
-        """cohort 数・group ID の列名・validation での両クラス必須フラグを受け取り、バッファを初期化する。"""
+        """cohort 数・group ID の列名・validation での両クラス必須フラグを受け取り、バッファを初期化する。
+
+        通常は cohort ごとの raw 指標だけを記録し、min / max / gap は分析側で導出する。
+        hidden-min checkpoint 選択など、学習中に派生値を monitor する場合だけ
+        ``log_aggregate_metrics`` を有効にする。
+        """
         if num_groups < 2:
             raise ValueError(f"num_groups must be at least 2, got {num_groups}")
         if not group_key:
@@ -128,6 +134,7 @@ class HiddenCohortMetricsCallback(L.Callback):
         self.num_groups = num_groups
         self.group_key = group_key
         self.require_binary_val_groups = require_binary_val_groups
+        self.log_aggregate_metrics = log_aggregate_metrics
         self._buffers: dict[str, list[dict]] = {"val": [], "test": []}
 
     def on_validation_epoch_start(self, trainer: L.Trainer, pl_module: L.LightningModule) -> None:
@@ -223,18 +230,18 @@ class HiddenCohortMetricsCallback(L.Callback):
             pl_module.log(f"{phase}/hidden_auroc_{group_id:02d}", float("nan"))
             pl_module.log(f"{phase}/hidden_loss_{group_id:02d}", float("nan"))
             pl_module.log(f"{phase}/hidden_bacc_{group_id:02d}", float("nan"))
-        pl_module.log(f"{phase}/hidden_valid_auroc_groups", 0.0)
-        pl_module.log(f"{phase}/hidden_min_auroc", float("nan"))
-        pl_module.log(f"{phase}/hidden_auroc_gap", float("nan"))
-        pl_module.log(f"{phase}/hidden_max_loss", float("nan"))
-        pl_module.log(f"{phase}/hidden_loss_gap", float("nan"))
-        pl_module.log(f"{phase}/hidden_min_bacc", float("nan"))
+        if self.log_aggregate_metrics:
+            pl_module.log(f"{phase}/hidden_valid_auroc_groups", 0.0)
+            pl_module.log(f"{phase}/hidden_min_auroc", float("nan"))
+            pl_module.log(f"{phase}/hidden_auroc_gap", float("nan"))
+            pl_module.log(f"{phase}/hidden_max_loss", float("nan"))
+            pl_module.log(f"{phase}/hidden_loss_gap", float("nan"))
+            pl_module.log(f"{phase}/hidden_min_bacc", float("nan"))
 
     def _log_metrics(self, trainer: L.Trainer | None, pl_module: L.LightningModule, phase: str) -> None:
         """バッファ済みバッチを cohort（group_id）ごとに集計し、support・AUROC・loss・bacc をログする。
 
-        group ごとの指標に加え、有効 group 数・最小 AUROC・AUROC gap・最大 loss・
-        loss gap・最小 bacc という cohort 間の格差サマリも `<phase>/hidden_*` としてログする。
+        通常は cohort 間の派生サマリをログせず、分析側で raw 指標から計算する。
         `require_binary_val_groups=True` の場合、sanity check 以外で validation の
         いずれかの group が両クラスを含まなければ学習を止める。
 
@@ -308,13 +315,14 @@ class HiddenCohortMetricsCallback(L.Callback):
                 if phase == "val":
                     invalid_val_groups.append(group_id)
 
-        # cohort 間の格差を要約する指標（最小/最大/gap）をまとめてログする
-        pl_module.log(f"{phase}/hidden_valid_auroc_groups", float(len(aurocs)))
-        pl_module.log(f"{phase}/hidden_min_auroc", min(aurocs) if aurocs else float("nan"))
-        pl_module.log(f"{phase}/hidden_auroc_gap", max(aurocs) - min(aurocs) if len(aurocs) >= 2 else float("nan"))
-        pl_module.log(f"{phase}/hidden_max_loss", max(mean_losses) if mean_losses else float("nan"))
-        pl_module.log(f"{phase}/hidden_loss_gap", max(mean_losses) - min(mean_losses) if len(mean_losses) >= 2 else float("nan"))
-        pl_module.log(f"{phase}/hidden_min_bacc", min(baccs) if baccs else float("nan"))
+        if self.log_aggregate_metrics:
+            # hidden-min checkpoint 選択など、学習中に monitor する場合だけ派生値を出す。
+            pl_module.log(f"{phase}/hidden_valid_auroc_groups", float(len(aurocs)))
+            pl_module.log(f"{phase}/hidden_min_auroc", min(aurocs) if aurocs else float("nan"))
+            pl_module.log(f"{phase}/hidden_auroc_gap", max(aurocs) - min(aurocs) if len(aurocs) >= 2 else float("nan"))
+            pl_module.log(f"{phase}/hidden_max_loss", max(mean_losses) if mean_losses else float("nan"))
+            pl_module.log(f"{phase}/hidden_loss_gap", max(mean_losses) - min(mean_losses) if len(mean_losses) >= 2 else float("nan"))
+            pl_module.log(f"{phase}/hidden_min_bacc", min(baccs) if baccs else float("nan"))
         # sanity check 中を除き、validation の cohort が両クラスを欠く場合は学習を止める
         if self.require_binary_val_groups and phase == "val" and invalid_val_groups and not getattr(trainer, "sanity_checking", False):
             raise ValueError(f"validation hidden cohorts must each contain both classes; invalid group IDs: {invalid_val_groups}")

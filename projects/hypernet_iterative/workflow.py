@@ -328,13 +328,19 @@ def cohort_stage_config(
         merge=False,
     )
     OmegaConf.update(result, "model.warm_start_checkpoint_path", str(checkpoint_path) if supports_warm_start else None, merge=False)
+    selection_name = str(result.iteration.get("cohort_checkpoint_selection", "global_auroc_bacc"))
+    if selection_name not in {"global_auroc_bacc", "hidden_min_auroc"}:
+        raise ValueError(f"unsupported iteration.cohort_checkpoint_selection: {selection_name}")
     for name, target, kwargs in (
         ("cohort_single_process", "projects.hypernet_iterative.callbacks.hidden_cohort_logger.CohortSingleProcessCallback", {}),
         ("cohort_validity", "projects.hypernet_iterative.callbacks.hidden_cohort_logger.CohortValidityCallback", {"num_groups": clusters, "group_key": group_key}),
-        ("hidden_cohort_logger", "projects.hypernet_iterative.callbacks.hidden_cohort_logger.HiddenCohortMetricsCallback", {"num_groups": clusters, "group_key": group_key}),
+        (
+            "hidden_cohort_logger",
+            "projects.hypernet_iterative.callbacks.hidden_cohort_logger.HiddenCohortMetricsCallback",
+            {"num_groups": clusters, "group_key": group_key, "log_aggregate_metrics": selection_name == "hidden_min_auroc"},
+        ),
     ):
         OmegaConf.update(result, f"callbacks.{name}", {"_target_": target, **kwargs}, merge=False)
-    selection_name = str(result.iteration.get("cohort_checkpoint_selection", "global_auroc_bacc"))
     if selection_name == "hidden_min_auroc":
         OmegaConf.update(result, "checkpoint_selection", {"name": selection_name, "requires_hidden_cohort": True}, merge=False)
         # warmup は global_auroc_bacc なので、その config を写した時点で bacc_checkpoint が
@@ -356,8 +362,6 @@ def cohort_stage_config(
             },
             merge=False,
         )
-    elif selection_name != "global_auroc_bacc":
-        raise ValueError(f"unsupported iteration.cohort_checkpoint_selection: {selection_name}")
     return result
 
 

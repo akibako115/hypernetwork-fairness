@@ -1,18 +1,16 @@
-"""`results/` の表だけを入力に、`figures/` の図を描く。
+"""`results/` の表だけを入力に、notebook から再利用する Figure を描く helper。
 
 **色の規約**: 線の色は GroupDRO の step size を、図そのものは変調範囲を表す。4 条件を
 1 枚に重ねると線が交差して読めないので、変調範囲は figure の単位に置く。baseline は
 step size を持たないので黒（点線・四角）に固定し、条件の 1 つではなく参照線として扱う。
 
 run artifact はここでは読まない。図を描き直すたびに run を読み直すのを避けるためで、
-入力は `collect.py` と `groups.py` が書いた表に限る。
+入力は `epoch_metrics.py`・`cohort_analysis.py`・`baseline_comparison.py`・`groups.py` が書いた表に限る。
 
 入力: `results/epoch_metrics.csv` / `baseline_epoch_metrics.csv` / `cohort_groups.csv`
       / `group_metrics_<split>.csv`
-出力: `figures/*.png`
-
-使い方:
-    uv run python analysis/iterative_probe/plots.py --split test
+notebook はこの module の Figure 関数を呼んで inline 表示する。外部レポート用に PNG を
+一括生成する CLI も互換性のため残す。
 """
 
 from __future__ import annotations

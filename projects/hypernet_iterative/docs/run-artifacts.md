@@ -30,6 +30,10 @@ epoch ごとに全 callback の記録を残す。`callback_metrics` のスナッ
 `data_manifest.json` は train / val / test split のファイル hash、行数、画像集合 hash、target 分布と画像 root を持つ。
 `preflight.json` は起動前に実行する project-local golden preflight のコマンド、出力、golden hash、Git commit を持つ。
 
+hidden cohort の epoch metric は cohort ごとの `support`、`AUROC`、`bACC`、`loss` を正本として記録する。
+cohort 間の `min` / `max` / `gap` はこれらの raw metric から分析側で導出する。hidden-min checkpoint 選択を
+明示した場合だけ、選択用の派生 metric も stage の CSV に記録する。
+
 各 `artifacts/cohorts/cohortNN/` は直前 stage の `last` checkpoint に基づく cohort である。
 次 stage の warm-start も同じ checkpoint を使う。best を引き継ぐと、GroupDRO が効いた更新ほど
 stage 境界で巻き戻る。

@@ -14,6 +14,7 @@ import pandas as pd
 import torch
 from hydra.utils import instantiate
 from lightning import Callback, LightningDataModule, LightningModule, Trainer
+from lightning.pytorch.loggers import CSVLogger
 from omegaconf import DictConfig, OmegaConf
 
 from projects.hypernet_e2e.run_logging import as_trainer_loggers, experiment_loggers, log_run_config, logger_references, text_log
@@ -27,10 +28,11 @@ def run_fit(config: DictConfig) -> Path:
 
     `study` が指す `analysis/<study>/` の実在を確かめてから始める。
     ``weighting=inverse`` の場合、train split の target 頻度から class weight を計算して config に
-    反映する。実行ログは ``logs/train.log``、epoch ごとの metric は ``logger`` group が指す
-    experiment logger が持ち、fit に成功すれば最終の scalar callback metrics を
-    ``metrics/fit.json`` と ``run.json`` に保存する。fit が出力した checkpoint は、2 段学習の
-    2 段目へ渡せるよう選択基準と SHA-256 付きで ``run.json`` に記録する。既存 run の再開・
+    反映する。実行ログは ``logs/train.log``、epoch ごとの metric は必須の
+    ``metrics/metrics.csv`` と ``logger`` group が指す experiment logger が持ち、fit に成功すれば
+    最終の scalar callback metrics を ``metrics/fit.json`` と ``run.json`` に保存する。fit が出力した
+    checkpoint は、2 段学習の 2 段目へ渡せるよう選択基準と SHA-256 付きで ``run.json`` に記録する。
+    既存 run の再開・
     test 実行・stage 制御はこの入口の責務に含めない。
 
     Args:
@@ -57,6 +59,9 @@ def run_fit(config: DictConfig) -> Path:
             datamodule: LightningDataModule = instantiate(config.data)
             model: LightningModule = instantiate(config.model)
             callbacks = _instantiate_callbacks(config.get("callbacks"))
+            # CSV は外部 experiment logger の設定に依存させず、全 fit のローカル artifact として残す。
+            # `logger=none` でも epoch 推移を分析できるようにするため、W&B logger とは別に作る。
+            loggers = [*loggers, CSVLogger(save_dir=str(recorder.run_dir), name="metrics", version="")]
             trainer: Trainer = instantiate(
                 config.trainer,
                 callbacks=callbacks,

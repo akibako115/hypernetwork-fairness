@@ -43,16 +43,23 @@ gap だけでなく worst と best の値も出す。gap が縮んでも、worst
 
 | file | 入力 → 出力 |
 | --- | --- |
-| `collect.py` | run artifact → `results/epoch_metrics.csv`・`headline.csv`・`cohort_groups.csv`・`cohort_correlations.csv`（`--baseline` で `baseline_epoch_metrics.csv`・`global_comparison.csv`） |
+| `epoch_metrics.py` | run artifact → `results/epoch_metrics.csv`・`headline.csv` |
+| `cohort_analysis.py` | run artifact → `results/cohort_groups.csv`・`cohort_correlations.csv` |
+| `baseline_comparison.py` | W&B transaction log + iterative results → `results/baseline_epoch_metrics.csv`・`global_comparison.csv` |
+| `collect.py` | 上記 3 script の一括 wrapper |
 | `groups.py` | 予測 cache + `results/` → `results/group_metrics_test.csv`・`fairness_summary_test.csv` |
-| `plots.py` | `results/*.csv` → `figures/*.png` |
-| `probe.ipynb` | `results/` と `figures/` → 主張と考察 |
+| `plots.py` | notebook から呼ぶ再利用可能な Figure 作成 helper |
+| `probe.ipynb` | `results/` → 可視化・表・主張と考察 |
 
 予測 cache は共有 CLI（`analysis/common/predictions.py`）が作る。群ごとの公平性指標は run artifact
 に無いので、群の切り方を分析側で決めるために予測を持つ。
 
 `cache/` `results/` `figures/` は再生成できるので Git 管理外。`reports/` は分析メモと、そこから
 決まった次の実験方針を置く。
+
+hidden cohort の epoch ログは cohort ごとの `AUROC`・`bACC`・`loss`（および support）を raw metric とし、
+`epoch_metrics.py` が `min`・`max`・`gap` を後計算する。これにより logger 側と分析側で派生指標の定義が
+重複しない。
 
 ## 作り直す
 
@@ -71,5 +78,19 @@ uv run python analysis/iterative_probe/collect.py \
   20260921T103225Z-iterative-s42-3166 20260921T103225Z-iterative-s42-fac5 \
   --baseline 20260921T103036Z-resnet-chexpert-s42-5538
 uv run python analysis/iterative_probe/groups.py --split test
-uv run python analysis/iterative_probe/plots.py --split test
+```
+
+個別に作り直す場合は、分析の塊ごとに次を実行する。
+
+```bash
+uv run python analysis/iterative_probe/epoch_metrics.py \
+  20260921T103222Z-iterative-s42-d24d 20260921T103219Z-iterative-s42-e992 \
+  20260921T103225Z-iterative-s42-3166 20260921T103225Z-iterative-s42-fac5
+uv run python analysis/iterative_probe/cohort_analysis.py \
+  20260921T103222Z-iterative-s42-d24d 20260921T103219Z-iterative-s42-e992 \
+  20260921T103225Z-iterative-s42-3166 20260921T103225Z-iterative-s42-fac5
+uv run python analysis/iterative_probe/baseline_comparison.py \
+  20260921T103222Z-iterative-s42-d24d 20260921T103219Z-iterative-s42-e992 \
+  20260921T103225Z-iterative-s42-3166 20260921T103225Z-iterative-s42-fac5 \
+  --baseline 20260921T103036Z-resnet-chexpert-s42-5538
 ```

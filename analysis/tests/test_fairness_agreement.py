@@ -1,8 +1,11 @@
 """分析側の公平性指標が、学習側と同じ定義であることを golden データで固定する。
 
-`analysis/iterative_probe/groups.py` は群ごとの TPR・FPR から自前で Eopp0 / Eopp1 / Eodds を
-組み立てる。交差群は学習側の `compute_fairness_metrics` では作れないので実装が要るが、
-**単独属性では同じ値にならなければならない**。
+`iterative_probe` と `initial_resnet_vs_invariant` は、どちらも群ごとの TPR・FPR から自前で
+Eopp0 / Eopp1 / Eodds を組み立てる。群の切り方は package ごとの判断なので実装も package に
+閉じるが、**単独属性では学習側と同じ値にならなければならない**。
+
+複製を作った以上、**全部の複製に同じ golden を流す**。片方だけに当てると、もう片方が静かに
+別の定義へずれても誰も気付かない。
 
 比較相手をコードではなく `tests/golden/fairness_metrics.v1.json` に置く。理由は
 `.agents/skills/migrate/rationale.md`（複製を許した上で、一致を固定データで押さえる）と同じ。
@@ -20,7 +23,14 @@ import pandas as pd
 import pytest
 
 from analysis.common.paths import REPOSITORY_ROOT
-from analysis.iterative_probe.groups import group_metrics, summarize
+from analysis.initial_resnet_vs_invariant import groups as initial_groups
+from analysis.iterative_probe import groups as iterative_groups
+
+# golden を流す実装。package が増えたらここへ足す。
+IMPLEMENTATIONS = {
+    "iterative_probe": iterative_groups,
+    "initial_resnet_vs_invariant": initial_groups,
+}
 
 # golden のログキーと、`summarize` が返す列の対応。
 SUMMARY_COLUMN = {
@@ -68,25 +78,26 @@ def _codes(case: dict[str, Any], attribute: str) -> np.ndarray:
     raise AssertionError(f"{attribute} は golden の attribute_names に無い")
 
 
-def _summary(case: dict[str, Any], attribute: str) -> pd.Series:
-    """1 属性について、群別指標を出して 1 行へ畳む。"""
+def _summary(case: dict[str, Any], attribute: str, groups: Any) -> pd.Series:
+    """1 属性について、その package の実装で群別指標を出して 1 行へ畳む。"""
     target, probability, prediction = _predictions(case)
     codes = _codes(case, attribute)
     # 負の符号は欠損。`demographics_of` が split CSV の欠損行を落とすのと同じ扱いにする。
     present = codes >= 0
     rows = []
     for code in sorted(set(codes[present].tolist())):
-        rows_of_group = codes == code
-        rows.append(group_metrics(target[rows_of_group], probability[rows_of_group], prediction[rows_of_group]))
-    return summarize(pd.DataFrame(rows))
+        of_group = codes == code
+        rows.append(groups.group_metrics(target[of_group], probability[of_group], prediction[of_group]))
+    return groups.summarize(pd.DataFrame(rows))
 
 
+@pytest.mark.parametrize("package", sorted(IMPLEMENTATIONS))
 @pytest.mark.parametrize("case", _cases(), ids=lambda case: case["name"])
-def test_group_metrics_reproduce_the_golden_fairness_values(case: dict[str, Any]) -> None:
-    """学習中にログされる値と、分析が出す値が同じ定義であることを固定する。"""
+def test_group_metrics_reproduce_the_golden_fairness_values(case: dict[str, Any], package: str) -> None:
+    """学習中にログされる値と、各 package が出す値が同じ定義であることを固定する。"""
     attributes = {key.split("/")[1] for key in case["expected"]}
     for attribute in sorted(attributes):
-        summary = _summary(case, attribute)
+        summary = _summary(case, attribute, IMPLEMENTATIONS[package])
         for key, expected in case["expected"].items():
             name = key.split("/")[-1]
             if key.split("/")[1] != attribute or name not in SUMMARY_COLUMN:
@@ -94,9 +105,9 @@ def test_group_metrics_reproduce_the_golden_fairness_values(case: dict[str, Any]
             actual = summary[SUMMARY_COLUMN[name]]
             if expected is None:
                 # golden の null は NaN。定義できない指標を 0 として出さないことも固定する。
-                assert math.isnan(actual), f"{case['name']}: {key} は定義できないはず"
+                assert math.isnan(actual), f"{package} / {case['name']}: {key} は定義できないはず"
                 continue
-            assert actual == pytest.approx(expected, abs=TOLERANCE), f"{case['name']}: {key}"
+            assert actual == pytest.approx(expected, abs=TOLERANCE), f"{package} / {case['name']}: {key}"
 
 
 def test_every_supported_case_checks_at_least_one_value() -> None:

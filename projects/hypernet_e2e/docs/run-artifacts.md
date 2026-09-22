@@ -18,6 +18,8 @@ projects/hypernet_e2e/runs/
     logs/
       train.log
     metrics/
+      metrics.csv
+      fit.json
     checkpoints/
     wandb/
     artifacts/
@@ -83,9 +85,10 @@ run をまたぐ共有 log を作るため、`configs/hydra/job_logging/console.
 Lightning は root に handler が無い状態で import されると自分の logger の伝播を切るので、
 その logger にも同じ handler を足して fit の経過を `train.log` に残す。
 
-epoch ごとの metric は `logger` group が指す experiment logger が持つ。既定は wandb で、
-project は `fairness_hypernet_e2e` とする。`metrics/fit.json` は fit 終了時点の値だけなので、
-学習曲線はこちらを正本とする。`logger=none` を指定した run は experiment logger を作らない。
+epoch ごとの metric は必須の `metrics/metrics.csv` にも記録する。これは外部 experiment logger の
+設定に依存しない学習曲線の正本であり、`logger=none` を指定した run でも残る。既定の外部 logger
+は wandb で、project は `fairness_hypernet` とする。`metrics/fit.json` は fit 終了時点の値だけなので、
+epoch 推移の分析には `metrics/metrics.csv` を使う。
 
 | 項目 | 扱い |
 | --- | --- |
@@ -93,6 +96,9 @@ project は `fairness_hypernet_e2e` とする。`metrics/fit.json` は fit 終�
 | `logger.wandb.name` | 既定は `null`。run 予約時に run ID を入れ、dashboard と run directory を対応させる。 |
 | `logger.wandb.log_model` | `False`。checkpoint は run directory だけが持ち、wandb へ複製しない。 |
 | `run.json` の `loggers` | wandb run の `name`・`id`・`url`。fit の前に記録し、失敗した run からも辿れるようにする。 |
+
+CSVLogger は設定 group ではなく `run_fit` が常に追加し、`metrics/metrics.csv` に書く。したがって
+CSV の有無は W&B の利用可否や `logger` override に左右されない。
 
 wandb run は成功・失敗のいずれでも `run_logging.experiment_loggers` が閉じる。
 
