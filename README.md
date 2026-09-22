@@ -4,6 +4,10 @@
 実験ごとに実装を project 内へ閉じ、project 間でコードを import しません。共通化よりも、各実験を
 単独で再現・比較できることを優先します。
 
+実験 1 本を仮説から結論まで進める手順は
+**[docs/experiment-workflow.md](docs/experiment-workflow.md)** にあります。この README は構成と
+方針を持ちます。
+
 ## Project
 
 | project | 責務 | 現在地 |
