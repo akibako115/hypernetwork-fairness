@@ -202,3 +202,27 @@ def test_group_dro_diagnostics_logs_all_weights_and_summary() -> None:
     assert module.logged["train/group_dro/q_01"] == 0.75
     assert module.logged["train/group_dro/max_q"] == 0.75
     assert module.logged["train/group_dro/weight_entropy"] > 0
+
+
+def test_group_loss_is_logged_for_every_cohort() -> None:
+    callback = HiddenCohortMetricsCallback(num_groups=2)
+    module = _DummyModule()
+    callback.on_validation_epoch_start(None, module)
+    callback.on_validation_batch_end(
+        None,
+        module,
+        {
+            "logits": torch.tensor([[4.0, 0.0], [0.0, 4.0], [3.0, 0.0], [0.0, 3.0]]),
+            "target": torch.tensor([0, 1, 1, 1]),
+            "attributes": {"group_id": torch.tensor([0, 0, 1, 1])},
+        },
+        None,
+        0,
+    )
+
+    callback.on_validation_epoch_end(None, module)
+
+    # max と gap だけでは、どの群が重いのかも、その群が改善したのかも後から追えない。
+    assert module.logged["val/hidden_loss_00"] > 0
+    assert module.logged["val/hidden_loss_01"] > 0
+    assert max(module.logged["val/hidden_loss_00"], module.logged["val/hidden_loss_01"]) == pytest.approx(module.logged["val/hidden_max_loss"])

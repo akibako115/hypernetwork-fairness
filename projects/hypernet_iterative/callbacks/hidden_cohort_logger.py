@@ -221,6 +221,7 @@ class HiddenCohortMetricsCallback(L.Callback):
         for group_id in range(self.num_groups):
             pl_module.log(f"{phase}/hidden_support_{group_id:02d}", 0.0)
             pl_module.log(f"{phase}/hidden_auroc_{group_id:02d}", float("nan"))
+            pl_module.log(f"{phase}/hidden_loss_{group_id:02d}", float("nan"))
         pl_module.log(f"{phase}/hidden_valid_auroc_groups", 0.0)
         pl_module.log(f"{phase}/hidden_min_auroc", float("nan"))
         pl_module.log(f"{phase}/hidden_auroc_gap", float("nan"))
@@ -271,6 +272,7 @@ class HiddenCohortMetricsCallback(L.Callback):
             pl_module.log(f"{phase}/hidden_support_{group_id:02d}", float(support))
             if support == 0:
                 pl_module.log(f"{phase}/hidden_auroc_{group_id:02d}", float("nan"))
+                pl_module.log(f"{phase}/hidden_loss_{group_id:02d}", float("nan"))
                 if phase == "val":
                     invalid_val_groups.append(group_id)
                 continue
@@ -278,6 +280,9 @@ class HiddenCohortMetricsCallback(L.Callback):
             group_preds = preds[mask]
             mean_loss = float(losses[mask].mean())
             mean_losses.append(mean_loss)
+            # 群ごとの loss を残す。max と gap だけでは、どの群が重く、その群が stage の中で
+            # 改善したのかが後から追えない。GroupDRO の q は群 loss で動くので、q と対で要る。
+            pl_module.log(f"{phase}/hidden_loss_{group_id:02d}", mean_loss)
             # クラスごとの recall（TPR/TNR）を求め、balanced accuracy として平均する
             recalls = []
             for label in (0, 1):
