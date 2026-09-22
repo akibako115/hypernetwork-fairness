@@ -2,17 +2,34 @@
 
 from pathlib import Path
 
+import pytest
 from hydra import compose, initialize_config_dir
+from hydra.errors import ConfigCompositionException
 from hydra.utils import instantiate
 from omegaconf import OmegaConf
 
 from projects.hypernet_iterative import workflow
 
+CONFIG_DIR = Path(__file__).parent.parent / "configs"
+
+# warmup 相当の基準 preset。`experiment` は config 側で必須にしてあるので、既定に落ちる合成は
+# 書けない。stage を見る test は `experiment=` を自分で渡す。
+BASELINE_EXPERIMENT = "spatial_lora_chexpert"
+
 
 def _compose(*overrides: str):
-    config_dir = Path(__file__).parent.parent / "configs"
-    with initialize_config_dir(version_base="1.3", config_dir=str(config_dir)):
-        return compose(config_name="train", overrides=list(overrides))
+    named = list(overrides)
+    if not any(override.startswith("experiment=") for override in named):
+        named.insert(0, f"experiment={BASELINE_EXPERIMENT}")
+    with initialize_config_dir(version_base="1.3", config_dir=str(CONFIG_DIR)):
+        return compose(config_name="train", overrides=named)
+
+
+def test_experiment_must_be_named_on_the_command_line() -> None:
+    """既定の experiment を持たないこと。持つと、渡し忘れた起動が別の変調範囲で完走する。"""
+    with initialize_config_dir(version_base="1.3", config_dir=str(CONFIG_DIR)):
+        with pytest.raises(ConfigCompositionException, match="experiment"):
+            compose(config_name="train")
 
 
 def test_warmup_preset_uses_plain_datamodule_and_task_loss() -> None:
@@ -22,7 +39,8 @@ def test_warmup_preset_uses_plain_datamodule_and_task_loss() -> None:
     assert config.model.loss_fn._target_ == "projects.hypernet_iterative.loss.TaskLoss"
     assert config.trainer.max_epochs == config.iteration.warmup_epochs
     assert config.weighting == "inverse"
-    assert list(config.tags) == ["chexpert", "spatial_lora", "iterative"]
+    # 条件は解決済み設定として W&B に載るので、preset は tag を付けない。
+    assert list(config.tags) == []
     assert instantiate(config.model) is not None
     assert config.checkpoint_selection.name == "global_auroc_bacc"
     assert config.callbacks.bacc_checkpoint.monitor == "val/bacc"
@@ -37,13 +55,7 @@ def test_cohort_stage_preset_connects_sidecar_group_dro_and_hidden_callbacks() -
     assert config.callbacks.hidden_cohort_logger.num_groups == config.cohort.num_groups
     assert config.trainer.max_epochs == config.iteration.stage_epochs
     assert config.weighting == "inverse"
-    assert list(config.tags) == [
-        "chexpert",
-        "spatial_lora",
-        "iterative_hidden_cohort",
-        "strategy_group_dro",
-        "cohort_metadata_kmeans",
-    ]
+    assert list(config.tags) == []
     assert config.model.loss_fn.num_groups == config.cohort.num_groups
     assert config.model.loss_fn.step_size == config.iteration.group_dro_step_size
     assert instantiate(config.model) is not None

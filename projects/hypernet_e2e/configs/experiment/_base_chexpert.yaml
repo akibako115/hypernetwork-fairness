@@ -6,7 +6,10 @@ defaults:
   - _self_
 
 dataset: chexpert
-weighting: none
+# CheXpert 系列は class weight を train split の逆頻度で統一している。統一値を preset 名で
+# 表すと preset の選び忘れがそのまま別条件の run になるため、既定として置く。逸脱する条件
+# （sampling だけで補正する ablation など）の側が weighting を明記する。
+weighting: inverse
 
 trainer:
   max_epochs: 30

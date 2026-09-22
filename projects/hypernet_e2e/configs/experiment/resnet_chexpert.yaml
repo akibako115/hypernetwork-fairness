@@ -5,4 +5,3 @@ defaults:
   - _self_
 
 experiment_name: resnet-chexpert
-tags: [chexpert, resnet50, erm]

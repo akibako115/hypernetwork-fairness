@@ -3,5 +3,9 @@ defaults:
   - spatial_lora_chexpert
   - _self_
 
+# sampler だけでクラス不均衡を補正する条件。CheXpert 系列の既定（inverse）をそのまま受けると
+# loss の class weight と二重に掛かるので、ここで打ち消す。
+weighting: none
+
 data:
   train_sampling: inverse_frequency

@@ -5,4 +5,3 @@ defaults:
   - _self_
 
 experiment_name: spatial-lora-isic2019
-tags: [isic2019, spatial_lora_resnet50, erm]

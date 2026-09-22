@@ -41,17 +41,21 @@ group 系の学習条件では、さらに `group_id`（`(B,)` の long、`[0, n
 [`configs/train.yaml`](configs/train.yaml) が Hydra の入口です。`run.py` が設定を合成して
 model・data・callbacks・trainer を作成し、1 回の `fit` を実行します。CheXpert の比較条件は次から選べます。
 
-- `experiment=resnet_chexpert_erm`
-- `experiment=spatial_lora_chexpert_erm`
-- 各モデルの `inverse_weighted_loss` / `inverse_weighted_sampling`
-- `experiment=spatial_lora_chexpert_fc` / `_stage4_fc`（変調範囲だけを変えた inverse weighted ERM）
+- `experiment=resnet_chexpert` / `experiment=spatial_lora_chexpert`（系列の基準となる ERM）
+- `experiment=spatial_lora_chexpert_fc` / `_stage4_fc`（変調範囲だけを変えた条件）
 - `experiment=spatial_lora_chexpert_from_resnet`（2 段学習の 2 段目）
 - `experiment=resnet_chexpert_attribute_invariant`（GRL による属性不変な第1段）
 - `experiment=spatial_lora_chexpert_from_attribute_invariant`（上記からの第2段）
-- 各モデルの `group_dro`
+- 各モデルの `group_dro` / `inverse_weighted_sampling`
 
-`inverse_weighted_loss` の class weight は、`run.py` が train split の target 頻度から算出して
-解決済み config に記録します。学習中に更新される cohort artifact は扱いません。
+`experiment` に既定はありません。渡し忘れた起動が「たまたま既定だった条件」で完走しないよう、
+Hydra が未指定を拒否します。
+
+CheXpert 系列の class weight は **`weighting: inverse` を既定**とし、`_base_chexpert.yaml` が
+持ちます。`run.py` が train split の target 頻度から算出して解決済み config に記録します。
+逸脱するのは `inverse_weighted_sampling`（sampler と二重に掛けないため `none`）だけで、
+どの preset が何を振っているかは `tests/test_configs.py` の `CHEXPERT_PRESETS` が正本です。
+学習中に更新される cohort artifact は扱いません。
 
 ## Subgroup の公平性手法
 
@@ -92,7 +96,7 @@ ResNet を 1 段目、backbone と classifier を凍結した Spatial LoRA を 2
 `run.py` を 2 回起動して構成します。1 段目の run は通常の単段 run です。
 
 ```bash
-uv run python -m projects.hypernet_e2e.run experiment=resnet_chexpert_erm
+uv run python -m projects.hypernet_e2e.run experiment=resnet_chexpert
 ```
 
 2 段目は 1 段目の `run.json` の `checkpoints` から best checkpoint の path を選び、

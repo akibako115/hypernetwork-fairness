@@ -5,4 +5,3 @@ defaults:
   - _self_
 
 experiment_name: spatial-lora-iterative-chexpert
-tags: [chexpert, spatial_lora, iterative]

@@ -1,4 +1,0 @@
-# @package _global_
-defaults:
-  - resnet_chexpert
-  - _self_

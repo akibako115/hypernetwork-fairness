@@ -31,7 +31,7 @@
 
 | 対象 | 形式 | 例 |
 | --- | --- | --- |
-| Python package・config file・実験 preset | `snake_case` | `spatial_lora_chexpert_erm` |
+| Python package・config file・実験 preset | `snake_case` | `spatial_lora_chexpert_fc` |
 | run ID 内の experiment 部 | 小文字 `kebab-case` | `spatial-lora-chexpert` |
 | run ID | `<UTC>-<experiment>-s<seed>-<suffix>` | `20260918T101530Z-spatial-lora-erm-s42-a1b2` |
 | run 内の固定 directory | 小文字の複数形 | `logs/`、`metrics/`、`checkpoints/`、`artifacts/` |

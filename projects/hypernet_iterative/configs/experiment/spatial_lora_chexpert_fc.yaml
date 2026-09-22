@@ -4,7 +4,6 @@ defaults:
   - _self_
 
 experiment_name: spatial-lora-iterative-chexpert-fc
-tags: [chexpert, spatial_lora, iterative, modulation_fc]
 model:
   net:
     # 分類ヘッドだけを condition で変調する。stage3/4 の Bottleneck は素の ResNet のまま残る。

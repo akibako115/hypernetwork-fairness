@@ -1,4 +1,6 @@
 # @package _global_
+# class weight は CheXpert 系列の既定（inverse）を受け、GroupDROTaskLoss.class_weight に解決される。
+# hypernet_iterative の cohort GroupDRO も同じ weighting で回しているので、条件が揃う。
 defaults:
   - resnet_chexpert
   - override /data: chexpert_demographic_groups
@@ -6,4 +8,3 @@ defaults:
   - _self_
 
 experiment_name: resnet-chexpert-group-dro
-tags: [chexpert, resnet50, group_dro]

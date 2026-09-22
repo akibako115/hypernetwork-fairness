@@ -10,7 +10,7 @@ defaults:
 fold: 0
 
 experiment_name: spatial-lora-isic2019-cv-fold${fold}
-tags: [isic2019, spatial_lora_resnet50, erm, cv]
+tags: [cv]
 
 data:
   cv_splits_dir: ${paths.data_dir}/isic2019/splits_fairness_cv/fold${fold}

@@ -1,7 +1,0 @@
-# @package _global_
-defaults:
-  - resnet_chexpert
-  - _self_
-
-# run.py が train split の class frequency から loss_fn.class_weight を解決する。
-weighting: inverse

@@ -4,7 +4,9 @@ defaults:
   - logger: wandb
   - paths: default
   - trainer: gpu
-  - experiment: spatial_lora_chexpert_erm
+  # 既定の experiment は置かない。置くと、experiment を渡し忘れた起動が「たまたま既定だった
+  # 条件」で完走してしまう。未指定は Hydra が MissingMandatoryValue で止める。
+  - experiment: ???
   - override hydra/hydra_logging: colorlog
   - override hydra/job_logging: console
   - _self_
@@ -12,6 +14,9 @@ defaults:
 project: hypernet_e2e
 task_name: train
 seed: 12345
+# tags は人が付ける印にだけ使う。dataset・model・目的関数のような、解決済み設定と run 名から
+# 読める条件を写さない（CLI override で古くなり、W&B 上で嘘になる）。必要なときに
+# `tags=[...]` で渡す。
 tags: []
 
 # run.py が一意な run directory を予約してから設定する。config 単体では出力しない。

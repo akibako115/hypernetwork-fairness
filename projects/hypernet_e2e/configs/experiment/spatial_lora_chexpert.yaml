@@ -5,4 +5,3 @@ defaults:
   - _self_
 
 experiment_name: spatial-lora-chexpert
-tags: [chexpert, spatial_lora_resnet50, erm]

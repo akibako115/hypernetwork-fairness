@@ -6,6 +6,8 @@ defaults:
   - _self_
 
 dataset: isic2019
+# ISIC 2019 は CheXpert とは別系列で、まだ class weight を掛けない条件で揃えている。
+# CheXpert 側の既定（inverse）に合わせているのではなく、意図してここだけ none にしている。
 weighting: none
 
 trainer:

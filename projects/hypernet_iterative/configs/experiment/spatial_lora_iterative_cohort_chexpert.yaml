@@ -11,12 +11,6 @@ defaults:
 dataset: chexpert
 experiment_name: spatial-lora-iterative-cohort-chexpert
 weighting: inverse
-tags:
-  - chexpert
-  - spatial_lora
-  - iterative_hidden_cohort
-  - strategy_${training_strategy.name}
-  - cohort_${cohort.name}
 trainer:
   max_epochs: ${iteration.stage_epochs}
 data:

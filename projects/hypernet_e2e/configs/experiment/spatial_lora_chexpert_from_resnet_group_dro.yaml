@@ -8,4 +8,4 @@ defaults:
   - _self_
 
 experiment_name: spatial-lora-chexpert-from-resnet-group-dro
-tags: [chexpert, spatial_lora_resnet50, two_stage, group_dro]
+tags: [two_stage]
