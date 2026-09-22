@@ -80,7 +80,7 @@ def reserve_parent_run(config: DictConfig) -> Path:
         _write_json(
             run_dir / "run.json",
             {
-                "schema_version": 1,
+                "schema_version": 2,
                 "run_id": run_id,
                 "kind": "iterative_fit",
                 "status": "running",
@@ -88,6 +88,8 @@ def reserve_parent_run(config: DictConfig) -> Path:
                 "finished_at": None,
                 "git_commit": _git_commit(),
                 "seed": config.get("seed"),
+                # この run がどの仮説のためのものか。`analysis/<study>/` が正本。
+                "study": config.get("study"),
                 "stages": {},
                 "selected_checkpoint": None,
                 "wandb": None,
@@ -103,7 +105,8 @@ def _validate_plan(config: DictConfig) -> None:
     `plan()` は `dry_run` からしか呼ばれないので、ここを `plan()` の中に置くと実 run では
     発火しない。`iteration.clusters` の打ち間違いは warmup fit を消費し切ったあと
     `cohorts.build.save_artifact` で初めて落ちる。`run_iterative()` も先頭でこれを呼ぶ。
-    `weighting` をここで見るのは、dry-run でも打ち間違いが出るようにするためである。
+    `weighting` と `study` をここで見るのは、dry-run でも打ち間違いが出るようにするためである。
+    `study` は `analysis/<study>/` が正本で、この run がどの仮説に属するかを決める。
     """
     iteration = config.iteration
     if min(int(iteration.warmup_epochs), int(iteration.stage_epochs), int(iteration.stages), int(iteration.clusters), int(iteration.n_init)) < 1:
@@ -111,6 +114,12 @@ def _validate_plan(config: DictConfig) -> None:
     weighting = str(config.get("weighting", "none"))
     if weighting not in _WEIGHTING_MODES:
         raise ValueError(f"unsupported weighting: {weighting}（{', '.join(_WEIGHTING_MODES)} のいずれか）")
+    # `???` のままでも key ごと無くても、同じ「指定されていない」として扱う。
+    study = OmegaConf.select(config, "study", default=None)
+    if not study:
+        raise ValueError("study を指定する（値は analysis/<study>/ の directory 名。探りの run は study=scratch）")
+    if not (_REPOSITORY_ROOT / "analysis" / str(study)).is_dir():
+        raise ValueError(f"study に対応する分析 package が無い: analysis/{study}（探りの run は study=scratch）")
 
 
 def plan(config: DictConfig) -> list[Stage]:

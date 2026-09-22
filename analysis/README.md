@@ -6,6 +6,12 @@
 package は project ごとに分けず、`analysis/` 直下へ平らに並べる。仮説は project をまたぐことが
 あり（e2e と iterative の比較など）、project で階層を切るとその比較の置き場が無くなる。
 
+package の slug は学習側の `study` と同じ値になる。run は起動時に `study=<slug>` を受け取り、
+`run.json` にその値を残す。W&B の `group` にも同じ値が入るので、**仮説 → run → dashboard が
+1 つの名前でつながる**。新しい仮説を始めるときは、先にこの package を作る。
+
+`scratch/` は例外で、まだ仮説に紐づかない run の逃げ道として置いている。結論の根拠にはしない。
+
 ```text
 <slug>/
   README.md    仮説、対象 run、結論

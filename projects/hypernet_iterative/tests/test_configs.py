@@ -21,6 +21,9 @@ def _compose(*overrides: str):
     named = list(overrides)
     if not any(override.startswith("experiment=") for override in named):
         named.insert(0, f"experiment={BASELINE_EXPERIMENT}")
+    # study も必須。logger.wandb.group が `${study}` を参照するので、解決する test では値が要る。
+    if not any(override.startswith("study=") for override in named):
+        named.insert(0, "study=scratch")
     with initialize_config_dir(version_base="1.3", config_dir=str(CONFIG_DIR)):
         return compose(config_name="train", overrides=named)
 

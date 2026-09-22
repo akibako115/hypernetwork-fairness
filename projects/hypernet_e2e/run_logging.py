@@ -102,6 +102,25 @@ def experiment_loggers(config: DictConfig) -> Iterator[list[Any]]:
         _finish_wandb()
 
 
+def log_run_config(loggers: Sequence[Any], config: DictConfig) -> None:
+    """解決済み設定を experiment logger の config として残す。
+
+    W&B の dashboard で run を絞り込める列は、ここで渡した値だけになる。渡さないと run 名と
+    CLI 引数しか残らず、同じ study の run を条件で並べられない。拾う key を選ぶと「その条件では
+    並べられない run」が後から出るので、解決済み設定をそのまま渡す。
+
+    Args:
+        loggers: `experiment_loggers` が返した logger
+        config: run directory と class weight を注入したあとの解決済み設定
+
+    Returns:
+        None
+    """
+    resolved = OmegaConf.to_container(config, resolve=True)
+    for logger in loggers:
+        logger.log_hyperparams(resolved)
+
+
 def logger_references(loggers: Sequence[Any]) -> list[dict[str, str]]:
     """wandb run を後から辿るための name・id・url を返す。
 

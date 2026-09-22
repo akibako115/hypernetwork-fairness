@@ -51,6 +51,7 @@ def _config(tmp_path: Path) -> object:
     return OmegaConf.create(
         {
             "seed": None,
+            "study": "scratch",
             "weighting": "inverse",
             "data": {"cv_splits_dir": str(split_dir), "num_classes": 2},
             "model": {"loss_fn": {"class_weight": None}},

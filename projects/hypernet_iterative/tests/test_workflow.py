@@ -15,6 +15,7 @@ def _config(tmp_path: Path):
             "paths": {"project_dir": str(tmp_path)},
             "seed": 7,
             "project": "hypernet_iterative",
+            "study": "scratch",
             "logger": {},
             "data": {"_target_": "unused", "batch_size": 2, "num_classes": 2},
             "model": {"loss_fn": {"_target_": "unused"}, "attribute_names": {}},

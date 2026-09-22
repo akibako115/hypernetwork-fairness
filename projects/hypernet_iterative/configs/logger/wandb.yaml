@@ -1,6 +1,11 @@
+# project は repo 単位で 1 つにする。理由は hypernet_e2e 側の同名 config と同じで、1 つの仮説が
+# 両 project の run を並べるため。仮説の区別は group、run の種別は job_type が持つ。
+# ${study} と ${project} は config root を指す（この node の project ではない）。
 wandb:
   _target_: lightning.pytorch.loggers.wandb.WandbLogger
-  project: fairness_hypernet_iterative
+  project: fairness_hypernet
+  group: ${study}
+  job_type: ${project}
   save_dir: null
   name: null
   log_model: false

@@ -10,6 +10,9 @@ defaults:
   - _self_
 
 project: hypernet_iterative
+# この run がどの仮説のためのものか。値は `analysis/<study>/` の directory 名で、W&B の group にも
+# そのまま入る。既定は置かない。どの分析にも紐づかない run を残さないため、起動時に必ず指定する。
+study: ???
 task_name: train
 # tags は人が付ける印にだけ使う。dataset・model・目的関数のような、解決済み設定と run 名から
 # 読める条件を写さない（CLI override で古くなり、W&B 上で嘘になる）。必要なときに

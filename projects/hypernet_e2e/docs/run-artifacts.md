@@ -49,7 +49,7 @@ projects/hypernet_e2e/runs/
 | path | 内容 |
 | --- | --- |
 | `config.yaml` | 実行時に解決済みの全設定。後から defaults をたどらず同じ入力を読める形で保存する。 |
-| `run.json` | `schema_version`、`run_id`、`kind`、状態、開始・終了時刻、Git commit、seed、experiment logger の参照、`parent_run`、`checkpoints`、結果要約を持つ。`kind` は `fit` または `cohort_build`、状態は `running` / `succeeded` / `failed` とする。 |
+| `run.json` | `schema_version`、`run_id`、`kind`、`study`、状態、開始・終了時刻、Git commit、seed、experiment logger の参照、`parent_run`、`checkpoints`、結果要約を持つ。`kind` は `fit` または `cohort_build`、状態は `running` / `succeeded` / `failed` とする。`study` はこの run が属する仮説で、`analysis/<study>/` が正本。 |
 | `data_manifest.json` | 使用した split の SHA-256、各 split の行数・画像集合 hash・target 分布、画像 root を持つ。実データ自体は複製しない。初回の `fit` は train / val を記録する。 |
 | `preflight.json` | 実行前に通した golden の版・hash・結果と、その時点の Git commit を持つ。 |
 

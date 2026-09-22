@@ -9,7 +9,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 
 
 @contextmanager
@@ -33,11 +33,17 @@ def parent_wandb(config: DictConfig, run_dir: Path) -> Iterator[Any | None]:
 
     run = wandb.init(
         project=settings.project,
+        # group は study（この run が属する仮説）、job_type は code project。W&B 上ではこの 2 つで
+        # 「どの仮説の、どちら側の run か」を絞る。config 側の値をそのまま渡す。
+        group=settings.get("group"),
+        job_type=settings.get("job_type"),
         name=run_dir.name,
         dir=str(run_dir),
         tags=list(settings.get("tags", [])),
         mode="offline" if settings.get("offline", False) else "online",
-        config={"run_dir": str(run_dir), "project": config.project, "iteration": dict(config.iteration)},
+        # 解決済み設定をそのまま載せる。ここに入れた値だけが W&B の絞り込み列になるので、
+        # 拾う key を選ぶと「その条件では並べられない run」が後から出る。
+        config={**OmegaConf.to_container(config, resolve=True), "run_dir": str(run_dir)},
     )
     try:
         yield run

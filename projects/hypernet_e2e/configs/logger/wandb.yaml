@@ -1,4 +1,8 @@
 # https://wandb.ai
+# project は repo 単位で 1 つにする。1 つの仮説（study）が e2e と iterative の run を並べて比較する
+# ので、code project ごとに W&B project を割ると、その比較が 1 画面に出せなくなる。仮説の区別は
+# group、run の種別は job_type が持つ。
+#
 # save_dir と name は null のままにする。run directory を予約した時点で
 # run_logging.inject_logger_outputs が実際の出力先と run 名へ書き換える。
 wandb:
@@ -7,10 +11,11 @@ wandb:
   offline: False
   id: null # 再開する run の id を渡す
   anonymous: null
-  project: "fairness_hypernet_e2e"
+  project: "fairness_hypernet"
   log_model: False # lightning の checkpoint は upload しない
   prefix: ""
-  group: ""
+  # ${study} と ${project} は config root を指す（この node の project ではない）。
+  group: ${study}
+  job_type: ${project}
   tags: ${tags}
-  job_type: ""
   name: null

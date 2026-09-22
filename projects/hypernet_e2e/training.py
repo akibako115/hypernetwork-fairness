@@ -16,14 +16,15 @@ from hydra.utils import instantiate
 from lightning import Callback, LightningDataModule, LightningModule, Trainer
 from omegaconf import DictConfig, OmegaConf
 
-from projects.hypernet_e2e.run_logging import as_trainer_loggers, experiment_loggers, logger_references, text_log
+from projects.hypernet_e2e.run_logging import as_trainer_loggers, experiment_loggers, log_run_config, logger_references, text_log
 from projects.hypernet_e2e.run_record import RunRecorder
-from projects.hypernet_e2e.runtime_paths import normalize_runtime_paths
+from projects.hypernet_e2e.runtime_paths import normalize_runtime_paths, repository_root
 
 
 def run_fit(config: DictConfig) -> Path:
     """解決済み設定から新規 run を記録し、一回だけ Lightning ``fit`` を実行する。
 
+    `study` が指す `analysis/<study>/` の実在を確かめてから始める。
     ``weighting=inverse`` の場合、train split の target 頻度から class weight を計算して config に
     反映する。実行ログは ``logs/train.log``、epoch ごとの metric は ``logger`` group が指す
     experiment logger が持ち、fit に成功すれば最終の scalar callback metrics を
@@ -41,12 +42,14 @@ def run_fit(config: DictConfig) -> Path:
         BaseException: fit 中の例外はそのまま送出する。送出前に run を失敗として確定する。
     """
     normalize_runtime_paths(config)
+    _validate_study(config)
     _validate_attribute_invariance(config)
     _resolve_inverse_class_weights(config)
     recorder = RunRecorder.prepare_fit(config)
     try:
         with text_log(recorder.run_dir / "logs"), experiment_loggers(config) as loggers:
             recorder.record_loggers(logger_references(loggers))
+            log_run_config(loggers, config)
             if config.get("seed") is not None:
                 L.seed_everything(config.seed, workers=True)
 
@@ -69,6 +72,29 @@ def run_fit(config: DictConfig) -> Path:
         recorder.fail(error)
         raise
     return recorder.run_dir
+
+
+def _validate_study(config: DictConfig) -> None:
+    """run が属する study が、分析側の package として実在することを確かめる。
+
+    study は「この run がどの仮説のためのものか」を指し、`analysis/<study>/` が正本になる。
+    打ち間違いを許すと run と分析の対応が静かに切れるので、fit を始める前に照合する。
+
+    Args:
+        config: `study` を持つ実行設定。
+
+    Returns:
+        None
+
+    Raises:
+        ValueError: `study` が未指定か、対応する `analysis/<study>/` が無い場合。
+    """
+    # `???` のままでも key ごと無くても、同じ「指定されていない」として扱う。
+    study = OmegaConf.select(config, "study", default=None)
+    if not study:
+        raise ValueError("study を指定する（値は analysis/<study>/ の directory 名。探りの run は study=scratch）")
+    if not (repository_root() / "analysis" / str(study)).is_dir():
+        raise ValueError(f"study に対応する分析 package が無い: analysis/{study}（探りの run は study=scratch）")
 
 
 def _validate_attribute_invariance(config: DictConfig) -> None:

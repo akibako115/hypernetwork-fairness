@@ -116,14 +116,17 @@ def test_default_callbacks_include_metrics_and_fairness_without_text_progress() 
 
 
 def test_default_logger_is_wandb_with_its_output_left_to_the_run_record() -> None:
-    cfg = _compose("experiment=spatial_lora_chexpert")
+    cfg = _compose("experiment=spatial_lora_chexpert", "study=scratch")
 
     assert set(cfg.logger) == {"wandb"}
     assert cfg.logger.wandb._target_ == "lightning.pytorch.loggers.wandb.WandbLogger"
-    assert cfg.logger.wandb.project == "fairness_hypernet_e2e"
+    assert cfg.logger.wandb.project == "fairness_hypernet"
     assert cfg.logger.wandb.log_model is False
     assert cfg.logger.wandb.save_dir is None
     assert cfg.logger.wandb.name is None
+    # 仮説は group、code project は job_type が持つ。W&B project は repo で 1 つに統合している。
+    assert cfg.logger.wandb.group == "scratch"
+    assert cfg.logger.wandb.job_type == "hypernet_e2e"
 
 
 def test_hydra_job_logging_keeps_no_shared_log_file_outside_the_run_directory() -> None:

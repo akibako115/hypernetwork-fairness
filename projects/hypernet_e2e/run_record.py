@@ -36,7 +36,7 @@ class RunRecorder:
     読み込む checkpoint の来歴を ``parent_run`` に確定させる。
     """
 
-    schema_version = 2
+    schema_version = 3
 
     def __init__(self, run_dir: Path, run_record: dict[str, Any]) -> None:
         self.run_dir = run_dir
@@ -79,6 +79,9 @@ class RunRecorder:
                 "finished_at": None,
                 "git_commit": cls._git_commit(),
                 "seed": resolved.get("seed"),
+                # この run がどの仮説のためのものか。`analysis/<study>/` が正本で、分析側は
+                # この値で自分の run を集める。
+                "study": resolved.get("study"),
                 "loggers": [],
                 "parent_run": None,
                 "checkpoints": [],

@@ -20,6 +20,23 @@ ResNet を 1 段目、凍結した Spatial LoRA を 2 段目とする二段学�
 2 回起動して構成します。段ごとに run が分かれるので、trainer 設定も学習条件も段ごとに独立して
 振れます。checkpoint の受け渡しは `run.json` の `checkpoints` と `parent_run` が記録します。
 
+## 仮説 (study)
+
+**1 つの run は必ず 1 つの仮説に属します。** 仮説の正本は `analysis/<slug>/` の分析 package で、
+その directory 名を `study` として学習の起動時に渡します。
+
+```bash
+uv run python -m projects.hypernet_e2e.run experiment=spatial_lora_chexpert_fc study=iterative-probe seed=42
+```
+
+- `study` に既定はありません。未指定の run は起動できず、`analysis/<study>/` が無い値も拒否します。
+- 結論を出すつもりが無い run（経路確認・当たり付け）は `study=scratch` を使います。
+- `run.json` に `study` が残り、W&B では `group` に入ります。W&B project は repo で 1 つ
+  (`fairness_hypernet`) にまとめ、code project は `job_type` が持ちます。1 つの仮説が
+  `hypernet_e2e` の baseline と `hypernet_iterative` の run を並べることがあるためです。
+
+project は「実装の境界」、study は「問いの境界」であり、両者は交差します。
+
 ## データ
 
 `data/<dataset>/` の split CSV は、どの project からも読み取り専用の固定入力です。分割単位・比率・
