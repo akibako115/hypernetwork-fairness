@@ -23,8 +23,18 @@ allowed-tools: Bash(uv:*) Bash(nvidia-smi:*) Bash(ps:*) Bash(git:*) Bash(ssh:*) 
 ## 条件の準備
 
 project、experiment preset、seed、trainer、data override、実行先と GPU、logger、概算時間を特定する。
-候補は `projects/<project>/configs/` を読んで確認し、存在しない条件を既存 preset に無理やり
-override で載せない。新しい比較条件は preset として project 内に持たせる。
+候補は `projects/<project>/configs/` を読んで確認する。
+
+preset と override の使い分けは、**その条件が config の構造を変えるかどうか**で決める。
+
+- **preset にする**: model や datamodule の差し替え、目的関数の系統、callback の増減、dataset の
+  変更など、`defaults` が変わるもの。既存 preset に無い構造を override で捻じ込まない
+- **override でよい**: seed、epoch 数、learning rate、`iteration.*` のような**既存の key の値だけを
+  変える**もの。スカラの水準を振るたびに preset を増やすと `configs/experiment/` が組み合わせ爆発する
+
+override で振った値は run directory の `config.yaml` が正本として記録する。run-id には experiment 名
+までしか入らないので、**同じ preset で値だけを変えた run は run-id では区別できない**。どの水準を
+振ったかは起動時に報告し、分析側の `runs.md` に run-id と対応付けて残す。
 
 `run_dir` は指定しない。`run.py` が `runs/<run-id>/` を予約して config に注入する。
 
