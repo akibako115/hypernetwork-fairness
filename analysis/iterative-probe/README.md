@@ -41,12 +41,35 @@ gap だけでなく worst と best の値も出す。gap が縮んでも、worst
 
 ## 構成
 
-- `collect.py` — run 記録から `results/` の表を作る。`--baseline` に `hypernet_e2e` の run-id を
-  渡すと baseline の epoch 推移も書き出す
-- `cache_predictions.py` — 選択済み checkpoint の予測を `cache/` へ書く。群ごとの公平性指標は
-  run artifact に無いので、群の切り方を分析側で決めるために予測を持つ
-- `probe.ipynb` — 分析と作図
-- `cache/` — 予測 cache。再生成できるので Git 管理外
-- `results/` — 集計した表
-- `figures/` — レポートが参照する図
-- `reports/` — 分析メモと、そこから決まった次の実験方針
+| file | 入力 → 出力 |
+| --- | --- |
+| `collect.py` | run artifact → `results/epoch_metrics.csv`・`headline.csv`・`cohort_groups.csv`・`cohort_correlations.csv`（`--baseline` で `baseline_epoch_metrics.csv`・`global_comparison.csv`） |
+| `groups.py` | 予測 cache + `results/` → `results/group_metrics_test.csv`・`fairness_summary_test.csv` |
+| `plots.py` | `results/*.csv` → `figures/*.png` |
+| `probe.ipynb` | `results/` と `figures/` → 主張と考察 |
+
+予測 cache は共有 CLI（`analysis/common/predictions.py`）が作る。群ごとの公平性指標は run artifact
+に無いので、群の切り方を分析側で決めるために予測を持つ。
+
+`cache/` `results/` `figures/` は再生成できるので Git 管理外。`reports/` は分析メモと、そこから
+決まった次の実験方針を置く。
+
+## 作り直す
+
+上から順に 1 回ずつ。run-id は条件順（fc 0.001 → fc 0.01 → stage4+fc 0.001 → stage4+fc 0.01）に
+並べる。表と図の並びがこの順になる。
+
+```bash
+uv run python analysis/common/predictions.py --study iterative-probe --split test \
+  --run-dir projects/hypernet_e2e/runs/20260921T103036Z-resnet-chexpert-s42-5538 \
+  --run-dir projects/hypernet_iterative/runs/20260921T103222Z-iterative-s42-d24d \
+  --run-dir projects/hypernet_iterative/runs/20260921T103219Z-iterative-s42-e992 \
+  --run-dir projects/hypernet_iterative/runs/20260921T103225Z-iterative-s42-3166 \
+  --run-dir projects/hypernet_iterative/runs/20260921T103225Z-iterative-s42-fac5
+uv run python analysis/iterative-probe/collect.py \
+  20260921T103222Z-iterative-s42-d24d 20260921T103219Z-iterative-s42-e992 \
+  20260921T103225Z-iterative-s42-3166 20260921T103225Z-iterative-s42-fac5 \
+  --baseline 20260921T103036Z-resnet-chexpert-s42-5538
+uv run python analysis/iterative-probe/groups.py --split test
+uv run python analysis/iterative-probe/plots.py --split test
+```

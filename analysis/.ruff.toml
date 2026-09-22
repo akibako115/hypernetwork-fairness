@@ -1,0 +1,6 @@
+# analysis 配下だけの設定。root の pyproject.toml は line-length = 200 だが、これは
+# projects/ に移植した既存コードのための値で、読み手が人である分析コードには広すぎる。
+# （PEP 8 は 79、Black は 88、Google Python Style は 80。200 は明確な外れ値になる。）
+# lint rule と isort の設定は root と揃えたいので extend で引き継ぐ。
+extend = "../pyproject.toml"
+line-length = 120

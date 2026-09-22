@@ -3,6 +3,15 @@
 run 本体もログも Git 管理外なので、この表が参照の正本となる。同じ preset で値だけを override した
 run は run-id では区別できないため、振った水準はここに残す。
 
+run-id・状態・experiment・W&B URL の表は、`run.json` から生成できる。
+
+```bash
+uv run python analysis/common/studies.py iterative-probe
+```
+
+ただし `study` は本実験より後に入れた key なので、**下の run は `study` を持たない**。移行が済むまで、
+下の手書きの表が正本になる。ここに人が書くのは「なぜこの条件なのか」のほうとする。
+
 ## 本実験（2×2、seed 42）
 
 warmup 2 epoch → stage01 5 epoch → stage02 5 epoch、cohort 10 クラスタ、`weighting=inverse`、
@@ -62,8 +71,8 @@ step size が小さく GroupDRO が動かなかった run。変調範囲も epoc
 - `artifacts/cohorts/cohortNN/cohort.json` — cohort の参照 checkpoint
 
 群ごと・交差群ごとの公平性指標は run artifact に無い（属性ごとの worst と gap までしか記録して
-いない）。`cache_predictions.py` が `selected_checkpoint`（iterative）と `best_val_auroc`（baseline）
-を test split で推論し、`cache/<run-id>_test.npz` に予測を置く。群の切り方は notebook が決める。
+いない）。`analysis/common/predictions.py` が `selected_checkpoint`（iterative）と `best_val_auroc`（baseline）
+を test split で推論し、`cache/<run-id>_test.npz` に予測を置く。群の切り方は `groups.py` が決める。
 
 実行ログは `run_logs/` にあり、ファイル名は run-id と対応しない。必要なら run-id で引く。
 

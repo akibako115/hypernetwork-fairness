@@ -13,31 +13,53 @@ package の slug は学習側の `study` と同じ値になる。run は起動�
 `scratch/` は例外で、まだ仮説に紐づかない run の逃げ道として置いている。結論の根拠にはしない。
 
 ```text
-<slug>/
-  README.md    仮説、対象 run、結論
-  runs.md      この仮説に紐づく run の一覧と状態
-  *.py         run 記録の読み込みと集計（cache 生成を含む）
-  *.ipynb      分析と可視化
-  results/     集計した表
-  figures/     レポートが参照する図
-  reports/     読み手向けの分析メモ
+common/        run 記録の読み方と予測 cache。全 package で共有する
 styles/        図の style。全 package で共有する
+<slug>/
+  README.md     仮説、対象 run、結論
+  runs.md       この仮説に紐づく run の一覧と状態
+  collect.py    run artifact → results/*.csv
+  groups.py     群の定義と群別指標 → results/*.csv
+  plots.py      results/*.csv → figures/*.png
+  <name>.ipynb  主張・表の表示・考察
+  cache/        予測 cache（再生成できる中間物）
+  results/      集計した表
+  figures/      レポートが参照する図
+  reports/      読み手向けの分析メモ
 ```
 
-集計と可視化は分ける。run 記録を読んで表を作るところまでを script が持ち、そこから先の分析と
-作図は notebook が持つ。notebook から重い読み込みを追い出すと、図を描き直すたびに run を
-読み直さずに済む。
+**生成物は一方向にしか流れない。**
+
+```text
+run artifact  →  cache/  →  results/  →  figures/  →  notebook
+```
+
+各 script は単独で走り、前段の生成物だけを入力に取る。notebook から split CSV も checkpoint も
+直接読まない。この向きを守ると、図を 1 枚描き直すために notebook を全部実行する状態にならない。
+script と notebook の書き方は [AGENTS.md](AGENTS.md) を正本とする。
+
+`common/` で共有するのは **run 契約の読み方**（`run.json`・`metrics.csv`・W&B transaction log・
+checkpoint 選択・予測 cache）までとする。**群の切り方・指標の定義・図は package に閉じる。**
+仮説ごとの判断を共有層へ上げると、別の仮説がその判断を暗黙に引き継ぐ。
+
+| module | 責務 |
+| --- | --- |
+| `common/paths.py` | repo root と、run・split CSV・style の標準 path |
+| `common/run_artifacts.py` | run artifact の読み取りと checkpoint 選択、CSV 書き出し |
+| `common/predictions.py` | 選択済み checkpoint → split 予測 `.npz`（CLI 付き） |
+| `common/studies.py` | study に属する run の一覧と `runs.md` 用の表 |
 
 現在の package:
 
 - `initial-resnet-vs-invariant/` — 通常の ResNet と attribute-invariant ResNet の初期比較
 - `iterative-probe/` — 反復学習の初期方針を決める探り分析
+- `scratch/` — まだ仮説に紐づかない run の逃げ道
 
 ## 追跡境界
 
 追跡するのは **再生成の手順と、そこから読み取った結論**に限る。
 
-- 追跡する: `README.md` / `runs.md` / `reports/` / 集計 script / notebook / `styles/`
+- 追跡する: `README.md` / `runs.md` / `reports/` / 集計 script / notebook / `common/` / `styles/`
 - 追跡しない: `results/` の表（`*.csv` / `*.parquet`）、`figures/` の図（`*.png`）、
   `cache/` / `outputs/` / `checkpoints/` と `*.npz` / `*.pt` / `*.pth`
 

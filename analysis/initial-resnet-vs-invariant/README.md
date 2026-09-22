@@ -11,18 +11,24 @@
 
 実行ログは変更せず、このディレクトリへ比較用の notebook、集計表、所見を保存する。
 
-## 分類性能比較
+## 構成
 
-最初に prediction cache を作る。標準は validation selection に使っていない `test` split とする。
-cache は再生成できる中間物であり、Git 追跡しない。
+| file | 入力 → 出力 |
+| --- | --- |
+| `groups.py` | 予測 cache → `results/classification_performance_test.csv`・`fairness_metrics_test.csv` |
+| `classification_performance.ipynb` | `results/` → 主張と考察 |
+
+評価は validation selection に使っていない `test` split を標準とする。`cache/` と `results/` は
+再生成できるので Git 管理外。
+
+## 作り直す
 
 ```bash
-uv run python analysis/initial-resnet-vs-invariant/cache_predictions.py
+uv run python analysis/common/predictions.py --study initial-resnet-vs-invariant --split test \
+  --run-dir projects/hypernet_e2e/runs/20260921T103036Z-resnet-chexpert-s42-5538 \
+  --run-dir projects/hypernet_e2e/runs/20260921T125711Z-resnet-chexpert-attribute-invariant-s42-9fd3
+uv run python analysis/initial-resnet-vs-invariant/groups.py --split test
 ```
 
-その後、[classification_performance.ipynb](classification_performance.ipynb) を開く。標準は `test` split
-で、accuracy・balanced accuracy・AUROC・cross entropy と、属性別の公平性指標を比較し、集計表を
-`results/` に書き出す。公平性表は sex / race / ethnicity / age group (65歳) ごとの Eopp0・Eopp1・
-Eodds・worst-group AUROC / BAcc・gap を含む。
-validation 指標を見たい場合だけ、`cache_predictions.py --split val` を実行して notebook の `SPLIT` を
-`"val"` に切り替える。
+`--split val` にすると val 側の表になる。公平性表は sex / race / ethnicity / age group (65 歳) ごとの
+Eopp0・Eopp1・Eodds・worst-group AUROC / bACC・gap を持つ。

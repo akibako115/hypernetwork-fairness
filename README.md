@@ -10,7 +10,6 @@
 | --- | --- | --- |
 | [`hypernet_e2e`](projects/hypernet_e2e/README.md) | fit 開始時に group が確定している hypernetwork 系学習と性能比較 | model / data / callbacks / Lightning module / configs / run 記録 / 学習起動、demographic group への GroupDRO を実装済み |
 | [`hypernet_iterative`](projects/hypernet_iterative/README.md) | run 中に複数 stage を進める反復学習 | warmup、cohort 再生成、独立 stage process、artifact・preflight 記録まで実装済み。実データの最小 end-to-end run も確認済み |
-| [`foundation_linear_probe`](projects/foundation_linear_probe/README.md) | 凍結済み foundation model の特徴と線形プローブによる公平性比較 | ResNet50・DINOv2・RAD-DINO の特徴抽出、線形 probe、群別指標の PoC |
 
 hypernetwork 系 2 project の境界は、**group が fit の開始時に確定しているか**で引いています。
 demographic 属性から決まる group は `hypernet_e2e`、学習の途中で再生成される hidden cohort は
@@ -78,5 +77,4 @@ uv run ruff check projects/hypernet_e2e
 | [`train`](.agents/skills/train/SKILL.md) | 学習の起動・承認・監視。ローカルと ws Docker |
 | [`gpu`](.agents/skills/gpu/SKILL.md) | GPU と実行中プロセスの確認 |
 | [`data-explore`](.agents/skills/data-explore/SKILL.md) | データセット構造の調査と data config との突き合わせ |
-
-分析（旧 repo の `analyze` skill 相当）は、`analysis/` を移植した時点で追加します。
+| [`analyze`](.agents/skills/analyze/SKILL.md) | run 記録を読んだ仮説 (study) の分析と、results・figures・reports の更新 |
