@@ -17,6 +17,10 @@ run artifact に残るのは属性ごとの worst と gap までで、**群そ�
 入力: `cache/<run-id>_<split>.npz`、`results/epoch_metrics.csv`、`results/baseline_epoch_metrics.csv`
 出力: `results/group_metrics_<split>.csv`、`results/fairness_summary_<split>.csv`
 
+ここで出す Eopp0 / Eopp1 / Eodds と worst / gap が学習側の `compute_fairness_metrics` と
+同じ定義であることは、`analysis/tests/test_fairness_agreement.py` が golden データで固定する。
+突き合わせを実行時に 1 model だけ行うのをやめ、毎回の `pytest` で全 case を確かめる。
+
 使い方:
     uv run python analysis/iterative_probe/groups.py --split test
 """
@@ -49,7 +53,7 @@ GROUPING_NAMES = [" x ".join(keys) for keys in GROUPINGS]
 BASELINE_LABEL = "ResNet (ERM)"
 
 
-def demographics_of(split: str) -> tuple[pd.DataFrame, pd.DataFrame]:
+def demographics_of(split: str) -> pd.DataFrame:
     """split CSV から、評価に使う行の属性表を作る。
 
     年齢群は学習時と同じ定義（65 歳境界、`age_missing` はそのまま欠損）で切る。
@@ -61,7 +65,7 @@ def demographics_of(split: str) -> tuple[pd.DataFrame, pd.DataFrame]:
         split: `val` または `test`
 
     Returns:
-        tuple[pd.DataFrame, pd.DataFrame]: 表示用ラベルの属性表と、同じ行の生の符号表
+        pd.DataFrame: 表示用ラベルの属性表
     """
     frame = pd.read_csv(split_csv("chexpert", split))
     labelled = pd.DataFrame(
@@ -74,8 +78,7 @@ def demographics_of(split: str) -> tuple[pd.DataFrame, pd.DataFrame]:
     age_missing = frame["age_missing"].astype(bool) | frame["age"].isna()
     missing = age_missing | frame["sex_missing"].astype(bool) | frame["race_missing"].astype(bool)
     valid = ~missing & labelled.notna().all(axis=1)
-    codes = pd.DataFrame({"age": (frame["age"] >= 65).astype(int), "sex": frame["sex"], "race": frame["race"]})
-    return labelled[valid], codes[valid]
+    return labelled[valid]
 
 
 def models_under_test(split: str) -> list[dict[str, Any]]:
@@ -113,6 +116,10 @@ def group_metrics(target: np.ndarray, probability: np.ndarray, prediction: np.nd
     `n` が小さい群では AUROC も TPR も揺れる。群の値を読む前に `n` と `positive_rate` を
     見られるよう、同じ行に入れておく。
 
+    片方のクラスしか持たない群では AUROC も balanced accuracy も定義できない。`sklearn` は
+    balanced accuracy を「居るクラスだけの recall 平均」として返してしまうので、ここで
+    欠損にする。学習側の `compute_fairness_metrics` も同じ場合に値を出さない。
+
     Args:
         target: 正解ラベル
         probability: 陽性クラスの確率
@@ -127,7 +134,7 @@ def group_metrics(target: np.ndarray, probability: np.ndarray, prediction: np.nd
         "n": len(target),
         "positive_rate": positive.mean(),
         "auroc": roc_auc_score(target, probability) if both_classes else np.nan,
-        "bacc": balanced_accuracy_score(target, prediction),
+        "bacc": balanced_accuracy_score(target, prediction) if both_classes else np.nan,
         "tpr": prediction[positive].mean() if positive.any() else np.nan,
         "fpr": prediction[negative].mean() if negative.any() else np.nan,
     }
@@ -165,6 +172,24 @@ def group_rows(model: dict[str, Any], demographics: pd.DataFrame) -> list[dict[s
     return rows
 
 
+def _across_groups(values: pd.Series) -> tuple[float, float, float]:
+    """群をまたいだ worst / best / gap を返す。
+
+    群が 1 つしか無い、または値を出せない群がある粒度では、いずれも定義しない。`pandas` の
+    `max` / `min` は欠損を飛ばすので、そのまま使うと**残った群だけで測った差**が出てしまう。
+    学習側の `compute_fairness_metrics` も同じ場合に値を出さない。
+
+    Args:
+        values: 1 つの (model, 粒度) に属する群の値
+
+    Returns:
+        tuple[float, float, float]: worst・best・gap
+    """
+    if len(values) < 2 or values.isna().any():
+        return np.nan, np.nan, np.nan
+    return values.min(), values.max(), values.max() - values.min()
+
+
 def summarize(part: pd.DataFrame) -> pd.Series:
     """1 つの (model, 粒度) を、worst / best / gap の 1 行に畳む。
 
@@ -177,54 +202,25 @@ def summarize(part: pd.DataFrame) -> pd.Series:
     Returns:
         pd.Series: worst・best・gap と Eopp0 / Eopp1 / Eodds
     """
-    tpr_gap = part["tpr"].max() - part["tpr"].min()
-    fpr_gap = part["fpr"].max() - part["fpr"].min()
+    worst_auroc, best_auroc, auroc_gap = _across_groups(part["auroc"])
+    worst_bacc, best_bacc, bacc_gap = _across_groups(part["bacc"])
+    tpr_gap = _across_groups(part["tpr"])[2]
+    fpr_gap = _across_groups(part["fpr"])[2]
     return pd.Series(
         {
             "groups": len(part),
             "min n": int(part["n"].min()),
-            "worst AUROC": part["auroc"].min(),
-            "best AUROC": part["auroc"].max(),
-            "AUROC gap": part["auroc"].max() - part["auroc"].min(),
-            "worst bACC": part["bacc"].min(),
-            "best bACC": part["bacc"].max(),
-            "bACC gap": part["bacc"].max() - part["bacc"].min(),
+            "worst AUROC": worst_auroc,
+            "best AUROC": best_auroc,
+            "AUROC gap": auroc_gap,
+            "worst bACC": worst_bacc,
+            "best bACC": best_bacc,
+            "bACC gap": bacc_gap,
             "Eopp1": tpr_gap,
             "Eopp0": fpr_gap,
             "Eodds": (tpr_gap + fpr_gap) / 2,
         }
     )
-
-
-def largest_deviation_from_repo_metrics(model: dict[str, Any], codes: pd.DataFrame, summary: pd.DataFrame) -> float:
-    """単独属性の Eopp0 / Eopp1 / Eodds が、repo 実装と一致することを確かめる。
-
-    ここでは群ごとの TPR・FPR から自前で作っている。単独属性については学習側と同じ値に
-    なるはずなので突き合わせる（交差群は `compute_fairness_metrics` では作れない）。
-
-    Args:
-        model: 突き合わせる model
-        codes: `demographics_of` が返す符号表
-        summary: `summarize` を畳んだ表
-
-    Returns:
-        float: 3 指標 × 3 属性の最大絶対差
-    """
-    import torch
-
-    from projects.hypernet_e2e.utils.metrics import compute_fairness_metrics
-
-    cached = model["cache"]
-    index = codes.index.to_numpy()
-    reference = compute_fairness_metrics(
-        torch.from_numpy(cached["logits"][index]),
-        torch.from_numpy(cached["target"][index]),
-        {"categorical": torch.as_tensor(codes.to_numpy(), dtype=torch.long)},
-        {"categorical": list(codes.columns)},
-    )
-    columns = ["Eopp0", "Eopp1", "Eodds"]
-    mine = summary.loc[(list(codes.columns), model["label"]), columns].droplevel("model")
-    return float(pd.DataFrame(reference).T[columns].sub(mine).abs().max().max())
 
 
 def main() -> None:
@@ -235,15 +231,12 @@ def main() -> None:
 
     Returns:
         None
-
-    Raises:
-        ValueError: 単独属性の公平性指標が repo 実装と一致しない場合
     """
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--split", default="test", choices=("val", "test"))
     args = parser.parse_args()
 
-    demographics, codes = demographics_of(args.split)
+    demographics = demographics_of(args.split)
     models = models_under_test(args.split)
     groups = pd.DataFrame([row for model in models for row in group_rows(model, demographics)])
     RESULTS.mkdir(exist_ok=True)
@@ -255,11 +248,7 @@ def main() -> None:
     summary = summary.reindex(order)
     summary.to_csv(RESULTS / f"fairness_summary_{args.split}.csv")
 
-    deviation = largest_deviation_from_repo_metrics(models[0], codes, summary)
-    if deviation > 1e-6:
-        raise ValueError(f"単独属性の公平性指標が repo 実装と {deviation:g} ずれている")
     print(f"{len(models)} models / {len(groups)} group rows ({len(demographics)} 行) -> {RESULTS}")
-    print(f"単独属性の Eopp0 / Eopp1 / Eodds は repo 実装と一致（最大差 {deviation:g}）")
 
 
 if __name__ == "__main__":

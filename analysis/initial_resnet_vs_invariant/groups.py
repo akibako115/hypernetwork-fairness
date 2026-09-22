@@ -7,7 +7,9 @@ invariant 化で分類性能をどれだけ払ったのか（`classification_per
 
 公平性指標は学習側と同じ `compute_fairness_metrics` を使う。分析側で定義し直すと、学習中に
 記録した値と付き合わせられなくなる。属性は学習時に使ったのと同じ 4 つで、年齢群も同じ
-`add_age_groups` で切る。
+`add_age_groups` で切る。ここが `projects.hypernet_e2e` を import してよいのは、対象 run が
+どちらも e2e のもので、参照する実装とその run を回した実装が同じだからである（`iterative_probe`
+は iterative の run を読むので、突き合わせ相手を golden データに置いている）。
 
 入力: `cache/<run-id>_<split>.npz`
 出力: `results/classification_performance_<split>.csv`、`results/fairness_metrics_<split>.csv`
