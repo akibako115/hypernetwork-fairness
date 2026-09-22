@@ -178,7 +178,14 @@ def test_freezing_the_backbone_requires_a_checkpoint_to_freeze() -> None:
 
 
 def test_feature_requiring_loss_receives_features_and_its_parameters_enter_the_optimizer() -> None:
-    objective = AttributeInvariantTaskLoss(TaskLoss(), feature_dim=1, categorical_cardinalities=[2], hidden_dim=3)
+    objective = AttributeInvariantTaskLoss(
+        TaskLoss(),
+        feature_dim=1,
+        input_attribute_names={"categorical": ["sex"], "continuous": []},
+        adversarial_attribute_names={"categorical": ["sex"], "continuous": []},
+        categorical_cardinalities=[2],
+        hidden_dim=3,
+    )
     module = _module(loss_fn=objective, optimizer=lambda params: torch.optim.SGD(params, lr=0.1))
     module._trainer = SimpleNamespace(model=module)
     attributes = {
@@ -198,7 +205,13 @@ def test_feature_requiring_loss_receives_features_and_its_parameters_enter_the_o
 
 
 def test_feature_requiring_loss_rejects_a_net_without_feature_interface() -> None:
-    objective = AttributeInvariantTaskLoss(TaskLoss(), feature_dim=1, categorical_cardinalities=[2])
+    objective = AttributeInvariantTaskLoss(
+        TaskLoss(),
+        feature_dim=1,
+        input_attribute_names={"categorical": ["sex"], "continuous": []},
+        adversarial_attribute_names={"categorical": ["sex"], "continuous": []},
+        categorical_cardinalities=[2],
+    )
     module = _module(net=_NoFeatureNet(), loss_fn=objective)
 
     with pytest.raises(TypeError, match="forward_with_features"):

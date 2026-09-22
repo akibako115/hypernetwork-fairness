@@ -19,6 +19,10 @@ loss_fn:
     _target_: projects.hypernet_e2e.loss.TaskLoss
     class_weight: null
   feature_dim: 2048
+  input_attribute_names: ${data.attribute_names}
+  adversarial_attribute_names:
+    categorical: [sex, race, ethnicity]
+    continuous: [age]
   categorical_cardinalities: ${data.attribute_spec.categorical_cardinalities}
   num_continuous: ${data.attribute_spec.continuous_dim}
   hidden_dim: 256
