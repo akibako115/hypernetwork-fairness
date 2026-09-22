@@ -89,7 +89,7 @@ def reserve_parent_run(config: DictConfig) -> Path:
                 "finished_at": None,
                 "git_commit": _git_commit(),
                 "seed": config.get("seed"),
-                # この run がどの仮説のためのものか。`analysis/<study>/` が正本。
+                # この run を何のために回したか。引用は `analysis/<study>/runs.md` が持つ。
                 "study": config.get("study"),
                 "stages": {},
                 "selected_checkpoint": None,

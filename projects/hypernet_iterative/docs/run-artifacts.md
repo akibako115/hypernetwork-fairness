@@ -15,8 +15,9 @@
   stages/stage01/{config.yaml,result.json,checkpoints/,metrics/}
 ```
 
-`run.json` は parent run の状態と stage ごとの result を保持する。`study` はこの run が属する仮説で、
-`analysis/<study>/` が正本になる。状態は `running`、`succeeded`、`failed` のいずれかで、
+`run.json` は parent run の状態と stage ごとの result を保持する。`study` はこの run を何のために
+回したかで、起動時に決まり後から書き換えない。どの分析がこの run を引用したかは別の関係で、
+`analysis/<study>/runs.md` が run-id で持つ。状態は `running`、`succeeded`、`failed` のいずれかで、
 `selected_checkpoint` には最後の stage の best val/auroc を記録する。run 全体の best では
 ないので、stage をまたぐ選択は `stages.*.checkpoints` の score から分析側で決める。
 既存 run の再開・上書きはしない。

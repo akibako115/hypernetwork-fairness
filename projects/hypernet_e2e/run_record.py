@@ -79,8 +79,9 @@ class RunRecorder:
                 "finished_at": None,
                 "git_commit": cls._git_commit(),
                 "seed": resolved.get("seed"),
-                # この run がどの仮説のためのものか。`analysis/<study>/` が正本で、分析側は
-                # この値で自分の run を集める。
+                # この run を何のために回したか。起動時にしか残せない記録なので、値が
+                # 正しいかは分析側では直せない。どの分析がこの run を引用したかは別の関係で、
+                # `analysis/<study>/runs.md` が run-id で持つ。
                 "study": resolved.get("study"),
                 "loggers": [],
                 "parent_run": None,

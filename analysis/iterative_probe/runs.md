@@ -9,8 +9,10 @@ run-id・状態・experiment・W&B URL の表は、`run.json` から生成でき
 uv run python analysis/common/studies.py iterative_probe
 ```
 
-ただし `study` は本実験より後に入れた key なので、**下の run は `study` を持たない**。移行が済むまで、
-下の手書きの表が正本になる。ここに人が書くのは「なぜこの条件なのか」のほうとする。
+ただし `study` は本実験より後に入れた key なので、**下の run は `study` を持たない**。加えて
+`study` が記録するのは「何のために回したか」だけなので、**どの run をこの分析が引用しているかは
+この表が恒久的な正本**になる（baseline のように、別の study のために回した run も引用する）。
+生成された表は補助として読む。ここに人が書くのは「なぜこの条件なのか」のほうとする。
 
 ## 本実験（2×2、seed 42）
 

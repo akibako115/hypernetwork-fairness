@@ -47,8 +47,8 @@ project をまたいでも `config.study` で group by できる。結論を出�
 - **単発 run では渡さない。** 1 run の group は band にならず、列が増えるだけになる
 - seed 以外を変えた run を同じ group に入れない。band の幅が seed の分散ではなくなる
 
-group は `run.json` と `config.yaml` にも残るので、後から「この 4 本は 1 組だった」を run artifact
-だけで辿れる。
+group は解決済み `config.yaml` に残る（`run.json` は持たない）ので、後から「この 4 本は 1 組
+だった」を run artifact だけで辿れる。
 
 preset と override の使い分けは、**その条件が config の構造を変えるかどうか**で決める。
 
