@@ -79,6 +79,29 @@ def test_inverse_frequency_sampling_and_evaluation_loader_have_distinct_sampling
     assert isinstance(dm.evaluation_dataloader("train").sampler, SequentialSampler)
 
 
+def test_evaluation_loader_keeps_the_split_csv_row_order(tmp_path: Path) -> None:
+    """分析は cache の i 番目が split CSV の i 行目だと仮定して属性を突き合わせる契約。
+
+    この順序が崩れると、群の割り当てが全部ずれた表が落ちずに出る。`standardized_dataframes`
+    が返す frame と `evaluation_dataloader` が返す並びは、同じ CSV 順でなければならない。
+    """
+    image_dir, split_dir = _write_fixture(tmp_path)
+    rows = []
+    for index in range(5):
+        name = f"ordered_{index}.png"
+        Image.new("RGB", (8, 8), color=128).save(image_dir / name)
+        age = float(10 * (index + 1))
+        rows.append({"image": name, "target": index % 2, "sex": 0, "sex_missing": False, "age": age, "age_missing": False})
+    pd.DataFrame(rows).to_csv(split_dir / "test.csv", index=False)
+    dm = _datamodule(image_dir, split_dir)
+
+    (frame,) = dm.standardized_dataframes("test")
+    ages = torch.cat([attributes["continuous"][:, 0] for _, attributes, _ in dm.evaluation_dataloader("test")])
+
+    assert frame["image"].tolist() == [row["image"] for row in rows]
+    assert ages.tolist() == pytest.approx([row["age"] for row in rows])
+
+
 def test_uniform_train_loader_shuffles_and_evaluation_uses_validation_transform(tmp_path: Path) -> None:
     image_dir, split_dir = _write_fixture(tmp_path)
     dm = ImageDataModule(

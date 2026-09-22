@@ -144,6 +144,10 @@ def load_network(run_dir: Path, device: torch.device) -> torch.nn.Module:
     （属性不変 loss や GroupDRO は学習時だけのもの）。checkpoint の `net.` prefix を持つ
     重みだけを読む。
 
+    この `net.` prefix と `model.use_attributes` は run 契約ではなく、LightningModule の
+    構造そのものへの依存になる。projects 側が module の属性名を変えれば、ここは
+    `load_state_dict(strict=True)` で落ちる（黙ってずれた重みを読むことはない）。
+
     Args:
         run_dir: config と checkpoint を持つ run directory
         device: 推論に使う device
@@ -168,6 +172,10 @@ def load_network(run_dir: Path, device: torch.device) -> torch.nn.Module:
 def write_cache(run_dir: Path, split: str, cache_dir: Path, device: torch.device) -> Path:
     """指定 split を推論し、CSV 行順を保った予測 cache を書き出す。
 
+    i 番目が split CSV の i 行目に対応する、という cache の約束はここで作る。行の identity は
+    `evaluation_dataloader` と同じ frame（`standardized_dataframes`）から取り、順序が保たれる
+    ことは projects 側の `test_evaluation_loader_keeps_the_split_csv_row_order` が固定する。
+
     Args:
         run_dir: config と checkpoint を持つ run directory
         split: `val` または `test`
@@ -178,7 +186,8 @@ def write_cache(run_dir: Path, split: str, cache_dir: Path, device: torch.device
         Path: 書き出した cache
     """
     config = OmegaConf.load(run_dir / "config.yaml")
-    loader = instantiate(config.data).evaluation_dataloader(split)
+    datamodule = instantiate(config.data)
+    loader = datamodule.evaluation_dataloader(split)
     network = load_network(run_dir, device)
     # 画像だけを取る network と、metadata で変調する network がある。
     use_attributes = bool(config.model.get("use_attributes", False))
@@ -200,6 +209,11 @@ def write_cache(run_dir: Path, split: str, cache_dir: Path, device: torch.device
     target = np.concatenate(target_parts).astype(np.int64, copy=False)
     probabilities = torch.softmax(torch.from_numpy(logits), dim=1).numpy()
 
+    # 行の identity は datamodule の公開 method から取る。`evaluation_dataloader` 自身が
+    # `standardized_dataframes(split)` の frame から作られるので、同じ行・同じ順序になる。
+    (frame,) = datamodule.standardized_dataframes(split)
+    images = frame["image"].to_numpy(dtype=str)
+
     cache_dir.mkdir(parents=True, exist_ok=True)
     output = cache_path(cache_dir, run_dir.name, split)
     metadata = {
@@ -214,7 +228,7 @@ def write_cache(run_dir: Path, split: str, cache_dir: Path, device: torch.device
     }
     np.savez_compressed(
         output,
-        image=loader.dataset.df["image"].to_numpy(dtype=str),
+        image=images,
         logits=logits,
         probabilities=probabilities,
         predictions=probabilities.argmax(axis=1).astype(np.int64),
