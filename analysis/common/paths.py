@@ -12,7 +12,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+import rootutils
+
+# root の根拠を `.project-root` 1 つに統一する。`parents[2]` で数えると、この file を
+# 1 階層動かしただけで黙って別の場所を指す。
+REPOSITORY_ROOT = Path(rootutils.find_root(__file__, indicator=".project-root"))
 ANALYSIS_ROOT = REPOSITORY_ROOT / "analysis"
 # 図の style は全 package で共有する。色循環と軸設定を package ごとに振らない。
 STYLE_SHEET = ANALYSIS_ROOT / "styles" / "fairness.mplstyle"

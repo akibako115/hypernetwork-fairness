@@ -63,7 +63,7 @@ markers = [
   "preflight: 学習起動前に走らせる golden 照合テスト",
 ]
 minversion = "6.0"
-testpaths = ["tests", "projects"]
+testpaths = ["tests", "projects", "analysis"]
 # run artifact（`projects/*/runs/`）と分析の生成物は test 対象ではないので走査しない。
 # 走査すると wandb が container 内で作った log の symlink を辿って PermissionError になり、
 # collection ごと落ちる。既定値を上書きするので、pytest の既定分もここに残す。
