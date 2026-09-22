@@ -9,8 +9,22 @@ from projects.hypernet_e2e.loss import (
     ObjectiveInput,
     TaskLoss,
     UniformGroupTaskLoss,
-    _GradientReverse,
 )
+from projects.hypernet_e2e.objectives.attribute_invariance import _GradientReverse
+
+_ONE_CATEGORICAL_ATTRIBUTE = {"categorical": ["sex"], "continuous": []}
+
+
+def _attribute_invariant_loss(**kwargs: object) -> AttributeInvariantTaskLoss:
+    """1個の categorical 属性を使う小さな attribute-invariance objective を作る。"""
+    return AttributeInvariantTaskLoss(
+        TaskLoss(),
+        feature_dim=2,
+        input_attribute_names=_ONE_CATEGORICAL_ATTRIBUTE,
+        adversarial_attribute_names=_ONE_CATEGORICAL_ATTRIBUTE,
+        categorical_cardinalities=[2],
+        **kwargs,
+    )
 
 
 def test_task_loss_uses_objective_input() -> None:
@@ -47,13 +61,7 @@ def test_gradient_reverse_negates_only_the_feature_gradient() -> None:
 
 
 def test_attribute_invariant_task_loss_combines_task_and_observed_attribute_losses() -> None:
-    objective = AttributeInvariantTaskLoss(
-        TaskLoss(),
-        feature_dim=2,
-        categorical_cardinalities=[2],
-        hidden_dim=2,
-        attribute_adversary_weight=0.5,
-    )
+    objective = _attribute_invariant_loss(hidden_dim=2, attribute_adversary_weight=0.5)
     for parameter in objective.attribute_adversary.parameters():
         parameter.data.zero_()
     inputs = ObjectiveInput(
@@ -74,7 +82,7 @@ def test_attribute_invariant_task_loss_combines_task_and_observed_attribute_loss
 
 
 def test_attribute_invariant_task_loss_requires_features() -> None:
-    objective = AttributeInvariantTaskLoss(TaskLoss(), feature_dim=2, categorical_cardinalities=[2])
+    objective = _attribute_invariant_loss()
     inputs = ObjectiveInput(
         logits=torch.randn(2, 2),
         target=torch.tensor([0, 1]),
@@ -86,7 +94,7 @@ def test_attribute_invariant_task_loss_requires_features() -> None:
 
 
 def test_attribute_invariant_task_loss_keeps_all_missing_batch_backwardable() -> None:
-    objective = AttributeInvariantTaskLoss(TaskLoss(), feature_dim=2, categorical_cardinalities=[2])
+    objective = _attribute_invariant_loss()
     features = torch.randn(2, 2, requires_grad=True)
     inputs = ObjectiveInput(
         logits=torch.randn(2, 2, requires_grad=True),
@@ -98,6 +106,120 @@ def test_attribute_invariant_task_loss_keeps_all_missing_batch_backwardable() ->
     objective(inputs).backward()
 
     assert features.grad is not None
+
+
+def test_attribute_invariant_task_loss_uses_only_selected_attribute_columns() -> None:
+    input_names = {
+        "categorical": ["sex", "race", "ethnicity", "frontal_lateral", "ap_pa"],
+        "continuous": ["age"],
+    }
+    objective = AttributeInvariantTaskLoss(
+        TaskLoss(),
+        feature_dim=2,
+        input_attribute_names=input_names,
+        adversarial_attribute_names={"categorical": ["sex", "race", "ethnicity"], "continuous": ["age"]},
+        categorical_cardinalities=[2, 3, 2, 2, 2],
+        num_continuous=1,
+        hidden_dim=2,
+        attribute_adversary_weight=1.0,
+    )
+    for parameter in objective.attribute_adversary.parameters():
+        parameter.data.zero_()
+    base = ObjectiveInput(
+        logits=torch.tensor([[2.0, 0.0], [0.0, 2.0]]),
+        target=torch.tensor([0, 1]),
+        attributes={
+            "categorical": torch.tensor([[0, 0, 1, 0, 1], [1, 2, 0, 1, 0]]),
+            "categorical_missing": torch.zeros(2, 5, dtype=torch.bool),
+            "continuous": torch.tensor([[1.0], [2.0]]),
+            "continuous_missing": torch.zeros(2, 1, dtype=torch.bool),
+        },
+        features=torch.randn(2, 2),
+    )
+    changed_excluded = ObjectiveInput(
+        logits=base.logits,
+        target=base.target,
+        attributes={
+            **base.attributes,
+            "categorical": torch.tensor([[0, 0, 1, 1, 0], [1, 2, 0, 0, 1]]),
+            "categorical_missing": torch.tensor([[False, False, False, True, True], [False, False, False, True, True]]),
+        },
+        features=base.features,
+    )
+
+    assert len(objective.attribute_adversary.categorical_heads) == 3
+    assert objective.attribute_adversary.continuous_head is not None
+    assert torch.allclose(objective(base), objective(changed_excluded))
+
+
+@pytest.mark.parametrize(
+    ("adversarial_names", "match"),
+    [
+        ({"categorical": [], "continuous": []}, "少なくとも1つ"),
+        ({"categorical": ["sex", "sex"], "continuous": []}, "重複"),
+        ({"categorical": ["age"], "continuous": []}, "ない属性"),
+    ],
+)
+def test_attribute_invariant_task_loss_rejects_invalid_attribute_selection(adversarial_names: dict[str, list[str]], match: str) -> None:
+    with pytest.raises(ValueError, match=match):
+        AttributeInvariantTaskLoss(
+            TaskLoss(),
+            feature_dim=2,
+            input_attribute_names=_ONE_CATEGORICAL_ATTRIBUTE,
+            adversarial_attribute_names=adversarial_names,
+            categorical_cardinalities=[2],
+        )
+
+
+def test_attribute_invariant_task_loss_rejects_attribute_under_the_wrong_kind() -> None:
+    with pytest.raises(ValueError, match="別種別"):
+        AttributeInvariantTaskLoss(
+            TaskLoss(),
+            feature_dim=2,
+            input_attribute_names={"categorical": ["sex"], "continuous": ["age"]},
+            adversarial_attribute_names={"categorical": ["age"], "continuous": []},
+            categorical_cardinalities=[2],
+            num_continuous=1,
+        )
+
+
+def test_attribute_invariant_task_loss_rejects_full_attribute_shape_mismatch() -> None:
+    objective = _attribute_invariant_loss()
+    inputs = ObjectiveInput(
+        logits=torch.randn(2, 2),
+        target=torch.tensor([0, 1]),
+        attributes={
+            "categorical": torch.tensor([[0, 1], [1, 0]]),
+            "categorical_missing": torch.zeros(2, 2, dtype=torch.bool),
+        },
+        features=torch.randn(2, 2),
+    )
+
+    with pytest.raises(ValueError, match="input_attribute_names"):
+        objective(inputs)
+
+
+def test_attribute_invariant_task_loss_validates_an_unselected_full_attribute_kind() -> None:
+    objective = AttributeInvariantTaskLoss(
+        TaskLoss(),
+        feature_dim=2,
+        input_attribute_names={"categorical": ["sex"], "continuous": ["age"]},
+        adversarial_attribute_names={"categorical": ["sex"], "continuous": []},
+        categorical_cardinalities=[2],
+        num_continuous=1,
+    )
+    inputs = ObjectiveInput(
+        logits=torch.randn(2, 2),
+        target=torch.tensor([0, 1]),
+        attributes={
+            "categorical": torch.tensor([[0], [1]]),
+            "categorical_missing": torch.zeros(2, 1, dtype=torch.bool),
+        },
+        features=torch.randn(2, 2),
+    )
+
+    with pytest.raises(ValueError, match="continuous"):
+        objective(inputs)
 
 
 def test_uniform_group_task_loss_averages_observed_group_losses() -> None:

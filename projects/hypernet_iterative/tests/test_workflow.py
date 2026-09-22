@@ -331,3 +331,25 @@ def test_a_stage_without_epoch_metrics_is_rejected(tmp_path: Path) -> None:
     """子が CSV を残さなかった stage を黙って飛ばすと、曲線に穴が空いたまま run が続く。"""
     with pytest.raises(ValueError, match="metrics_csv"):
         workflow._log_stage_epochs(_FakeWandbRun(), 0, {"metrics": {}}, 0)
+
+
+def test_reserved_run_id_carries_the_experiment_name(tmp_path: Path) -> None:
+    config = OmegaConf.create(
+        {
+            "paths": {"project_dir": str(tmp_path)},
+            "seed": 42,
+            "experiment_name": "spatial-lora-iterative-chexpert-fc",
+        }
+    )
+
+    run_dir = workflow.reserve_parent_run(config)
+
+    assert "-spatial-lora-iterative-chexpert-fc-s42-" in run_dir.name
+
+
+def test_reserved_run_id_falls_back_when_the_experiment_name_is_missing(tmp_path: Path) -> None:
+    config = OmegaConf.create({"paths": {"project_dir": str(tmp_path)}, "seed": 7})
+
+    run_dir = workflow.reserve_parent_run(config)
+
+    assert "-iterative-s7-" in run_dir.name

@@ -110,10 +110,13 @@ uv run python -m projects.hypernet_e2e.run \
 
 ### 属性不変 backbone → 属性条件付き LoRA
 
-`resnet_chexpert_attribute_invariant` は、backbone 特徴量から属性を当てる補助予測器の前に
-Gradient Reversal Layer（GRL）を置く。補助予測器は属性を当てるように、backbone はその予測を
-難しくするように同じ通常の backprop で更新される。第2段では既存の凍結契約により backbone と
-共有 classifier を固定し、属性の条件は Spatial LoRA / HyperLinear の差分にのみ入る。
+`resnet_chexpert_attribute_invariant` は、backbone 特徴量から demographic 属性（`sex`、`race`、
+`ethnicity`、`age`）を当てる補助予測器の前に Gradient Reversal Layer（GRL）を置く。補助予測器は
+属性を当てるように、backbone はその予測を難しくするように同じ通常の backprop で更新される。
+`frontal_lateral` と `ap_pa` は撮影プロトコルであり、この標準条件の adversary には含めない。
+これらへの不変化は acquisition-invariance として別 ablation で扱う。第2段では既存の凍結契約に
+より backbone と共有 classifier を固定し、属性の条件は Spatial LoRA / HyperLinear の差分にのみ
+入る。
 
 ```bash
 uv run python -m projects.hypernet_e2e.run experiment=resnet_chexpert_attribute_invariant

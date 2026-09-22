@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import secrets
 import subprocess
 import sys
@@ -34,6 +35,19 @@ class Stage:
     kind: str
 
 
+def _run_id_part(value: str) -> str:
+    """experiment 名を run-id に使える slug へ落とす。
+
+    Args:
+        value: `experiment_name` などの表示用文字列
+
+    Returns:
+        str: 英数と `-` だけの slug。空になる場合は `"experiment"`
+    """
+    normalized = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
+    return normalized or "experiment"
+
+
 def reserve_parent_run(config: DictConfig) -> Path:
     """全 stage と cohort artifact を所有する親 run directory を一意に予約する。
 
@@ -49,8 +63,11 @@ def reserve_parent_run(config: DictConfig) -> Path:
         RuntimeError: 100 回試しても一意な directory を取れなかった場合。
     """
     project_dir = Path(str(config.paths.project_dir))
+    # directory 名だけで条件を読めるよう、hypernet_e2e と同じ `<時刻>-<experiment>-<seed>-<乱数>` に
+    # 揃える。experiment 名に畳めない override は config.yaml が正本であり、名前へは入れない。
+    experiment = _run_id_part(str(config.get("experiment_name", "iterative")))
     for _ in range(100):
-        run_id = f"{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}-iterative-s{config.seed}-{secrets.token_hex(2)}"
+        run_id = f"{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}-{experiment}-s{config.seed}-{secrets.token_hex(2)}"
         run_dir = project_dir / "runs" / run_id
         try:
             run_dir.mkdir(parents=True)
