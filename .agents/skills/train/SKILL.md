@@ -32,6 +32,24 @@ project をまたいでも `config.study` で group by できる。結論を出�
 `runs.md` が拾う。
 仮説が新しいなら、先に `analysis/<slug>/` を作る（[analysis/README.md](../../../analysis/README.md)）。
 
+### 複数 seed を振るときは W&B の group を提案する
+
+同じ条件を 2 本以上の seed で回すなら、**`logger.wandb.group=<条件の slug>` を条件表に載せて
+提案する**。W&B の group は「1 つの実験を構成する複数の run」を束ねる欄で、束ねた run は chart
+上で平均線と min/max の band になる。seed ごとの折れ線が N 本並ぶのと違い、条件間の差が seed の
+散らばりより大きいかどうかがそのまま読める。既定は空なので、渡さなければ束ねられない。
+
+- **値に seed を入れない。** `spatial_lora_fc_inverse` のように、いま振っている seed 以外の条件で
+  一意になる slug にする。`..._s42` にすると 1 run ずつ別 group になり、束ねる意味が消える
+- **仮説の絞り込みには使わない。** そちらは `config.study` で group by する。group を study で
+  埋めると、seed 反復という本来の用途が塞がる
+- **別の条件に同じ group 名を使い回さない。** W&B 側で混ざり、平均が条件をまたぐ
+- **単発 run では渡さない。** 1 run の group は band にならず、列が増えるだけになる
+- seed 以外を変えた run を同じ group に入れない。band の幅が seed の分散ではなくなる
+
+group は `run.json` と `config.yaml` にも残るので、後から「この 4 本は 1 組だった」を run artifact
+だけで辿れる。
+
 preset と override の使い分けは、**その条件が config の構造を変えるかどうか**で決める。
 
 - **preset にする**: model や datamodule の差し替え、目的関数の系統、callback の増減、dataset の

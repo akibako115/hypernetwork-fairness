@@ -98,10 +98,14 @@ def run_plan(config: DictConfig) -> str:
 
 
 def _validate_study(config: DictConfig) -> None:
-    """run が属する study が、分析側の package として実在することを確かめる。
+    """`study` が既知の slug であることを、fit を始める前に確かめる。
 
-    study は「この run がどの仮説のためのものか」を指し、`analysis/<study>/` が正本になる。
-    打ち間違いを許すと run と分析の対応が静かに切れるので、fit を始める前に照合する。
+    study は「この run を何のために回したか」で、起動時にしか残せない。分析側は `study` を
+    要求しておらず（run の選択は `analysis/<study>/runs.md` が run-id で持つ）、この照合は
+    **打ち間違い検出**である。`analysis/` 直下の directory 名を既知の slug の辞書として使う。
+
+    綴りの違う値を通すと、`run.json` にその値のまま残り、逆引き（`analysis/common/studies.py`）
+    からも人の目からも外れた run ができる。run は 1 本 1 時間で不変なので、起動前に落とす。
 
     Args:
         config: `study` を持つ実行設定。
@@ -110,14 +114,17 @@ def _validate_study(config: DictConfig) -> None:
         None
 
     Raises:
-        ValueError: `study` が未指定か、対応する `analysis/<study>/` が無い場合。
+        ValueError: `study` が未指定か、`analysis/` に無い値の場合。
     """
     # `???` のままでも key ごと無くても、同じ「指定されていない」として扱う。
     study = OmegaConf.select(config, "study", default=None)
     if not study:
-        raise ValueError("study を指定する（値は analysis/<study>/ の directory 名。探りの run は study=scratch）")
+        missing = "study を指定する（この run を何のために回したか。値は analysis/ 直下の directory 名。"
+        raise ValueError(missing + "結論を出すつもりが無い run は study=scratch）")
     if not (repository_root() / "analysis" / str(study)).is_dir():
-        raise ValueError(f"study に対応する分析 package が無い: analysis/{study}（探りの run は study=scratch）")
+        unknown = f"知らない study: {study}（既知の値は analysis/ 直下の directory 名。"
+        remedy = f"打ち間違いでなければ analysis/{study}/ を先に作る。結論を出すつもりが無い run は study=scratch）"
+        raise ValueError(unknown + remedy)
 
 
 def _validate_attribute_invariance(config: DictConfig) -> None:

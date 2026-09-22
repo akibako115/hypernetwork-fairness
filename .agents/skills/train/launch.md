@@ -29,6 +29,23 @@ uv run python -m projects.hypernet_e2e.run \
   data.num_workers=0 data.persistent_workers=false data.prefetch_factor=null
 ```
 
+複数 seed を 1 つの実験として束ねる（W&B の chart で平均と band になる）:
+
+```bash
+mkdir -p run_logs
+GROUP="spatial_lora_fc_inverse"
+for SEED in 42 43 44; do
+  NAME="e2e_${GROUP}_s${SEED}_$(date -u +%Y%m%dT%H%M%SZ)"
+  nohup uv run python -m projects.hypernet_e2e.run \
+    experiment=spatial_lora_chexpert_fc study=iterative_probe \
+    seed="$SEED" logger.wandb.group="$GROUP" \
+    > "run_logs/${NAME}.log" 2>&1 < /dev/null &
+done
+```
+
+group 名に seed を入れない。入れると 1 run ずつ別 group になり、束ねる意味が無くなる。GPU を
+分けるなら `trainer.devices=[<index>]` を seed ごとに変える。
+
 二段学習は `hypernet_e2e` の run を 2 回起動する。2 段目は
 `experiment=spatial_lora_chexpert_from_resnet` を選び、1 段目 run の `run.json` が記録した best
 checkpoint の path を `model.backbone_checkpoint_path=` で渡す。Stage 2 の変調箇所は

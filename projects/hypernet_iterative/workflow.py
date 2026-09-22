@@ -107,7 +107,9 @@ def _validate_plan(config: DictConfig) -> None:
     発火しない。`iteration.clusters` の打ち間違いは warmup fit を消費し切ったあと
     `cohorts.build.save_artifact` で初めて落ちる。`run_iterative()` も先頭でこれを呼ぶ。
     `weighting` と `study` をここで見るのは、dry-run でも打ち間違いが出るようにするためである。
-    `study` は `analysis/<study>/` が正本で、この run がどの仮説に属するかを決める。
+    `study` は「この run を何のために回したか」で、起動時にしか残せない。分析側が要求している
+    わけではなく（run の選択は `runs.md` が run-id で持つ）、`analysis/` 直下の directory 名を
+    既知の slug の辞書として使った打ち間違い検出である。
     """
     iteration = config.iteration
     if min(int(iteration.warmup_epochs), int(iteration.stage_epochs), int(iteration.stages), int(iteration.clusters), int(iteration.n_init)) < 1:
@@ -118,9 +120,12 @@ def _validate_plan(config: DictConfig) -> None:
     # `???` のままでも key ごと無くても、同じ「指定されていない」として扱う。
     study = OmegaConf.select(config, "study", default=None)
     if not study:
-        raise ValueError("study を指定する（値は analysis/<study>/ の directory 名。探りの run は study=scratch）")
+        missing = "study を指定する（この run を何のために回したか。値は analysis/ 直下の directory 名。"
+        raise ValueError(missing + "結論を出すつもりが無い run は study=scratch）")
     if not (_REPOSITORY_ROOT / "analysis" / str(study)).is_dir():
-        raise ValueError(f"study に対応する分析 package が無い: analysis/{study}（探りの run は study=scratch）")
+        unknown = f"知らない study: {study}（既知の値は analysis/ 直下の directory 名。"
+        remedy = f"打ち間違いでなければ analysis/{study}/ を先に作る。結論を出すつもりが無い run は study=scratch）"
+        raise ValueError(unknown + remedy)
 
 
 def plan(config: DictConfig) -> list[Stage]:
