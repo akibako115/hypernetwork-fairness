@@ -53,6 +53,19 @@ run artifact  →  cache/      →  results/     →  figures/     →  notebook
 - 書き出し先は `results/` と `figures/` に限る。`cache/` を書くのは
   `analysis/common/predictions.py` だけとする。
 
+## テスト
+
+`analysis/tests/` に置き、引数なしの `uv run pytest` で走る。**`common/` に手を入れるときは
+テストを伴う**。2 つ以上の package が依存するので、ここが静かに間違うと結論だけが変わる。
+
+対象にするのは「落ちずに間違う」経路とする。epoch の束ね直し、checkpoint の選び方、cache と
+split CSV の行対応、群をまたいだ worst / gap の扱い。型を確かめるだけのテストは書かない。
+
+学習側と同じ意味を持つ指標は、`projects/` の実装を import して突き合わせるのではなく
+`tests/golden/` の固定データと一致することを見る。理由は
+[`.agents/skills/migrate/rationale.md`](../.agents/skills/migrate/rationale.md) と同じで、
+実装どうしを比べると、どちらが正しいのか分からないまま両方が動く。
+
 ## path と import
 
 repo root の解決は次の 1 行に統一する。`.project-root` は repo root にある。

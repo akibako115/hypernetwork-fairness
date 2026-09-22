@@ -95,7 +95,10 @@ def format_run_plan(config: DictConfig, stages: Sequence[Any]) -> str:
     Returns:
         str: 表示用の複数行文字列。末尾に改行は付けない
     """
-    sections = [(title, [(label, _value(config, path)) for label, path in rows if _select(config, path) is not _MISSING]) for title, rows in _SECTIONS]
+    sections: list[tuple[str, list[tuple[str, str]]]] = []
+    for title, rows in _SECTIONS:
+        present = [(label, _value(config, path)) for label, path in rows if _select(config, path) is not _MISSING]
+        sections.append((title, present))
     sections.insert(5, ("規模", _scale_rows(config, stages)))
     sections.append(("callbacks", [("callbacks", ", ".join(config.get("callbacks") or []) or "(なし)")]))
     sections.append(("明示指定", _override_rows()))

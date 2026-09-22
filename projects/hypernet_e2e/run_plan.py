@@ -79,8 +79,13 @@ def format_run_plan(config: DictConfig, class_weight_path: str) -> str:
     Returns:
         str: 表示用の複数行文字列。末尾に改行は付けない
     """
-    sections = [(title, [(label, _value(config, path)) for label, path in rows if _select(config, path) is not _MISSING]) for title, rows in _SECTIONS]
-    sections.insert(3, ("クラス重み", [("weighting", _value(config, "weighting")), ("class_weight", _value(config, class_weight_path))]))
+    sections: list[tuple[str, list[tuple[str, str]]]] = []
+    for title, rows in _SECTIONS:
+        present = [(label, _value(config, path)) for label, path in rows if _select(config, path) is not _MISSING]
+        sections.append((title, present))
+    weighting = _value(config, "weighting")
+    class_weight = _value(config, class_weight_path)
+    sections.insert(3, ("クラス重み", [("weighting", weighting), ("class_weight", class_weight)]))
     sections.insert(4, ("目的関数", _objective_rows(config)))
     sections.append(("callbacks", [("callbacks", ", ".join(config.get("callbacks") or []) or "(なし)")]))
     sections.append(("明示指定", _override_rows()))
@@ -104,10 +109,15 @@ def _objective_rows(config: DictConfig) -> list[tuple[str, str]]:
     strategy ごとに持つ key が違う（Group DRO の `step_size` など）ので、設定を先に決め打ちせず
     `model.loss_fn` の scalar をそのまま出す。class weight は別の節が持つので除く。
     """
-    rows = [("training_strategy", _value(config, "training_strategy.name")), ("loss_fn", _value(config, "model.loss_fn._target_"))]
+    strategy = _value(config, "training_strategy.name")
+    rows = [("training_strategy", strategy), ("loss_fn", _value(config, "model.loss_fn._target_"))]
     loss_fn = _select(config, "model.loss_fn")
     if isinstance(loss_fn, Mapping):
-        rows.extend((f"loss_fn.{key}", _format(value)) for key, value in loss_fn.items() if key not in ("_target_", "class_weight") and isinstance(value, (int, float, str, bool)))
+        for key, value in loss_fn.items():
+            # class weight は別の節が持ち、dict や list は表の 1 行に収まらない。
+            if key in ("_target_", "class_weight") or not isinstance(value, (int, float, str, bool)):
+                continue
+            rows.append((f"loss_fn.{key}", _format(value)))
     return rows
 
 

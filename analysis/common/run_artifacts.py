@@ -139,8 +139,8 @@ def selected_checkpoint(run_dir: Path) -> Path:
 def write_csv(path: Path, rows: list[dict[str, Any]], columns: list[str]) -> None:
     """指定した列だけを CSV へ書き出す。欠けている列は空欄にする。
 
-    改行は LF に固定する。csv の既定は CRLF で、Git は commit 時に LF へ正規化するため、
-    既定のままだと書き出すたびに working tree と index が食い違う。
+    改行は LF に固定する。csv の既定は CRLF で、`results/` は Git 追跡外なので index とは
+    食い違わないが、同じ表を別の環境で作り直したときに全行が差分になるのを避ける。
 
     Args:
         path: 出力先

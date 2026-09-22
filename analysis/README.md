@@ -15,6 +15,7 @@ package の slug は学習側の `study` と同じ値になる。run は起動�
 ```text
 common/        run 記録の読み方と予測 cache。全 package で共有する
 styles/        図の style。全 package で共有する
+tests/         共有層と、指標の定義が学習側と一致することのテスト
 <slug>/
   README.md     仮説、対象 run、結論
   runs.md       この仮説に紐づく run の一覧と状態
@@ -59,7 +60,8 @@ checkpoint 選択・予測 cache）までとする。**群の切り方・指標�
 
 追跡するのは **再生成の手順と、そこから読み取った結論**に限る。
 
-- 追跡する: `README.md` / `runs.md` / `reports/` / 集計 script / notebook / `common/` / `styles/`
+- 追跡する: `README.md` / `runs.md` / `reports/` / 集計 script / notebook / `common/` /
+  `styles/` / `tests/`
 - 追跡しない: `results/` の表（`*.csv` / `*.parquet`）、`figures/` の図（`*.png`）、
   `cache/` / `outputs/` / `checkpoints/` と `*.npz` / `*.pt` / `*.pth`
 
