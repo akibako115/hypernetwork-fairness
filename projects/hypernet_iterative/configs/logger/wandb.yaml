@@ -1,10 +1,15 @@
 # project は repo 単位で 1 つにする。理由は hypernet_e2e 側の同名 config と同じで、1 つの仮説が
-# 両 project の run を並べるため。仮説の区別は group、run の種別は job_type が持つ。
-# ${study} と ${project} は config root を指す（この node の project ではない）。
+# 両 project の run を並べるため。run の種別は job_type が持つ。
+#
+# 仮説での絞り込みに group は使わない。解決済み設定を config へ載せているので dashboard 側は
+# `config.study` で group by でき、W&B の group は本来の用途（分散実行の process、同条件の seed
+# 反復を 1 実験として束ねる）に空けておける。
+# ${project} は config root を指す（この node の project ではない）。
 wandb:
   _target_: lightning.pytorch.loggers.wandb.WandbLogger
   project: fairness_hypernet
-  group: ${study}
+  # 束ねたいときだけ CLI から渡す。
+  group: null
   job_type: ${project}
   save_dir: null
   name: null

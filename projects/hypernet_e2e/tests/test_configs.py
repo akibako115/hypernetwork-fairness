@@ -124,9 +124,10 @@ def test_default_logger_is_wandb_with_its_output_left_to_the_run_record() -> Non
     assert cfg.logger.wandb.log_model is False
     assert cfg.logger.wandb.save_dir is None
     assert cfg.logger.wandb.name is None
-    # 仮説は group、code project は job_type が持つ。W&B project は repo で 1 つに統合している。
-    assert cfg.logger.wandb.group == "scratch"
+    # code project は job_type が持つ。W&B project は repo で 1 つに統合している。
     assert cfg.logger.wandb.job_type == "hypernet_e2e"
+    # 仮説は config.study で絞る。group は seed 反復などを束ねる用途に空けてある。
+    assert cfg.logger.wandb.group is None
 
 
 def test_hydra_job_logging_keeps_no_shared_log_file_outside_the_run_directory() -> None:

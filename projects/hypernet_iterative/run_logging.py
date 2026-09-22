@@ -33,8 +33,8 @@ def parent_wandb(config: DictConfig, run_dir: Path) -> Iterator[Any | None]:
 
     run = wandb.init(
         project=settings.project,
-        # group は study（この run が属する仮説）、job_type は code project。W&B 上ではこの 2 つで
-        # 「どの仮説の、どちら側の run か」を絞る。config 側の値をそのまま渡す。
+        # job_type は code project。仮説は config へ載る `study` で絞るので group は既定で空にして
+        # あり、seed 反復などを束ねたいときだけ CLI から入る。config 側の値をそのまま渡す。
         group=settings.get("group"),
         job_type=settings.get("job_type"),
         name=run_dir.name,

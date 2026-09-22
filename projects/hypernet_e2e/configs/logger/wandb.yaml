@@ -1,7 +1,11 @@
 # https://wandb.ai
 # project は repo 単位で 1 つにする。1 つの仮説（study）が e2e と iterative の run を並べて比較する
-# ので、code project ごとに W&B project を割ると、その比較が 1 画面に出せなくなる。仮説の区別は
-# group、run の種別は job_type が持つ。
+# ので、code project ごとに W&B project を割ると、その比較が 1 画面に出せなくなる。run の種別は
+# job_type が持つ。
+#
+# 仮説での絞り込みに group は使わない。`log_run_config` が解決済み設定をそのまま載せるので、
+# dashboard 側は `config.study` で group by できる。W&B の group は「1 つの実験を構成する複数の
+# run」（分散実行の process、同条件の seed 反復）のためのもので、そちらに空けておく。
 #
 # save_dir と name は null のままにする。run directory を予約した時点で
 # run_logging.inject_logger_outputs が実際の出力先と run 名へ書き換える。
@@ -14,8 +18,9 @@ wandb:
   project: "fairness_hypernet"
   log_model: False # lightning の checkpoint は upload しない
   prefix: ""
-  # ${study} と ${project} は config root を指す（この node の project ではない）。
-  group: ${study}
+  # seed 反復や分散実行を束ねるときだけ CLI から渡す。仮説は config.study が持つ。
+  group: null
+  # ${project} は config root を指す（この node の project ではない）。
   job_type: ${project}
   tags: ${tags}
   name: null

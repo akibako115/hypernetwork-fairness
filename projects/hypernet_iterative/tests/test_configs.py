@@ -21,7 +21,7 @@ def _compose(*overrides: str):
     named = list(overrides)
     if not any(override.startswith("experiment=") for override in named):
         named.insert(0, f"experiment={BASELINE_EXPERIMENT}")
-    # study も必須。logger.wandb.group が `${study}` を参照するので、解決する test では値が要る。
+    # study も必須。`???` のままだと解決する test が MissingMandatoryValue で落ちる。
     if not any(override.startswith("study=") for override in named):
         named.insert(0, "study=scratch")
     with initialize_config_dir(version_base="1.3", config_dir=str(CONFIG_DIR)):
@@ -170,3 +170,13 @@ def test_modulation_presets_reach_the_cohort_stage_config() -> None:
     )
 
     assert list(stage.model.net.modulation_stages) == ["fc"]
+
+
+def test_default_logger_groups_runs_by_config_study_not_by_the_wandb_group() -> None:
+    """仮説は `config.study` で絞る。group を埋めると seed 反復を束ねる用途が塞がる。"""
+    cfg = _compose()
+
+    assert cfg.logger.wandb.project == "fairness_hypernet"
+    assert cfg.logger.wandb.job_type == "hypernet_iterative"
+    assert cfg.logger.wandb.group is None
+    assert cfg.study == "scratch"

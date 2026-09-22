@@ -7,8 +7,13 @@ package は project ごとに分けず、`analysis/` 直下へ平らに並べる
 あり（e2e と iterative の比較など）、project で階層を切るとその比較の置き場が無くなる。
 
 package の slug は学習側の `study` と同じ値になる。run は起動時に `study=<slug>` を受け取り、
-`run.json` にその値を残す。W&B の `group` にも同じ値が入るので、**仮説 → run → dashboard が
-1 つの名前でつながる**。新しい仮説を始めるときは、先にこの package を作る。
+`run.json` にその値を残す。解決済み設定ごと W&B にも載るので、**仮説 → run → dashboard が
+1 つの名前でつながる**（dashboard 側は `config.study` で group by する）。新しい仮説を始める
+ときは、先にこの package を作る。
+
+ただし `study` が記録するのは**生成の理由**だけで、1 run に 1 つしか付かない。**どの package が
+その run を引用したか**は多対多で、あとから増える。こちらの正本は各 package の `runs.md` が
+持つ。baseline のように複数の仮説が読む run は、`study` が指すのと別の package からも参照される。
 
 `scratch/` は例外で、まだ仮説に紐づかない run の逃げ道として置いている。結論の根拠にはしない。
 

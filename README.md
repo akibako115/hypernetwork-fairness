@@ -21,8 +21,8 @@ ResNet を 1 段目、凍結した Spatial LoRA を 2 段目とする二段学�
 
 ## 仮説 (study)
 
-**1 つの run は必ず 1 つの仮説に属します。** 仮説の正本は `analysis/<slug>/` の分析 package で、
-その directory 名を `study` として学習の起動時に渡します。
+**1 つの run は必ず 1 つの仮説のために回されます。** 仮説の正本は `analysis/<slug>/` の分析
+package で、その directory 名を `study` として学習の起動時に渡します。
 
 ```bash
 uv run python -m projects.hypernet_e2e.run experiment=spatial_lora_chexpert_fc study=iterative_probe seed=42
@@ -30,11 +30,18 @@ uv run python -m projects.hypernet_e2e.run experiment=spatial_lora_chexpert_fc s
 
 - `study` に既定はありません。未指定の run は起動できず、`analysis/<study>/` が無い値も拒否します。
 - 結論を出すつもりが無い run（経路確認・当たり付け）は `study=scratch` を使います。
-- `run.json` に `study` が残り、W&B では `group` に入ります。W&B project は repo で 1 つ
-  (`fairness_hypernet`) にまとめ、code project は `job_type` が持ちます。1 つの仮説が
-  `hypernet_e2e` の baseline と `hypernet_iterative` の run を並べることがあるためです。
+- `run.json` に `study` が残り、解決済み設定ごと W&B にも載るので、dashboard では
+  `config.study` で group by できます。W&B project は repo で 1 つ (`fairness_hypernet`)
+  にまとめ、code project は `job_type` が持ちます。1 つの仮説が `hypernet_e2e` の baseline と
+  `hypernet_iterative` の run を並べることがあるためです。
+- W&B の `group` は仮説には使いません。あれは「1 つの実験を構成する複数の run」（分散実行の
+  process、同条件の seed 反復）を束ねる欄なので、そちらに空けてあります。
 
 project は「実装の境界」、study は「問いの境界」であり、両者は交差します。
+
+`study` が答えるのは**何のために回したか**（生成）で、1 run に 1 つ、起動時に決まります。
+**どの分析がその run を引用したか**は別の関係で、1 つの run が複数の仮説に出ます（baseline は
+使い回すため）。引用の正本は `analysis/<slug>/runs.md` が持ちます。
 
 ## データ
 

@@ -25,9 +25,11 @@ allowed-tools: Bash(uv:*) Bash(nvidia-smi:*) Bash(ps:*) Bash(git:*) Bash(ssh:*) 
 project、**study**、experiment preset、seed、trainer、data override、実行先と GPU、logger、概算時間を
 特定する。候補は `projects/<project>/configs/` を読んで確認する。
 
-`study` は「この run がどの仮説のためのものか」で、`analysis/<study>/` の directory 名を渡す。
-既定は無く、未指定の run は起動できない。W&B の group にもこの値が入るので、同じ仮説の run は
-project をまたいでも 1 つの group にまとまる。結論を出すつもりが無い run は `study=scratch`。
+`study` は「この run を何のために回したか」で、`analysis/<study>/` の directory 名を渡す。
+既定は無く、未指定の run は起動できない。解決済み設定ごと W&B に載るので、同じ仮説の run は
+project をまたいでも `config.study` で group by できる。結論を出すつもりが無い run は
+`study=scratch`。後から別の仮説がその run を引用しても `study` は書き換えず、引用側の
+`runs.md` が拾う。
 仮説が新しいなら、先に `analysis/<slug>/` を作る（[analysis/README.md](../../../analysis/README.md)）。
 
 preset と override の使い分けは、**その条件が config の構造を変えるかどうか**で決める。

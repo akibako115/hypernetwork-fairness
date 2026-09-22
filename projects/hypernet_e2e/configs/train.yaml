@@ -12,8 +12,12 @@ defaults:
   - _self_
 
 project: hypernet_e2e
-# この run がどの仮説のためのものか。値は `analysis/<study>/` の directory 名で、W&B の group にも
-# そのまま入る。既定は置かない。どの分析にも紐づかない run を残さないため、起動時に必ず指定する。
+# この run を**何のために回したか**。値は `analysis/<study>/` の directory 名で、解決済み設定ごと
+# W&B へ載るので dashboard では `config.study` で絞れる。既定は置かない。起動時にしか残せない
+# 記録なので、後から思い出す羽目にならないよう必ず指定する（探りの run は `study=scratch`）。
+#
+# どの分析がこの run を**引用したか**は別の関係で、1 run が複数の study に出る。そちらの正本は
+# `analysis/<study>/runs.md` が持つ。ここが決めるのは生成の理由だけとする。
 study: ???
 task_name: train
 seed: 12345
