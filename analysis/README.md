@@ -3,23 +3,39 @@
 1 つの仮説を検証する単位を `analysis/<slug>/` の package として持つ。`projects/` が学習の実装を
 所有するのに対し、ここは **その run を読んで何が言えるかを所有する**。学習コードはここに置かない。
 
+package は project ごとに分けず、`analysis/` 直下へ平らに並べる。仮説は project をまたぐことが
+あり（e2e と iterative の比較など）、project で階層を切るとその比較の置き場が無くなる。
+
 ```text
 <slug>/
   README.md    仮説、対象 run、結論
   runs.md      この仮説に紐づく run の一覧と状態
-  results/     集計した表（CSV / JSON）
+  *.py         run 記録の読み込みと集計（cache 生成を含む）
+  *.ipynb      分析と可視化
+  results/     集計した表
   figures/     レポートが参照する図
   reports/     読み手向けの分析メモ
+styles/        図の style。全 package で共有する
 ```
+
+集計と可視化は分ける。run 記録を読んで表を作るところまでを script が持ち、そこから先の分析と
+作図は notebook が持つ。notebook から重い読み込みを追い出すと、図を描き直すたびに run を
+読み直さずに済む。
+
+現在の package:
+
+- `initial-resnet-vs-invariant/` — 通常の ResNet と attribute-invariant ResNet の初期比較
+- `iterative-probe/` — 反復学習の初期方針を決める探り分析
 
 ## 追跡境界
 
-`README.md` / `runs.md` / `results/` / `figures/` / `reports/` は Git で追跡する。分析の結論と、
-その根拠になった表と図は repo に残す。
+追跡するのは **再生成の手順と、そこから読み取った結論**に限る。
 
-`outputs/` / `cache/` / `checkpoints/` と `*.npz` / `*.pt` / `*.pth` は追跡しない。再生成できる
-中間物を repo に入れない。図は repo 全体の `*.png` 除外を `figures/` だけ打ち消して追跡する。
+- 追跡する: `README.md` / `runs.md` / `reports/` / 集計 script / notebook / `styles/`
+- 追跡しない: `results/` の表（`*.csv` / `*.parquet`）、`figures/` の図（`*.png`）、
+  `cache/` / `outputs/` / `checkpoints/` と `*.npz` / `*.pt` / `*.pth`
 
+図も表も run artifact から再生成できる。repo に残すのは、再生成できない判断のほうとする。
 run そのもの（`projects/*/runs/<run-id>/`）と実行ログ（`run_logs/`）も追跡しない。
 
 ## ログの扱い
@@ -34,5 +50,5 @@ run そのもの（`projects/*/runs/<run-id>/`）と実行ログ（`run_logs/`�
 grep -l <run-id> run_logs/*.log
 ```
 
-結論の根拠になる数値は `results/` の CSV / JSON へ写す。追跡されるのはこちらで、ログではない。
-ログの行そのものが根拠になる場合は、該当箇所だけを `reports/` に引用する。
+結論の根拠になる数値は `results/` へ書き出し、そこから読み取ったことを `reports/` と各 package の
+`README.md` に残す。ログの行そのものが根拠になる場合は、該当箇所だけを `reports/` に引用する。

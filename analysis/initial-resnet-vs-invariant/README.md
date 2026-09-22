@@ -17,7 +17,7 @@
 cache は再生成できる中間物であり、Git 追跡しない。
 
 ```bash
-uv run python analysis/hypernet_e2e/initial-resnet-vs-invariant/cache_predictions.py
+uv run python analysis/initial-resnet-vs-invariant/cache_predictions.py
 ```
 
 その後、[classification_performance.ipynb](classification_performance.ipynb) を開く。標準は `test` split

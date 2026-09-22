@@ -157,8 +157,9 @@ checkpoints/*.pth
 .direnv/
 
 # Analysis packages
-# 分析パッケージ（analysis/<slug>/）の重い実体は追跡しない。
-# 成果物パッケージは README / runs.md / reports / figures / results を追跡する。
+# 分析パッケージ（analysis/<slug>/）の生成物は追跡しない。図も表も run artifact から
+# 再生成できるものであり、repo に残すのは再生成の手順（collect.py と notebook）と、
+# そこから読み取った結論（README / runs.md / reports）とする。
 # 構成と追跡境界の説明は analysis/README.md を参照する。
 /analysis/**/checkpoints/
 /analysis/**/outputs/
@@ -166,8 +167,9 @@ checkpoints/*.pth
 /analysis/**/*.npz
 /analysis/**/*.pt
 /analysis/**/*.pth
-# 上の *.png 一括除外を、レポートが参照する採用図だけ打ち消す。
-!/analysis/*/figures/**/*.png
+/analysis/**/*.csv
+/analysis/**/*.parquet
+# *.png は repo 全体で除外済み。分析の図は打ち消さない。
 
 # Aim logging
 .aim

@@ -1,7 +1,7 @@
 """保存済み checkpoint の予測を分析用 cache に書き出す。
 
 使い方:
-    uv run python analysis/hypernet_e2e/initial-resnet-vs-invariant/cache_predictions.py
+    uv run python analysis/initial-resnet-vs-invariant/cache_predictions.py
 """
 
 from __future__ import annotations
