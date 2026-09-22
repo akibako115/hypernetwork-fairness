@@ -21,7 +21,7 @@ loss_fn:
   feature_dim: 2048
   input_attribute_names: ${data.attribute_names}
   adversarial_attribute_names:
-    categorical: [sex, race, ethnicity]
+    categorical: [sex, race]
     continuous: [age]
   categorical_cardinalities: ${data.attribute_spec.categorical_cardinalities}
   num_continuous: ${data.attribute_spec.continuous_dim}

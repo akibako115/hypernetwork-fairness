@@ -72,7 +72,7 @@ def test_attribute_invariant_stage1_and_its_stage2_preset_compose() -> None:
 
     assert stage1.model.loss_fn._target_.endswith("AttributeInvariantTaskLoss")
     assert stage1.model.loss_fn.feature_dim == 2048
-    assert list(stage1.model.loss_fn.adversarial_attribute_names.categorical) == ["sex", "race", "ethnicity"]
+    assert list(stage1.model.loss_fn.adversarial_attribute_names.categorical) == ["sex", "race"]
     assert list(stage1.model.loss_fn.adversarial_attribute_names.continuous) == ["age"]
     assert instantiate(stage1.model).loss_fn.requires_features is True
     assert stage2.model.freeze_backbone is True
