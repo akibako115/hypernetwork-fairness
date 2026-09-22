@@ -222,6 +222,7 @@ class HiddenCohortMetricsCallback(L.Callback):
             pl_module.log(f"{phase}/hidden_support_{group_id:02d}", 0.0)
             pl_module.log(f"{phase}/hidden_auroc_{group_id:02d}", float("nan"))
             pl_module.log(f"{phase}/hidden_loss_{group_id:02d}", float("nan"))
+            pl_module.log(f"{phase}/hidden_bacc_{group_id:02d}", float("nan"))
         pl_module.log(f"{phase}/hidden_valid_auroc_groups", 0.0)
         pl_module.log(f"{phase}/hidden_min_auroc", float("nan"))
         pl_module.log(f"{phase}/hidden_auroc_gap", float("nan"))
@@ -273,6 +274,7 @@ class HiddenCohortMetricsCallback(L.Callback):
             if support == 0:
                 pl_module.log(f"{phase}/hidden_auroc_{group_id:02d}", float("nan"))
                 pl_module.log(f"{phase}/hidden_loss_{group_id:02d}", float("nan"))
+                pl_module.log(f"{phase}/hidden_bacc_{group_id:02d}", float("nan"))
                 if phase == "val":
                     invalid_val_groups.append(group_id)
                 continue
@@ -290,7 +292,12 @@ class HiddenCohortMetricsCallback(L.Callback):
                 if label_mask.any():
                     recalls.append(float(group_preds[label_mask].eq(label).float().mean()))
             if group_targets.unique().numel() == 2:
-                baccs.append(sum(recalls) / len(recalls))
+                bacc = sum(recalls) / len(recalls)
+                baccs.append(bacc)
+                # min だけでは、どの群が下限を作っているのかも、その群が動いたのかも読めない。
+                pl_module.log(f"{phase}/hidden_bacc_{group_id:02d}", bacc)
+            else:
+                pl_module.log(f"{phase}/hidden_bacc_{group_id:02d}", float("nan"))
             # 両クラスが揃っている group のみ AUROC を計算し、片方しかない group は集計から除外する
             if group_targets.unique().numel() == 2:
                 auroc = float(binary_auroc(probs[mask], group_targets))

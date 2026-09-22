@@ -225,4 +225,7 @@ def test_group_loss_is_logged_for_every_cohort() -> None:
     # max と gap だけでは、どの群が重いのかも、その群が改善したのかも後から追えない。
     assert module.logged["val/hidden_loss_00"] > 0
     assert module.logged["val/hidden_loss_01"] > 0
+    # bacc も同じ理由で群ごとに残す。両クラスが揃う群 00 だけが値を持ち、単一クラスの群 01 は nan。
+    assert module.logged["val/hidden_bacc_00"] == pytest.approx(module.logged["val/hidden_min_bacc"])
+    assert math.isnan(module.logged["val/hidden_bacc_01"])
     assert max(module.logged["val/hidden_loss_00"], module.logged["val/hidden_loss_01"]) == pytest.approx(module.logged["val/hidden_max_loss"])
