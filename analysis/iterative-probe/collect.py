@@ -7,8 +7,12 @@ epoch 単位の表に加えて、`(run, stage, cohort)` 単位の表も書く。
 引き直されるので群を stage 間で追えないが、stage の中では `q`・class weight・support・AUROC を
 同じ添字で突き合わせられる（`assignments.parquet` が train と val を同じ `group_id` で持つ）。
 
+`--baseline` に `hypernet_e2e` の run-id を渡すと、global 指標の比較対象として同じ形の表を
+別ファイルへ書く。baseline は CSVLogger を付けずに回しているので、epoch 推移は WandbLogger の
+transaction log から読む。
+
 使い方:
-    uv run python analysis/iterative-probe/collect.py <run-id> [<run-id> ...]
+    uv run python analysis/iterative-probe/collect.py <run-id> [<run-id> ...] [--baseline <run-id> ...]
 """
 
 from __future__ import annotations
@@ -20,8 +24,11 @@ from pathlib import Path
 
 import pandas as pd
 import yaml
+from wandb.proto import wandb_internal_pb2
+from wandb.sdk.internal import datastore
 
 RUNS_ROOT = Path("projects/hypernet_iterative/runs")
+BASELINE_RUNS_ROOT = Path("projects/hypernet_e2e/runs")
 
 # 反復の効き方を見るために毎回見る列。stage 間で比較する順に並べる。
 HEADLINE = [
@@ -62,6 +69,55 @@ def read_epoch_metrics(csv_path: Path) -> list[dict[str, float]]:
                     continue
                 merged[name] = float(value)
     return [by_epoch[epoch] for epoch in sorted(by_epoch)]
+
+
+def read_wandb_history(run_dir: Path) -> list[dict[str, float]]:
+    """`WandbLogger` の transaction log を epoch ごとの 1 行へまとめる。
+
+    baseline の run は CSVLogger を付けずに回しているため、epoch 推移がローカルに残る場所は
+    `wandb/<run>/run-*.wandb` しかない。この file は leveldb 形式の record 列で、`history`
+    record 1 つが `log()` 1 回に対応する。Lightning は train と val を別の record に書くので、
+    `read_epoch_metrics` と同じく epoch で束ね直す。
+
+    system stats や telemetry など history 以外の record も同じ file に混ざるので、history だけを
+    拾う。`scan_record` ではなく `scan_data` を使う。block 境界をまたいだ record は fragment に
+    分かれて書かれており、`scan_record` はそれを繋がないまま返すため parse に失敗する。
+
+    Args:
+        run_dir: `projects/hypernet_e2e/runs/<run-id>`
+
+    Returns:
+        list[dict[str, float]]: epoch 昇順の metric
+    """
+    store = datastore.DataStore()
+    store.open_for_scan(str(next((run_dir / "wandb").glob("run-*/run-*.wandb"))))
+    by_epoch: dict[int, dict[str, float]] = {}
+    while (scanned := store.scan_data()) is not None:
+        record = wandb_internal_pb2.Record()
+        record.ParseFromString(scanned)
+        if record.WhichOneof("record_type") != "history":
+            continue
+        item = {("/".join(i.nested_key) if i.nested_key else i.key): json.loads(i.value_json) for i in record.history.item}
+        merged = by_epoch.setdefault(int(item["epoch"]), {"epoch": float(item["epoch"])})
+        # `_step` や `trainer/global_step` は optimizer step 側の軸なので epoch の表に混ぜない。
+        merged.update({name: float(value) for name, value in item.items() if name.startswith(("train/", "val/", "test/"))})
+    return [by_epoch[epoch] for epoch in sorted(by_epoch)]
+
+
+def collect_baseline(run_dir: Path) -> list[dict[str, object]]:
+    """baseline run の epoch metric を、iterative の表と同じ列名で並べる。
+
+    baseline は stage を持たない 1 本の fit なので `run_epoch` と `epoch` は一致する。
+    条件列は `experiment_name` だけを入れる（変調範囲も step size も無い）。
+
+    Args:
+        run_dir: `projects/hypernet_e2e/runs/<run-id>`
+
+    Returns:
+        list[dict[str, object]]: run-id・条件・epoch を付けた行
+    """
+    condition = yaml.safe_load((run_dir / "config.yaml").read_text())["experiment_name"]
+    return [{"run_id": run_dir.name, "condition": condition, "run_epoch": int(row["epoch"]), **row} for row in read_wandb_history(run_dir)]
 
 
 def read_condition(run_dir: Path) -> dict[str, str]:
@@ -177,6 +233,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("run_ids", nargs="+")
     parser.add_argument("--runs-root", type=Path, default=RUNS_ROOT)
+    parser.add_argument("--baseline", nargs="*", default=[], help="global 指標の比較対象にする hypernet_e2e の run-id")
+    parser.add_argument("--baseline-runs-root", type=Path, default=BASELINE_RUNS_ROOT)
     args = parser.parse_args()
 
     rows = [row for run_id in args.run_ids for row in collect(args.runs_root / run_id)]
@@ -189,6 +247,12 @@ def main() -> None:
     cohorts = [row for run_id in args.run_ids for row in collect_cohorts(args.runs_root / run_id)]
     write_csv(results / "cohort_groups.csv", cohorts, list(cohorts[0]) if cohorts else [])
     print(f"{len(args.run_ids)} runs / {len(rows)} epochs / {len(cohorts)} cohort groups -> {results}/epoch_metrics.csv, {results}/headline.csv, {results}/cohort_groups.csv")
+
+    if args.baseline:
+        baseline = [row for run_id in args.baseline for row in collect_baseline(args.baseline_runs_root / run_id)]
+        fixed = ["run_id", "condition", "run_epoch", "epoch"]
+        write_csv(results / "baseline_epoch_metrics.csv", baseline, fixed + sorted({key for row in baseline for key in row} - set(fixed)))
+        print(f"{len(args.baseline)} baseline runs / {len(baseline)} epochs -> {results}/baseline_epoch_metrics.csv")
 
 
 if __name__ == "__main__":

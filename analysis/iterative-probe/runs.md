@@ -19,6 +19,21 @@ ResNet-50 ImageNet 初期化。ws11 の GPU 5〜8 で並列実行し、4 本と�
 2 ファイルを加えた状態。ws11 側は `.git` を除外して同期しているため、`run.json` の `git_commit` は
 `null` である。
 
+## 比較対象（baseline）
+
+global 指標を並べるための通常 ResNet。`projects/hypernet_e2e/runs/` 側にある。
+
+| run-id | 条件 | epoch |
+|---|---|---|
+| `20260921T103036Z-resnet-chexpert-s42-5538` | ResNet-50 全体を ERM、`weighting=inverse` | 30 |
+
+`data_manifest.json` の train / val の sha256、optimizer（AdamW lr 1e-4 / wd 0.01）、batch size 128、
+class weight `[0.201358, 1.798642]`、seed、transform が本実験と一致する。違うのは学習の中身
+（全体 ERM 30 epoch か、Spatial LoRA + cohort GroupDRO 12 epoch か）だけになる。
+
+この run は CSVLogger を付けずに回しているため、epoch 推移は `wandb/<run>/run-*.wandb` から読む。
+`collect.py --baseline <run-id>` がそれを行う。
+
 ## 先行する探り run
 
 | run-id | 変調範囲 | step size | epoch | 状態 |
@@ -45,6 +60,10 @@ step size が小さく GroupDRO が動かなかった run。変調範囲も epoc
 - `stages/*/metrics/metrics.csv` — epoch 推移の正本
 - `stages/*/config.yaml` — 群ごとの class weight `[clusters, num_classes]`
 - `artifacts/cohorts/cohortNN/cohort.json` — cohort の参照 checkpoint
+
+群ごと・交差群ごとの公平性指標は run artifact に無い（属性ごとの worst と gap までしか記録して
+いない）。`cache_predictions.py` が `selected_checkpoint`（iterative）と `best_val_auroc`（baseline）
+を test split で推論し、`cache/<run-id>_test.npz` に予測を置く。群の切り方は notebook が決める。
 
 実行ログは `run_logs/` にあり、ファイル名は run-id と対応しない。必要なら run-id で引く。
 
