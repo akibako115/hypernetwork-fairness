@@ -1,0 +1,59 @@
+# fairness research figure style
+# 目的: matplotlib デフォルト感(DejaVu Sans + tab:色)を排し、論文図に寄せる。
+# フォントは Nimbus Sans(Helvetica 相当) を第一候補、無い環境では Liberation Sans(Arial 相当) にフォールバック。
+
+# --- output ---
+figure.dpi: 120
+savefig.dpi: 300
+savefig.bbox: tight
+savefig.pad_inches: 0.08
+savefig.format: png
+pdf.fonttype: 42
+ps.fonttype: 42
+
+figure.figsize: 7.0, 4.0
+figure.constrained_layout.use: True
+
+# --- typography (Helvetica系) ---
+font.family: sans-serif
+font.sans-serif: Nimbus Sans, Liberation Sans, DejaVu Sans
+mathtext.fontset: dejavusans
+
+font.size: 11
+axes.titlesize: 11
+axes.titleweight: medium
+axes.labelsize: 10
+xtick.labelsize: 9
+ytick.labelsize: 9
+legend.fontsize: 9
+
+# --- axes / spines ---
+axes.grid: True
+axes.grid.axis: y
+axes.axisbelow: True
+axes.spines.top: False
+axes.spines.right: False
+axes.linewidth: 0.8
+
+grid.color: 0.9
+grid.linewidth: 0.6
+grid.linestyle: -
+
+# --- ticks (外向き・軽い) ---
+xtick.direction: out
+ytick.direction: out
+xtick.major.size: 3
+ytick.major.size: 3
+xtick.major.width: 0.8
+ytick.major.width: 0.8
+
+# --- lines / bars ---
+lines.linewidth: 1.8
+patch.linewidth: 0.8
+patch.edgecolor: white
+patch.force_edgecolor: True
+
+legend.frameon: False
+
+# --- color: Okabe–Ito (colorblind-safe) ---
+axes.prop_cycle: cycler('color', ['0173B2', 'DE8F05', '029E73', 'D55E00', 'CC78BC', 'CA9161', 'FBAFE4', '949494'])
