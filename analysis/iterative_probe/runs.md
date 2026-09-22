@@ -6,7 +6,7 @@ run は run-id では区別できないため、振った水準はここに残�
 run-id・状態・experiment・W&B URL の表は、`run.json` から生成できる。
 
 ```bash
-uv run python analysis/common/studies.py iterative-probe
+uv run python analysis/common/studies.py iterative_probe
 ```
 
 ただし `study` は本実験より後に入れた key なので、**下の run は `study` を持たない**。移行が済むまで、

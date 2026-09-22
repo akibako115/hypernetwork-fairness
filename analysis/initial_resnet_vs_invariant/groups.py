@@ -13,7 +13,7 @@ invariant 化で分類性能をどれだけ払ったのか（`classification_per
 出力: `results/classification_performance_<split>.csv`、`results/fairness_metrics_<split>.csv`
 
 使い方:
-    uv run python analysis/initial-resnet-vs-invariant/groups.py --split test
+    uv run python analysis/initial_resnet_vs_invariant/groups.py --split test
 """
 
 from __future__ import annotations

@@ -17,7 +17,7 @@ transaction log から読む。
       / `results/cohort_correlations.csv`
 
 使い方:
-    uv run python analysis/iterative-probe/collect.py <run-id> [<run-id> ...] \
+    uv run python analysis/iterative_probe/collect.py <run-id> [<run-id> ...] \
       [--baseline <run-id> ...]
 """
 

@@ -1,4 +1,4 @@
-# iterative-probe
+# iterative_probe
 
 `hypernet_iterative` を本格的に回す前の探り分析。反復学習の**初期方針**、つまり次にどの設定で
 実験を組むかを決めるために、最小構成で回した run を読む。結論そのものより、次に振るべき
@@ -22,7 +22,7 @@
 比較対象にする通常 ResNet（`projects/hypernet_e2e/runs/20260921T103036Z-resnet-chexpert-s42-5538`）。
 run-id の一覧と中断した試行は [runs.md](runs.md) を見る。
 
-baseline は [initial-resnet-vs-invariant](../initial-resnet-vs-invariant/) が invariant 化の対照に
+baseline は [initial_resnet_vs_invariant](../initial_resnet_vs_invariant/) が invariant 化の対照に
 使っているものと同じ run になる。split の sha256・optimizer・batch size・class weight・seed が
 iterative 側と揃っているので、global の val 指標はそのまま並べて読める。
 
@@ -60,16 +60,16 @@ gap だけでなく worst と best の値も出す。gap が縮んでも、worst
 並べる。表と図の並びがこの順になる。
 
 ```bash
-uv run python analysis/common/predictions.py --study iterative-probe --split test \
+uv run python analysis/common/predictions.py --study iterative_probe --split test \
   --run-dir projects/hypernet_e2e/runs/20260921T103036Z-resnet-chexpert-s42-5538 \
   --run-dir projects/hypernet_iterative/runs/20260921T103222Z-iterative-s42-d24d \
   --run-dir projects/hypernet_iterative/runs/20260921T103219Z-iterative-s42-e992 \
   --run-dir projects/hypernet_iterative/runs/20260921T103225Z-iterative-s42-3166 \
   --run-dir projects/hypernet_iterative/runs/20260921T103225Z-iterative-s42-fac5
-uv run python analysis/iterative-probe/collect.py \
+uv run python analysis/iterative_probe/collect.py \
   20260921T103222Z-iterative-s42-d24d 20260921T103219Z-iterative-s42-e992 \
   20260921T103225Z-iterative-s42-3166 20260921T103225Z-iterative-s42-fac5 \
   --baseline 20260921T103036Z-resnet-chexpert-s42-5538
-uv run python analysis/iterative-probe/groups.py --split test
-uv run python analysis/iterative-probe/plots.py --split test
+uv run python analysis/iterative_probe/groups.py --split test
+uv run python analysis/iterative_probe/plots.py --split test
 ```

@@ -51,8 +51,8 @@ checkpoint 選択・予測 cache）までとする。**群の切り方・指標�
 
 現在の package:
 
-- `initial-resnet-vs-invariant/` — 通常の ResNet と attribute-invariant ResNet の初期比較
-- `iterative-probe/` — 反復学習の初期方針を決める探り分析
+- `initial_resnet_vs_invariant/` — 通常の ResNet と attribute-invariant ResNet の初期比較
+- `iterative_probe/` — 反復学習の初期方針を決める探り分析
 - `scratch/` — まだ仮説に紐づかない run の逃げ道
 
 ## 追跡境界

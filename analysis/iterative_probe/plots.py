@@ -12,7 +12,7 @@ run artifact はここでは読まない。図を描き直すたびに run を�
 出力: `figures/*.png`
 
 使い方:
-    uv run python analysis/iterative-probe/plots.py --split test
+    uv run python analysis/iterative_probe/plots.py --split test
 """
 
 from __future__ import annotations
@@ -33,17 +33,12 @@ from matplotlib.figure import Figure
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 
-# package 名に `-` を含むので `analysis.iterative-probe` としては import できない。script 実行でも
-# notebook でも package directory が sys.path の先頭に入るため、module 名で読む。
-from groups import BASELINE_LABEL  # noqa: E402
-
 from analysis.common.paths import STYLE_SHEET  # noqa: E402
+from analysis.iterative_probe.groups import BASELINE_LABEL  # noqa: E402
 
 PACKAGE = Path(__file__).parent
 RESULTS, FIGURES = PACKAGE / "results", PACKAGE / "figures"
 
-# 旧 repo から持ってきた図 style。Okabe–Ito の色循環と論文向けの軸設定を持つ。
-matplotlib.style.use(STYLE_SHEET)
 MUTED, GRID = "#52514e", "#dcdcd8"
 STEP_COLOR = {0.001: "#0173B2", 0.01: "#DE8F05"}
 BASELINE_STYLE = {"color": "#000000", "marker": "s", "linestyle": ":"}
@@ -358,6 +353,9 @@ def main() -> None:
     parser.add_argument("--split", default="test", choices=("val", "test"))
     args = parser.parse_args()
 
+    # 旧 repo から持ってきた図 style。Okabe–Ito の色循環と論文向けの軸設定を持つ。import した
+    # だけで global な matplotlib state を書き換えないよう、作図の入口で適用する。
+    matplotlib.style.use(STYLE_SHEET)
     frame = pd.read_csv(RESULTS / "epoch_metrics.csv")
     baseline = pd.read_csv(RESULTS / "baseline_epoch_metrics.csv")
     cohorts = pd.read_csv(RESULTS / "cohort_groups.csv")

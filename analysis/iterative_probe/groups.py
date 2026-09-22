@@ -18,7 +18,7 @@ run artifact に残るのは属性ごとの worst と gap までで、**群そ�
 出力: `results/group_metrics_<split>.csv`、`results/fairness_summary_<split>.csv`
 
 使い方:
-    uv run python analysis/iterative-probe/groups.py --split test
+    uv run python analysis/iterative_probe/groups.py --split test
 """
 
 from __future__ import annotations

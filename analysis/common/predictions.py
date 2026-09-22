@@ -13,7 +13,7 @@ checkpoint の選び方（`run_artifacts.selected_checkpoint`）と、network �
 だけになる。
 
 使い方:
-    uv run python analysis/common/predictions.py --study iterative-probe --split test \
+    uv run python analysis/common/predictions.py --study iterative_probe --split test \
       --run-dir projects/hypernet_e2e/runs/<run-id> \
       --run-dir projects/hypernet_iterative/runs/<run-id>
 """

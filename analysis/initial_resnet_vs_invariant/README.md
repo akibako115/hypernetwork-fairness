@@ -24,10 +24,10 @@
 ## 作り直す
 
 ```bash
-uv run python analysis/common/predictions.py --study initial-resnet-vs-invariant --split test \
+uv run python analysis/common/predictions.py --study initial_resnet_vs_invariant --split test \
   --run-dir projects/hypernet_e2e/runs/20260921T103036Z-resnet-chexpert-s42-5538 \
   --run-dir projects/hypernet_e2e/runs/20260921T125711Z-resnet-chexpert-attribute-invariant-s42-9fd3
-uv run python analysis/initial-resnet-vs-invariant/groups.py --split test
+uv run python analysis/initial_resnet_vs_invariant/groups.py --split test
 ```
 
 `--split val` にすると val 側の表になる。公平性表は sex / race / ethnicity / age group (65 歳) ごとの

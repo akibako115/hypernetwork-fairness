@@ -25,7 +25,7 @@ ResNet を 1 段目、凍結した Spatial LoRA を 2 段目とする二段学�
 その directory 名を `study` として学習の起動時に渡します。
 
 ```bash
-uv run python -m projects.hypernet_e2e.run experiment=spatial_lora_chexpert_fc study=iterative-probe seed=42
+uv run python -m projects.hypernet_e2e.run experiment=spatial_lora_chexpert_fc study=iterative_probe seed=42
 ```
 
 - `study` に既定はありません。未指定の run は起動できず、`analysis/<study>/` が無い値も拒否します。

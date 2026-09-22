@@ -9,7 +9,7 @@ experiment・W&B URL を手で写すのをやめるためのもので、**なぜ
 `--all` を付けたときだけ `(study 未記録)` として出す。
 
 使い方:
-    uv run python analysis/common/studies.py iterative-probe
+    uv run python analysis/common/studies.py iterative_probe
 """
 
 from __future__ import annotations

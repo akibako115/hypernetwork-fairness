@@ -9,7 +9,7 @@ Python・pytest・学習はすべて `uv run` 経由。長時間 run は detache
 mkdir -p run_logs
 NAME="e2e_spatial_lora_fc_s42_$(date -u +%Y%m%dT%H%M%SZ)"
 nohup uv run python -m projects.hypernet_e2e.run \
-  experiment=spatial_lora_chexpert_fc study=iterative-probe seed=42 \
+  experiment=spatial_lora_chexpert_fc study=iterative_probe seed=42 \
   > "run_logs/${NAME}.log" 2>&1 < /dev/null &
 ```
 
