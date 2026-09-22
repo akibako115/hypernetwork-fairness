@@ -7,9 +7,9 @@ Python・pytest・学習はすべて `uv run` 経由。長時間 run は detache
 
 ```bash
 mkdir -p run_logs
-NAME="e2e_spatial_lora_erm_s42_$(date -u +%Y%m%dT%H%M%SZ)"
+NAME="e2e_spatial_lora_fc_s42_$(date -u +%Y%m%dT%H%M%SZ)"
 nohup uv run python -m projects.hypernet_e2e.run \
-  experiment=spatial_lora_chexpert_erm seed=42 \
+  experiment=spatial_lora_chexpert_fc study=iterative-probe seed=42 \
   > "run_logs/${NAME}.log" 2>&1 < /dev/null &
 ```
 
@@ -18,11 +18,13 @@ nohup uv run python -m projects.hypernet_e2e.run \
 - tmux を使う場合: `tmux new -d -s "$NAME" "uv run python -m projects.hypernet_e2e.run ... 2>&1 | tee run_logs/${NAME}.log"`
 - controller log 名は run ID とは別物。衝突しない名前を選び、複数 seed で使い回さない
 - `DATA_FOLDER` や `CONDITION` のような env は渡さない。条件はすべて Hydra override で表す
+- `experiment=` と `study=` は必須。どちらも既定が無く、抜けると Hydra が起動前に止める
 
 CPU で経路だけ確認する最小実行:
 
 ```bash
 uv run python -m projects.hypernet_e2e.run \
+  experiment=spatial_lora_chexpert study=scratch \
   trainer=cpu trainer.max_epochs=1 \
   data.num_workers=0 data.persistent_workers=false data.prefetch_factor=null
 ```
@@ -43,6 +45,13 @@ ls -1dt projects/hypernet_e2e/runs/*/ | head -3
 
 並行起動した場合は、各 run の `config.yaml` の `seed` と `experiment_name` で対応を取る。
 run ID の suffix はランダムであり、対応付けの根拠にしない。
+
+同じ study の直前の run との差は、解決済み `config.yaml` の diff で読む。承認した条件だけが
+変わっているかを、これで確かめる。
+
+```bash
+diff -u projects/hypernet_e2e/runs/<前回 run-id>/config.yaml projects/hypernet_e2e/runs/<今回 run-id>/config.yaml
+```
 
 ## 監視
 

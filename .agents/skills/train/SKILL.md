@@ -22,8 +22,13 @@ allowed-tools: Bash(uv:*) Bash(nvidia-smi:*) Bash(ps:*) Bash(git:*) Bash(ssh:*) 
 
 ## 条件の準備
 
-project、experiment preset、seed、trainer、data override、実行先と GPU、logger、概算時間を特定する。
-候補は `projects/<project>/configs/` を読んで確認する。
+project、**study**、experiment preset、seed、trainer、data override、実行先と GPU、logger、概算時間を
+特定する。候補は `projects/<project>/configs/` を読んで確認する。
+
+`study` は「この run がどの仮説のためのものか」で、`analysis/<study>/` の directory 名を渡す。
+既定は無く、未指定の run は起動できない。W&B の group にもこの値が入るので、同じ仮説の run は
+project をまたいでも 1 つの group にまとまる。結論を出すつもりが無い run は `study=scratch`。
+仮説が新しいなら、先に `analysis/<slug>/` を作る（[analysis/README.md](../../../analysis/README.md)）。
 
 preset と override の使い分けは、**その条件が config の構造を変えるかどうか**で決める。
 
@@ -33,19 +38,23 @@ preset と override の使い分けは、**その条件が config の構造を�
   変える**もの。スカラの水準を振るたびに preset を増やすと `configs/experiment/` が組み合わせ爆発する
 
 override で振った値は run directory の `config.yaml` が正本として記録する。run-id には experiment 名
-までしか入らないので、**同じ preset で値だけを変えた run は run-id では区別できない**。どの水準を
-振ったかは起動時に報告し、分析側の `runs.md` に run-id と対応付けて残す。
+までしか入らないので、**同じ preset で値だけを変えた run は run-id では区別できない**。振った水準は
+解決済み `config.yaml` と W&B の config が正本になる（起動時に設定全体を W&B へ送っている）。
+どの run がどの仮説に属するかは `run.json` の `study` が持つ。
 
 `run_dir` は指定しない。`run.py` が `runs/<run-id>/` を予約して config に注入する。
 
-dry-run は Hydra の設定表示を使う。
+dry-run は `dry_run=true` を使う。
 
 ```bash
-uv run python -m projects.hypernet_e2e.run --cfg job --resolve <overrides>
+uv run python -m projects.hypernet_e2e.run experiment=<preset> study=<slug> <overrides> dry_run=true
 ```
 
-fit も run directory 作成も行わない。ただし `weighting=inverse` の class weight は実行時に
-train split から算出されるため、この出力には出ない（`model.loss_fn.class_weight` は null のまま）。
+fit も run directory 作成も行わない。実行と同じ順序で path 正規化・検証・class weight 解決を
+通してから表を出すので、**`weighting=inverse` の class weight も実値で出る**。表の末尾には
+CLI override の一覧が出る。preset の既定と、今回わざわざ振った値を、ここで分けて読む。
+
+`--cfg job --resolve` は合成直後の設定を出すだけで、実行時に決まる値は出ない。条件の確認には使わない。
 
 ## 起動前の確認
 
@@ -61,10 +70,13 @@ git status --short
 
 ## 承認
 
-**起動コマンド全文と全体計画を提示し、明示承認を取る。** 含めるもの:
+**起動コマンド全文と、`dry_run=true` が出した表をそのまま提示し、明示承認を取る。**
+表に出ない情報を添える:
 
-project / experiment / 全 seed / trainer と主要 override / 実行先と GPU / 概算時間 /
-既存プロセスへの影響 / 生成される run directory の数。
+実行先と GPU / 概算時間 / 既存プロセスへの影響 / 生成される run directory の数。
+
+条件を振る run は、振った条件ごとに表を並べる。seed だけが違う run は 1 つの表と seed の一覧でよい。
+表を要約し直さない。要約した時点で、確認したい値がそこから落ちる。
 
 複数 seed はまとめて承認し、承認範囲内なら順次起動してよい。条件変更・後日の再開は再承認する。
 改修依頼は学習起動の承認ではない。
@@ -82,7 +94,9 @@ detached docker）と、`du` / `ls` / `ps` のような読み取りは転送で�
 起動後、run directory を特定して次を確認する。
 
 - `preflight.json` の `exit_code` が 0
-- `run.json` の `status` が `running`、`git_commit` と `seed` が意図どおり
+- `run.json` の `status` が `running`、`git_commit`・`seed`・`study` が意図どおり
+- `config.yaml` が承認時の表と一致している。同じ study の直前 run との差は
+  `diff -u <前回 run>/config.yaml <今回 run>/config.yaml` で読み、承認した条件だけが動いていることを見る
 - `config.yaml` と `data_manifest.json` が生成され、split の行数・hash が想定どおり
 - `callbacks.model_checkpoint.dirpath` が run の `checkpoints/` を指している
 - GPU にメモリが載っている（プロセス存在・container `Up` だけで成功とみなさない）
@@ -105,7 +119,8 @@ detached docker）と、`du` / `ls` / `ps` のような読み取りは転送で�
 ## 完了条件
 
 - 起動コマンドが project の公開入口（`python -m projects.<project>.run`）と一致している
-- 親実行単位で明示承認を取っている
+- `dry_run=true` の表を提示したうえで、親実行単位の明示承認を取っている
+- 起動した run の `config.yaml` が、承認した表と一致していることを確認済み
 - detached で起動し、controller log と run directory の両方を特定できている
 - 「起動済み」と「完了済み」を区別して報告している
 - preflight・run.json・GPU を確認済みで、未確認の項目はそう明記している

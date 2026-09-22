@@ -22,6 +22,7 @@ from omegaconf import DictConfig, OmegaConf
 
 from .cohorts.build import extract_embeddings, load_split_frames, save_artifact
 from .run_logging import log_epoch_metrics, parent_wandb, read_epoch_metrics, text_log
+from .run_plan import format_run_plan
 
 _REPOSITORY_ROOT = Path(__file__).parents[2]
 
@@ -140,6 +141,26 @@ def plan(config: DictConfig) -> list[Stage]:
     for number in range(1, int(iteration.stages) + 1):
         result.extend((Stage(f"cohort{number:02d}", "cohort"), Stage(f"stage{number:02d}", "fit")))
     return result
+
+
+def run_plan(config: DictConfig) -> str:
+    """stage を 1 つも実行せずに、この設定で回る条件と stage 計画を表にして返す。
+
+    `run_iterative` と同じ順序で検証と warmup class weight の解決を通す。順序を変えると、起動前に
+    見た表と実際に回る条件がずれる。parent run directory は予約しないので、この呼び出しは何も残さない。
+
+    Args:
+        config: Hydra が合成した設定。warmup の class weight を in-place で解決する
+
+    Returns:
+        str: 起動前に確認する条件と stage 計画の表
+
+    Raises:
+        ValueError: `iteration.*` や `study` が不正な場合。
+    """
+    stages = plan(config)
+    _resolve_inverse_class_weights(config)
+    return format_run_plan(config, stages)
 
 
 def run_stage(config: DictConfig, stage_dir: Path) -> dict[str, Any]:

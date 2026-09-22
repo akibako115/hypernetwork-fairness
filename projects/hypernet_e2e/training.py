@@ -17,6 +17,7 @@ from lightning import Callback, LightningDataModule, LightningModule, Trainer
 from omegaconf import DictConfig, OmegaConf
 
 from projects.hypernet_e2e.run_logging import as_trainer_loggers, experiment_loggers, log_run_config, logger_references, text_log
+from projects.hypernet_e2e.run_plan import format_run_plan
 from projects.hypernet_e2e.run_record import RunRecorder
 from projects.hypernet_e2e.runtime_paths import normalize_runtime_paths, repository_root
 
@@ -74,6 +75,28 @@ def run_fit(config: DictConfig) -> Path:
     return recorder.run_dir
 
 
+def run_plan(config: DictConfig) -> str:
+    """fit を始めずに、この設定で回る条件を表にして返す。
+
+    `run_fit` と同じ順序で path 正規化・検証・class weight 解決を通す。順序を変えると、起動前に
+    見た表と実際に回る条件がずれる。run directory は予約しないので、この呼び出しは何も残さない。
+
+    Args:
+        config: Hydra が合成した設定。in-place で解決される
+
+    Returns:
+        str: 起動前に確認する条件の表
+
+    Raises:
+        ValueError: study や属性不変化の組み合わせが不正な場合。
+    """
+    normalize_runtime_paths(config)
+    _validate_study(config)
+    _validate_attribute_invariance(config)
+    _resolve_inverse_class_weights(config)
+    return format_run_plan(config, class_weight_path(config))
+
+
 def _validate_study(config: DictConfig) -> None:
     """run が属する study が、分析側の package として実在することを確かめる。
 
@@ -127,9 +150,22 @@ def _resolve_inverse_class_weights(config: DictConfig) -> None:
     labels = [int(value) for value in frame["target"]]
     num_classes = int(config.data.num_classes)
     weights = _inverse_frequency_weights(labels, num_classes)
+    OmegaConf.update(config, class_weight_path(config), weights, merge=False)
+
+
+def class_weight_path(config: DictConfig) -> str:
+    """解決した class weight を書き込む config path を返す。
+
+    属性不変化の run は task loss を wrapper で包むので、重みの置き場所が 1 段深くなる。
+
+    Args:
+        config: `model.loss_fn` を持つ設定
+
+    Returns:
+        str: `model.loss_fn.class_weight` か、wrapper 越しの `model.loss_fn.task_loss.class_weight`
+    """
     loss_target = str(OmegaConf.select(config, "model.loss_fn._target_", default=""))
-    path = "model.loss_fn.task_loss.class_weight" if loss_target.endswith("AttributeInvariantTaskLoss") else "model.loss_fn.class_weight"
-    OmegaConf.update(config, path, weights, merge=False)
+    return "model.loss_fn.task_loss.class_weight" if loss_target.endswith("AttributeInvariantTaskLoss") else "model.loss_fn.class_weight"
 
 
 def _inverse_frequency_weights(labels: list[int], num_classes: int) -> list[float]:

@@ -5,19 +5,22 @@ from __future__ import annotations
 import hydra
 from omegaconf import DictConfig
 
-from projects.hypernet_e2e.training import run_fit
+from projects.hypernet_e2e.training import run_fit, run_plan
 
 
 @hydra.main(version_base="1.3", config_path="configs", config_name="train")
 def main(config: DictConfig) -> None:
-    """Hydra CLI の設定を一回の e2e fit に渡し、run directory を標準出力へ出す。
+    """dry-run は起動条件の表だけを出し、通常は run directory を標準出力へ出す。
 
     Args:
-        config: Hydra が合成した設定
+        config: Hydra CLI が合成した設定
 
     Returns:
         None
     """
+    if config.get("dry_run", False):
+        print(run_plan(config))
+        return
     print(run_fit(config))
 
 

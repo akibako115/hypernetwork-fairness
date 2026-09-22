@@ -22,6 +22,9 @@ seed: 12345
 # `tags=[...]` で渡す。
 tags: []
 
+# true にすると fit も run directory 作成も行わず、起動条件の表だけを出す。
+dry_run: false
+
 # run.py が一意な run directory を予約してから設定する。config 単体では出力しない。
 run_dir: null
 
