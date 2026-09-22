@@ -1,0 +1,13 @@
+# @package _global_
+# ResNet baseline と iterative の 2×2 に合わせて class weight を inverse で固定する。変調範囲
+# だけを変えた比較にしたいので、weighting は preset 側で決めて CLI では振らない。
+defaults:
+  - spatial_lora_chexpert_inverse_weighted_loss
+  - _self_
+
+experiment_name: spatial-lora-chexpert-stage4-fc
+tags: [chexpert, spatial_lora_resnet50, erm, inverse_class_weight, modulation_stage4_fc]
+model:
+  net:
+    # 最終 stage と分類ヘッドを変調する。stage3 を外して変調範囲を 1 段浅くした条件。
+    modulation_stages: [stage4, fc]

@@ -22,6 +22,27 @@ def test_chexpert_presets_select_only_their_intended_weighting(architecture: str
     assert instantiate(cfg.model) is not None
 
 
+@pytest.mark.parametrize(
+    ("experiment", "modulation_stages"),
+    [
+        ("spatial_lora_chexpert_fc", ["fc"]),
+        ("spatial_lora_chexpert_stage4_fc", ["stage4", "fc"]),
+    ],
+)
+def test_modulation_range_presets_change_only_the_modulated_stages(experiment: str, modulation_stages: list[str]) -> None:
+    config_dir = Path(__file__).parent.parent / "configs"
+    with initialize_config_dir(version_base="1.3", config_dir=str(config_dir)):
+        cfg = compose(config_name="train", overrides=[f"experiment={experiment}"])
+        default = compose(config_name="train", overrides=["experiment=spatial_lora_chexpert_inverse_weighted_loss"])
+
+    assert list(cfg.model.net.modulation_stages) == modulation_stages
+    # 変調範囲だけの比較にするため、class weight も目的関数も既定の inverse weighted ERM に揃える。
+    assert cfg.weighting == "inverse"
+    assert cfg.training_strategy.name == "erm"
+    assert {key: value for key, value in cfg.model.net.items() if key != "modulation_stages"} == {key: value for key, value in default.model.net.items() if key != "modulation_stages"}
+    assert instantiate(cfg.model) is not None
+
+
 def test_default_callbacks_include_metrics_and_fairness_without_text_progress() -> None:
     config_dir = Path(__file__).parent.parent / "configs"
     with initialize_config_dir(version_base="1.3", config_dir=str(config_dir)):

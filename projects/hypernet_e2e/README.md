@@ -44,6 +44,7 @@ model・data・callbacks・trainer を作成し、1 回の `fit` を実行しま
 - `experiment=resnet_chexpert_erm`
 - `experiment=spatial_lora_chexpert_erm`
 - 各モデルの `inverse_weighted_loss` / `inverse_weighted_sampling`
+- `experiment=spatial_lora_chexpert_fc` / `_stage4_fc`（変調範囲だけを変えた inverse weighted ERM）
 - `experiment=spatial_lora_chexpert_from_resnet`（2 段学習の 2 段目）
 - `experiment=resnet_chexpert_attribute_invariant`（GRL による属性不変な第1段）
 - `experiment=spatial_lora_chexpert_from_attribute_invariant`（上記からの第2段）
