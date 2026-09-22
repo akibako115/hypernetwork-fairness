@@ -64,6 +64,13 @@ markers = [
 ]
 minversion = "6.0"
 testpaths = ["tests", "projects"]
+# run artifact（`projects/*/runs/`）と分析の生成物は test 対象ではないので走査しない。
+# 走査すると wandb が container 内で作った log の symlink を辿って PermissionError になり、
+# collection ごと落ちる。既定値を上書きするので、pytest の既定分もここに残す。
+norecursedirs = [
+  "*.egg", ".*", "_darcs", "build", "CVS", "dist", "node_modules", "venv", "{arch}",
+  "runs", "wandb", "outputs", "cache", "results", "figures",
+]
 
 [tool.coverage.report]
 exclude_lines = [
