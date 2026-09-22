@@ -54,24 +54,85 @@ def cache_path(cache_dir: Path, run_id: str, split: str) -> Path:
     return cache_dir / f"{run_id}_{split}.npz"
 
 
-def load_cache(path: Path, images: np.ndarray | None = None) -> dict[str, Any]:
-    """予測 cache を読み、split CSV との行対応を確かめる。
+def read_metadata(path: Path) -> dict[str, Any]:
+    """cache の metadata だけを読む。
 
     Args:
         path: `cache_path` が返す `.npz`
-        images: 突き合わせる split CSV の image 列。渡すと行対応を検算する
+
+    Returns:
+        dict[str, Any]: 書き出し時の `metadata`
+    """
+    with np.load(path, allow_pickle=False) as cached:
+        return json.loads(str(cached["metadata"]))
+
+
+def checkpoint_reference(run_dir: Path) -> str:
+    """cache に記録する checkpoint を、repo root からの相対 path で返す。
+
+    書く側と照合する側で同じ文字列になる必要があるので 1 箇所で作る。呼ぶ側が相対 path の
+    run directory を渡しても同じ値になるよう、ここで絶対 path に直す。
+
+    Args:
+        run_dir: config と checkpoint を持つ run directory
+
+    Returns:
+        str: `projects/<project>/runs/<run-id>/.../<name>.ckpt`
+    """
+    return str(selected_checkpoint(run_dir.resolve()).relative_to(REPOSITORY_ROOT))
+
+
+def stale_reason(path: Path, run_dir: Path) -> str | None:
+    """既存 cache を作り直す理由を返す。作り直す必要が無ければ `None`。
+
+    cache は run artifact の派生物であり、checkpoint を選び直せば中身が変わる。存在する
+    ことだけを見て使い回すと、**古い予測から出た表と図が黙って残る**。
+
+    Args:
+        path: `cache_path` が返す `.npz`
+        run_dir: その cache の元になる run directory
+
+    Returns:
+        str | None: 作り直す理由。使い回してよければ `None`
+    """
+    if not path.is_file():
+        return "cache が無い"
+    try:
+        metadata = read_metadata(path)
+    except (OSError, ValueError, KeyError):
+        return "cache を読めない"
+    if metadata.get("schema_version") != SCHEMA_VERSION:
+        return f"schema_version が {metadata.get('schema_version')}（現在は {SCHEMA_VERSION}）"
+    checkpoint = checkpoint_reference(run_dir)
+    if metadata.get("checkpoint") != checkpoint:
+        return f"checkpoint が {metadata.get('checkpoint')} から {checkpoint} へ変わった"
+    return None
+
+
+def load_cache(path: Path, images: np.ndarray) -> dict[str, Any]:
+    """予測 cache を読み、split CSV との行対応を確かめる。
+
+    行対応の検算を任意にしない。cache の i 番目と split CSV の i 行目がずれていても
+    数値は出てしまい、群の割り当てが全部ずれた表が「それらしく」並ぶ。
+
+    Args:
+        path: `cache_path` が返す `.npz`
+        images: 突き合わせる split CSV の image 列
 
     Returns:
         dict[str, Any]: `image` / `logits` / `probabilities` / `predictions` / `target` と
             parse 済みの `metadata`
 
     Raises:
-        ValueError: cache と split CSV の行が対応していない場合
+        ValueError: cache の schema が古い場合、または split CSV と行が対応していない場合
     """
     with np.load(path, allow_pickle=False) as cached:
         result = {key: cached[key] for key in cached.files}
     result["metadata"] = json.loads(str(result["metadata"]))
-    if images is not None and not (result["image"] == images).all():
+    version = result["metadata"].get("schema_version")
+    if version != SCHEMA_VERSION:
+        raise ValueError(f"{path} の schema_version は {version}（現在は {SCHEMA_VERSION}）。作り直す")
+    if len(result["image"]) != len(images) or not (result["image"] == images).all():
         raise ValueError(f"{path} の行が split CSV と対応していない（群の割り当てが全部ずれる）")
     return result
 
@@ -147,7 +208,7 @@ def write_cache(run_dir: Path, split: str, cache_dir: Path, device: torch.device
         "project": run_dir.parents[1].name,
         "study": read_config(run_dir / "config.yaml").get("study"),
         "split": split,
-        "checkpoint": str(selected_checkpoint(run_dir).relative_to(REPOSITORY_ROOT)),
+        "checkpoint": checkpoint_reference(run_dir),
         "num_examples": len(target),
         "num_classes": int(probabilities.shape[1]),
     }
@@ -164,7 +225,7 @@ def write_cache(run_dir: Path, split: str, cache_dir: Path, device: torch.device
 
 
 def main() -> None:
-    """指定した run と split のうち、まだ無い cache だけを作る。
+    """指定した run と split のうち、古くなった cache だけを作り直す。
 
     Args:
         なし
@@ -178,7 +239,7 @@ def main() -> None:
     parser.add_argument("--run-dir", action="append", dest="run_dirs", required=True, help=run_help)
     parser.add_argument("--split", default="test", choices=("val", "test"))
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
-    parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument("--overwrite", action="store_true", help="古くなくても作り直す")
     args = parser.parse_args()
 
     cache_dir = study_dir(args.study) / "cache"
@@ -186,9 +247,11 @@ def main() -> None:
     for relative in args.run_dirs:
         run_dir = REPOSITORY_ROOT / relative
         output = cache_path(cache_dir, run_dir.name, args.split)
-        if output.is_file() and not args.overwrite:
-            print(f"cache exists: {output}")
+        reason = stale_reason(output, run_dir)
+        if reason is None and not args.overwrite:
+            print(f"cache is current: {output}")
             continue
+        print(f"rebuilding ({reason or '--overwrite'}): {output}")
         print(f"cached: {write_cache(run_dir, args.split, cache_dir, device)}")
 
 
