@@ -54,10 +54,10 @@ class _AttributeAdversary(nn.Module):
         self.categorical_heads = nn.ModuleList([nn.Linear(hidden_dim, cardinality) for cardinality in categorical_cardinalities])
         self.continuous_head = nn.Linear(hidden_dim, num_continuous) if num_continuous else None
 
-    def forward(self, features: torch.Tensor, attributes: Mapping[str, torch.Tensor]) -> torch.Tensor:
-        """選択済み属性の観測済み列に対する平均損失を返す。"""
+    def component_losses(self, features: torch.Tensor, attributes: Mapping[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+        """選択済み属性ごとの観測済み損失を返す。"""
         hidden = self.trunk(_GradientReverse.apply(features, self.gradient_scale))
-        losses: list[torch.Tensor] = []
+        losses: dict[str, torch.Tensor] = {}
         if self.categorical_heads:
             categorical = attributes["categorical"]
             missing = attributes["categorical_missing"].bool()
@@ -66,7 +66,7 @@ class _AttributeAdversary(nn.Module):
             for index, head in enumerate(self.categorical_heads):
                 observed = ~missing[:, index]
                 if observed.any():
-                    losses.append(F.cross_entropy(head(hidden[observed]), categorical[observed, index].long()))
+                    losses[f"categorical_{index}"] = F.cross_entropy(head(hidden[observed]), categorical[observed, index].long())
         if self.continuous_head is not None:
             continuous = attributes["continuous"]
             missing = attributes["continuous_missing"].bool()
@@ -76,8 +76,13 @@ class _AttributeAdversary(nn.Module):
             for index in range(predicted.shape[1]):
                 observed = ~missing[:, index]
                 if observed.any():
-                    losses.append(F.mse_loss(predicted[observed, index], continuous[observed, index]))
-        return torch.stack(losses).mean() if losses else features.sum() * 0
+                    losses[f"continuous_{index}"] = F.mse_loss(predicted[observed, index], continuous[observed, index])
+        return losses
+
+    def forward(self, features: torch.Tensor, attributes: Mapping[str, torch.Tensor]) -> torch.Tensor:
+        """選択済み属性の観測済み列に対する平均損失を返す。"""
+        losses = self.component_losses(features, attributes)
+        return torch.stack(list(losses.values())).mean() if losses else features.sum() * 0
 
 
 class AttributeInvariantTaskLoss(nn.Module):
@@ -153,6 +158,10 @@ class AttributeInvariantTaskLoss(nn.Module):
         self.register_buffer("_categorical_indices", torch.tensor(selected_indices["categorical"], dtype=torch.long), persistent=False)
         self.register_buffer("_continuous_indices", torch.tensor(selected_indices["continuous"], dtype=torch.long), persistent=False)
         self._full_attribute_counts = {"categorical": len(full_categorical), "continuous": len(full_continuous)}
+        self._selected_attribute_names = {
+            "categorical": [full_categorical[index] for index in selected_indices["categorical"]],
+            "continuous": [full_continuous[index] for index in selected_indices["continuous"]],
+        }
         self.task_loss = task_loss
         self.attribute_adversary = _AttributeAdversary(
             feature_dim,
@@ -177,8 +186,35 @@ class AttributeInvariantTaskLoss(nn.Module):
         """
         if inputs.features is None:
             raise ValueError("AttributeInvariantTaskLoss には ObjectiveInput.features が必要")
+        components = self.loss_components(inputs)
+        return components["task"] + self.attribute_adversary_weight * components["attribute_adversary"]
+
+    def loss_components(self, inputs: ObjectiveInput) -> dict[str, torch.Tensor]:
+        """task loss と属性別 adversary loss を分解して返す。
+
+        Args:
+            inputs: logits、target、full attribute tensor、backbone features を持つ入力。
+
+        Returns:
+            dict[str, torch.Tensor]: `task`、`attribute_adversary`、および
+                `attribute_adversary/<attribute>` の batch 平均 loss。
+
+        Raises:
+            ValueError: features が無い場合、または属性 tensor の shape が不正な場合。
+        """
+        if inputs.features is None:
+            raise ValueError("AttributeInvariantTaskLoss には ObjectiveInput.features が必要")
         selected = self._select_attributes(inputs.attributes)
-        return self.task_loss(inputs) + self.attribute_adversary_weight * self.attribute_adversary(inputs.features, selected)
+        attribute_losses = self.attribute_adversary.component_losses(inputs.features, selected)
+        components = {"task": self.task_loss(inputs)}
+        if attribute_losses:
+            components["attribute_adversary"] = torch.stack(list(attribute_losses.values())).mean()
+            for kind, names in self._selected_attribute_names.items():
+                for index, name in enumerate(names):
+                    components[f"attribute_adversary/{name}"] = attribute_losses[f"{kind}_{index}"]
+        else:
+            components["attribute_adversary"] = inputs.features.sum() * 0
+        return components
 
     def _select_attributes(self, attributes: Mapping[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         """full attribute tensor を検証し、GRL 対象列だけを切り出す。"""

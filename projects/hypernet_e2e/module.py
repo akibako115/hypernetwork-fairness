@@ -128,7 +128,10 @@ class LitModule(L.LightningModule):
                 callback がこれを epoch 集計に使う。`loss` は backward 可能なまま返す
         """
         logits, preds, target, attributes, features = self._shared_step(batch)
-        loss = self.training_objective(ObjectiveInput(logits=logits, target=target, attributes=attributes, features=features))
+        inputs = ObjectiveInput(logits=logits, target=target, attributes=attributes, features=features)
+        components = self._objective_components(inputs)
+        loss = components["loss"]
+        self._log_objective_components("train", components)
         return self._step_output(loss, logits, preds, target, attributes, detach_loss=False)
 
     def validation_step(self, batch: tuple[Any, Mapping[str, torch.Tensor], torch.Tensor], batch_idx: int) -> dict[str, Any]:
@@ -144,7 +147,11 @@ class LitModule(L.LightningModule):
             dict[str, Any]: `loss` / `logits` / `preds` / `target` / `attributes`。
                 callback がこれを epoch 集計に使う
         """
-        return self._evaluation_step(batch)
+        logits, preds, target, attributes, features = self._shared_step(batch)
+        inputs = ObjectiveInput(logits=logits, target=target, attributes=attributes, features=features)
+        components = self._objective_components(inputs, include_task=False)
+        self._log_objective_components("val", components)
+        return self._step_output(F.cross_entropy(logits, target), logits, preds, target, attributes, detach_loss=True)
 
     def test_step(self, batch: tuple[Any, Mapping[str, torch.Tensor], torch.Tensor], batch_idx: int) -> dict[str, Any]:
         """比較用の通常 cross-entropy で test loss を計算する。
@@ -272,6 +279,29 @@ class LitModule(L.LightningModule):
     def _evaluation_step(self, batch: tuple[Any, Mapping[str, torch.Tensor], torch.Tensor]) -> dict[str, Any]:
         logits, preds, target, attributes, _ = self._shared_step(batch)
         return self._step_output(F.cross_entropy(logits, target), logits, preds, target, attributes, detach_loss=True)
+
+    def _objective_components(self, inputs: ObjectiveInput, *, include_task: bool = True) -> dict[str, torch.Tensor]:
+        """目的関数が提供する分解lossを取得し、通常のobjectiveにも対応する。"""
+        if hasattr(self.training_objective, "loss_components"):
+            components = self.training_objective.loss_components(inputs)
+            if include_task:
+                components["loss"] = components["task"] + self.training_objective.attribute_adversary_weight * components["attribute_adversary"]
+            else:
+                components.pop("task", None)
+            return components
+        loss = self.training_objective(inputs)
+        return {"loss": loss} if include_task else {}
+
+    def _log_objective_components(self, phase: str, components: Mapping[str, torch.Tensor]) -> None:
+        """分解lossをepoch集計用のscalar metricとして記録する。"""
+        # 単体テストでは Lightning Trainer の代わりに最小の stub を注入するため、実行時だけ
+        # logging API を呼ぶ。通常の fit では self.trainer が完全な Trainer になる。
+        if self._trainer is None or not hasattr(self._trainer, "barebones"):
+            return
+        for name, value in components.items():
+            if name == "loss":
+                continue
+            self.log(f"{phase}/{name}", value, on_step=False, on_epoch=True, prog_bar=False)
 
     @staticmethod
     def _step_output(
