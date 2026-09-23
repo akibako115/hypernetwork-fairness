@@ -70,6 +70,7 @@ rsync -azn --stats \
   --exclude='.venv' \
   --exclude='__pycache__' \
   --exclude='/data' \
+  --exclude='/checkpoints' \
   --exclude='/.claude' \
   --exclude='/.direnv' \
   --exclude='/projects/*/runs' \
@@ -85,6 +86,9 @@ rsync -azn --stats \
   --exclude='.ruff_cache' \
   ./ kohkiakiba@192.168.1.[N+10]:<remote_path>/
 ```
+
+`/checkpoints` は ImageNet 事前学習の重み（98MB）で、run が生成しない固定入力になる。remote に
+まだ無い場合だけ、単独の転送として 1 回送る（[transfer.md](transfer.md) の 100 MB 級の扱い）。
 
 `Total transferred file size` が数 MB であることを確認してから、`-azn` を `-az` に変えた
 本番を提示する。GB 単位になっていたら exclude が効いていないので、本番を提示しない。
