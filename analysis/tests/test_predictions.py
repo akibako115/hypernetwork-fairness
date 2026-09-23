@@ -13,7 +13,16 @@ import numpy as np
 import pytest
 
 from analysis.common import predictions
-from analysis.common.predictions import SCHEMA_VERSION, cache_path, load_cache, stale_reason
+from analysis.common.predictions import (
+    FEATURES_SCHEMA_VERSION,
+    SCHEMA_VERSION,
+    cache_path,
+    features_cache_path,
+    load_cache,
+    load_features,
+    rebuild_reason,
+    stale_reason,
+)
 
 IMAGES = np.array(["a.jpg", "b.jpg", "c.jpg"], dtype=str)
 
@@ -29,6 +38,24 @@ def _cache(path: Path, images: np.ndarray = IMAGES, **metadata: object) -> Path:
         probabilities=np.full((len(images), 2), 0.5, dtype=np.float32),
         predictions=np.zeros(len(images), dtype=np.int64),
         target=np.zeros(len(images), dtype=np.int64),
+        metadata=json.dumps(record, ensure_ascii=False, sort_keys=True),
+    )
+    return path
+
+
+def _features_cache(path: Path, images: np.ndarray = IMAGES, **metadata: object) -> Path:
+    """`write_cache --features` が書くのと同じ形の `.npz` を作る。"""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    record = {
+        "schema_version": FEATURES_SCHEMA_VERSION,
+        "checkpoint": "runs/r/checkpoints/best.ckpt",
+        "feature_dim": 4,
+        **metadata,
+    }
+    np.savez_compressed(
+        path,
+        image=images,
+        features=np.zeros((len(images), 4), dtype=np.float16),
         metadata=json.dumps(record, ensure_ascii=False, sort_keys=True),
     )
     return path
@@ -134,3 +161,65 @@ def test_cache_file_names_carry_the_run_and_split(tmp_path: Path) -> None:
     assert cache_path(tmp_path, "20260921T103036Z-resnet-chexpert-s42-5538", "test").name == (
         "20260921T103036Z-resnet-chexpert-s42-5538_test.npz"
     )
+
+
+def test_features_are_rebuilt_when_only_the_predictions_were_cached(repository: Path) -> None:
+    """予測 cache だけがある run で `--features` を付けたら、推論をやり直す。
+
+    ここを「予測 cache があるから最新」と読むと、**probe が古い run の表現を読む**か、
+    そもそも file が無いまま先へ進む。
+    """
+    run_dir = _run(repository, "best_val_auroc_007.ckpt")
+    cache_dir = repository / "cache"
+    _cache(cache_path(cache_dir, "r", "test"), checkpoint="runs/r/checkpoints/best_val_auroc_007.ckpt")
+
+    assert rebuild_reason(cache_dir, run_dir, "test", with_features=False) is None
+    assert "特徴量" in (rebuild_reason(cache_dir, run_dir, "test", with_features=True) or "")
+
+
+def test_both_caches_current_means_no_rebuild(repository: Path) -> None:
+    """両方とも同じ checkpoint から出ているなら、推論はやり直さない。"""
+    run_dir = _run(repository, "best_val_auroc_007.ckpt")
+    cache_dir = repository / "cache"
+    checkpoint = "runs/r/checkpoints/best_val_auroc_007.ckpt"
+    _cache(cache_path(cache_dir, "r", "test"), checkpoint=checkpoint)
+    _features_cache(features_cache_path(cache_dir, "r", "test"), checkpoint=checkpoint)
+
+    assert rebuild_reason(cache_dir, run_dir, "test", with_features=True) is None
+
+
+def test_a_features_cache_from_another_checkpoint_is_rebuilt(repository: Path) -> None:
+    """checkpoint を選び直したら表現も変わる。予測 cache と同じ基準で古くなる。"""
+    run_dir = _run(repository, "best_val_auroc_009.ckpt")
+    path = _features_cache(
+        repository / "cache" / "r_test_features.npz", checkpoint="runs/r/checkpoints/best_val_auroc_007.ckpt"
+    )
+
+    assert "best_val_auroc_009.ckpt" in (stale_reason(path, run_dir, FEATURES_SCHEMA_VERSION) or "")
+
+
+def test_a_features_cache_whose_rows_do_not_match_the_split_csv_raises(tmp_path: Path) -> None:
+    """表現がずれても probe は学習できてしまう。属性の割り当てが全部ずれた AUROC が出る。"""
+    path = _features_cache(tmp_path / "r_test_features.npz", images=np.array(["a.jpg", "c.jpg", "b.jpg"], dtype=str))
+
+    with pytest.raises(ValueError, match="対応していない"):
+        load_features(path, IMAGES)
+
+
+def test_features_come_back_as_float32(tmp_path: Path) -> None:
+    """cache は float16 で持つが、`sklearn` に渡す前にここで戻す。"""
+    path = _features_cache(tmp_path / "r_test_features.npz")
+
+    loaded = load_features(path, IMAGES)
+
+    assert loaded["features"].dtype == np.float32
+    assert loaded["features"].shape == (3, 4)
+
+
+def test_features_cache_file_names_do_not_collide_with_predictions(tmp_path: Path) -> None:
+    """同じ run・同じ split で 2 つの cache を持つ。名前が衝突すると片方が消える。"""
+    predictions_path = cache_path(tmp_path, "20260922T063725Z-resnet-chexpert-s43-efcd", "val")
+    features_path = features_cache_path(tmp_path, "20260922T063725Z-resnet-chexpert-s43-efcd", "val")
+
+    assert features_path.name == "20260922T063725Z-resnet-chexpert-s43-efcd_val_features.npz"
+    assert features_path != predictions_path

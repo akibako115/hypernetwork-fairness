@@ -83,9 +83,12 @@ s42 の invariant は adversary が全属性にかかる別設定だったので
 
 ## 次に決めること
 
-1. **adversary が効いているかを確かめる。** `attribute_adversary_weight=0.1` で、性能は下がるが
-   gap は動かない、という結果になっている。属性予測損失そのものの推移（学習ログ）を見て、
-   adversary が実際に属性を消せているのかを先に確認する。消せていないなら重みを上げる実験になる。
+1. ~~**adversary が効いているかを確かめる。**~~ → [attribute_probe.md](attribute_probe.md) で確認した。
+   **消せていない。** 表現から属性を当てる post-hoc probe を当てると、invariant 側でも sex は
+   balanced accuracy 0.871、年齢は MAE 10.0 歳で読め、chance からの上積みの 94〜98% が残る。
+   したがって 2 節の「gap が動かない」は adversarial debiasing の限界ではなく、
+   **adversary が働いていない状態**を見ている。次は重み（`attribute_adversary_weight=0.1`）を
+   上げる実験になる。
 2. **seed を増やすか決める。** n=3 では「効果が無い」を示す側の根拠として弱い。ただし 1 と 2 は
    順番が逆にできない。効いていない設定で seed を積んでも、効いていないことの精度が上がるだけになる。
 3. **閾値の扱いを決める。** Eopp 系は動作点に強く依存する。群ごとの閾値調整を入れるのか、

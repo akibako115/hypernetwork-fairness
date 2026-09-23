@@ -44,13 +44,20 @@ golden データで固定する。
 | file | 入力 → 出力 |
 | --- | --- |
 | `groups.py` | 予測 cache → `results/` の per-seed 表 3 つと seed 集約表 2 つ |
-| `classification_performance.ipynb` | `results/` → 表・図・主張と考察 |
+| `classification_performance.ipynb` | `results/` → 分類性能と公平性の表・図・考察 |
+| `attribute_probe.py` | 特徴量 cache → `results/` の probe 表 2 つ（per-seed と seed 集約） |
+| `attribute_probe.ipynb` | `results/` → 属性 probe の表・図・考察 |
 | `reports/` | 読み取った結論 |
 
 `results/` の内訳は、per-seed が `classification_performance_test.csv`・`group_metrics_test.csv`・
-`fairness_metrics_test.csv`、seed 集約が `classification_performance_by_method_test.csv`・
-`fairness_metrics_by_method_test.csv`。集約を script 側に置くのは、`reports/` が notebook を
+`fairness_metrics_test.csv`・`attribute_probe_test.csv`、seed 集約が
+`classification_performance_by_method_test.csv`・`fairness_metrics_by_method_test.csv`・
+`attribute_probe_by_method_test.csv`。集約を script 側に置くのは、`reports/` が notebook を
 実行せずに数値を引用できるようにするため。
+
+**問いが 2 つある。** 分類性能・公平性（`groups.py`）と、属性が表現から読めるか（`attribute_probe.py`）で、
+同じ 6 run を別の角度から見る。前者は予測 cache（logits）を、後者は特徴量 cache（2048 次元の表現）を
+入力に取る。notebook も `reports/` も問いごとに分ける。
 
 **図はこの package では notebook が持つ**（`plots.py` を置かない）。初期探索なので、
 問い → 表 → 図 → 読み取りが 1 本に並ぶほうが分析の流れと対応する。再利用する図・レポートが
@@ -75,9 +82,24 @@ uv run python analysis/initial_resnet_vs_invariant/groups.py --split test
 そのうえで `classification_performance.ipynb` を kernel restart → 全実行する。
 `--split val` にすると val 側の表になる。
 
+属性 probe はさらに **train / val / test の特徴量**が要る（`--features`。予測 cache とは別ファイルに
+書かれる。6 run × 3 split で約 4.7GB、A6000 で 30 分ほど）。
+
+```bash
+for split in train val test; do
+  uv run python analysis/common/predictions.py --study initial_resnet_vs_invariant \
+    --split "$split" --features --run-dir projects/hypernet_e2e/runs/...   # 上と同じ 6 run
+done
+uv run python analysis/initial_resnet_vs_invariant/attribute_probe.py
+```
+
+そのうえで `attribute_probe.ipynb` を kernel restart → 全実行する。probe は **train で学習し、
+val で止めどきを決め、test で報告する**（`--fit-split` / `--select-split` / `--eval-split` で変えられる）。
+
 ## 結論
 
-正本は [reports/overall_comparison.md](reports/overall_comparison.md)。要点は次の 3 つ。
+正本は [reports/overall_comparison.md](reports/overall_comparison.md) と
+[reports/attribute_probe.md](reports/attribute_probe.md)。要点は次の 4 つ。
 
 1. **この 3 seed では、invariant 化による公平性の改善は確認できない。** Eopp1 の差は 4 属性とも
    SD 以下で、seed ごとに見ると符号まで入れ替わる。
@@ -86,6 +108,10 @@ uv run python analysis/initial_resnet_vs_invariant/groups.py --split test
 3. **s42 の 1 本で見えた改善は再現しなかった。** ResNet 側の絶対値すら s42 は 3 seed の範囲から
    外れており（accuracy 0.731 対 0.768〜0.779）、**1 本では accuracy を 4 ポイント外し得る**。
 
-次に決めること: **adversary が実際に属性を消せているかを学習ログで確認する**（性能だけ下がって
-gap が動かない状態なので、効いていない可能性がある）、そのうえで **seed を増やすか**、
-**閾値の扱いをどうするか**。詳細はレポートの「次に決めること」を見る。
+4. **その adversary は属性を消せていない。** 表現から属性を当てる post-hoc probe を後から当てると、
+   invariant 側でも sex は balanced accuracy 0.871、年齢は MAE 10.0 歳で読める。chance からの
+   上積みの 94〜98% が残る。**gap が動かないのは、そもそも表現が変わっていないため**になる。
+
+次に決めること: **adversary を効かせる**（`attribute_adversary_weight` か `gradient_scale` を上げ、
+どこまで上げれば probe が chance へ落ちるかを見る）、そのうえで **seed を増やすか**、
+**閾値の扱いをどうするか**。詳細は各レポートの「次に決めること」を見る。

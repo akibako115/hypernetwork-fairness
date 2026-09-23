@@ -32,7 +32,7 @@ from matplotlib.figure import Figure
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 
 from analysis.common.paths import STYLE_SHEET  # noqa: E402
-from analysis.iterative_probe.groups import BASELINE_LABEL  # noqa: E402
+from analysis.iterative_probe.groups import BASELINE_LABEL, GROUPING_NAMES  # noqa: E402
 
 PACKAGE = Path(__file__).parent
 RESULTS, FIGURES = PACKAGE / "results", PACKAGE / "figures"
@@ -200,6 +200,54 @@ def against_baseline(frame: pd.DataFrame, baseline: pd.DataFrame, modulation: st
     return figure
 
 
+def global_performance(comparison: pd.DataFrame) -> Figure:
+    """baseline と iterative の global AUROC / bACC を snapshot 別に比較する。
+
+    `global_comparison.csv` の行順を保ち、baseline の予算時点・best・final と、iterative の
+    同一予算時点を横並びにする。学習曲線で推移を見たあと、条件間の到達点を一枚で確認するための図。
+
+    Args:
+        comparison: `global_comparison.csv` を index 付きで読んだ表
+
+    Returns:
+        Figure: global AUROC と balanced accuracy の比較図
+    """
+    metrics = [("global AUROC", "Global AUROC"), ("global bACC", "Global balanced accuracy")]
+    labels = comparison.index.tolist()
+    positions = np.arange(len(labels))
+    figure, axes = plt.subplots(1, len(metrics), figsize=(13.0, 5.2), sharey=True)
+    for axis, (column, title) in zip(axes, metrics, strict=True):
+        for position, label in zip(positions, labels, strict=True):
+            if label.startswith("ResNet"):
+                color, marker = BASELINE_STYLE["color"], "s"
+            elif "fc / 0.001" in label:
+                color, marker = STEP_COLOR[0.001], "o"
+            elif "fc / 0.01" in label:
+                color, marker = STEP_COLOR[0.01], "o"
+            else:
+                color, marker = MUTED, "o"
+            axis.scatter(comparison.loc[label, column], position, color=color, marker=marker, s=42, zorder=3)
+        axis.set_title(title)
+        axis.set_xlabel(title)
+        axis.grid(axis="x", color=GRID, linewidth=0.7)
+    axes[0].set_yticks(positions, labels)
+    axes[0].invert_yaxis()
+    figure.legend(
+        [
+            plt.Line2D([], [], color="#000000", marker="s", linestyle="none"),
+            plt.Line2D([], [], color=STEP_COLOR[0.001], marker="o", linestyle="none"),
+            plt.Line2D([], [], color=STEP_COLOR[0.01], marker="o", linestyle="none"),
+        ],
+        ["ResNet ERM", "GroupDRO step 0.001", "GroupDRO step 0.01"],
+        loc="upper center",
+        ncol=3,
+        bbox_to_anchor=(0.5, 1.04),
+    )
+    figure.suptitle("Global performance snapshots", y=1.10, fontsize=12)
+    figure.tight_layout()
+    return figure
+
+
 def model_styles(groups: pd.DataFrame, modulation: str) -> list[tuple[str, dict[str, Any]]]:
     """baseline と、指定した変調範囲の 2 条件を、描画順に返す。
 
@@ -296,6 +344,53 @@ def intersection_groups(groups: pd.DataFrame, modulation: str, split: str) -> Fi
     return figure
 
 
+def fairness_metrics(summary: pd.DataFrame, modulation: str, split: str, groups: pd.DataFrame | None = None) -> Figure:
+    """Eopp0 / Eopp1 / Eodds を粒度ごとに model 間で比較する。
+
+    いずれも群間の gap なので、値が小さいほど予測の機会が揃っている。ただし
+    gap の大小だけでは性能水準を表さないため、AUROC や bACC の図と合わせて読む。
+    `summary` は `fairness_summary_<split>.csv` を index 付きで読んだ表を想定する。
+
+    Args:
+        summary: 粒度・model ごとの公平性集計表
+        modulation: 描く変調範囲
+        split: 評価した split（見出しに出す）
+        groups: model の描画 style を解決するための群別表。省略時は単色で描く。
+
+    Returns:
+        Figure: Eopp0 / Eopp1 / Eodds の比較図
+    """
+    if isinstance(summary.index, pd.MultiIndex):
+        data = summary.reset_index()
+    else:
+        data = summary.copy()
+    data = data[data["modulation"].eq(modulation)] if "modulation" in data else data
+    metrics = [("Eopp0", "Eopp0 (TNR gap)"), ("Eopp1", "Eopp1 (TPR gap)"), ("Eodds", "Eodds")]
+    styles = model_styles(groups, modulation) if groups is not None else []
+    if not styles:
+        styles = [(label, dict(BASELINE_STYLE) if label == BASELINE_LABEL else {}) for label in data["model"].unique()]
+    grouping_order = [grouping for grouping in GROUPING_NAMES if grouping in data["grouping"].unique()]
+    figure, axes = plt.subplots(1, len(metrics), figsize=(12.0, 4.4), sharey=True)
+    positions = np.arange(len(grouping_order))
+    offsets = np.linspace(-0.18, 0.18, len(styles)) if styles else []
+    for axis, (metric, title) in zip(axes, metrics, strict=True):
+        for offset, (label, style) in zip(offsets, styles, strict=True):
+            values = data[data["model"] == label].set_index("grouping")[metric].reindex(grouping_order)
+            color = style.get("color", MUTED)
+            marker = style.get("marker", "o")
+            axis.scatter(positions + offset, values, color=color, marker=marker, s=34, label=label, zorder=3)
+        axis.set_title(title)
+        axis.set_xticks(positions, grouping_order, rotation=45, ha="right")
+        axis.set_xlabel("Grouping")
+        axis.grid(axis="y", color=GRID, linewidth=0.7)
+    axes[0].set_ylabel("Gap (lower is more equal)")
+    handles, labels = axes[0].get_legend_handles_labels()
+    figure.legend(handles, labels, loc="upper center", ncol=max(1, len(labels)), bbox_to_anchor=(0.5, 1.05))
+    figure.suptitle(f"Equalized opportunity / odds gaps   ({modulation}, {split} split)", y=1.12, fontsize=12)
+    figure.tight_layout()
+    return figure
+
+
 def all_cohorts(frame: pd.DataFrame, cohorts: pd.DataFrame, modulation: str, step: float) -> Figure:
     """10 群すべての推移を stage ごとに描く。色は stage 最終 epoch の q の順位。
 
@@ -356,11 +451,15 @@ def main() -> None:
     matplotlib.style.use(STYLE_SHEET)
     frame = pd.read_csv(RESULTS / "epoch_metrics.csv")
     baseline = pd.read_csv(RESULTS / "baseline_epoch_metrics.csv")
+    comparison = pd.read_csv(RESULTS / "global_comparison.csv", index_col="run")
     cohorts = pd.read_csv(RESULTS / "cohort_groups.csv")
     groups = pd.read_csv(RESULTS / f"group_metrics_{args.split}.csv")
     FIGURES.mkdir(exist_ok=True)
 
-    written = []
+    global_figure = global_performance(comparison)
+    global_figure.savefig(FIGURES / "global_performance.png")
+    plt.close(global_figure)
+    written = ["global_performance.png"]
     for modulation in MODULATIONS:
         figures = {
             file_name(modulation, "learning_curves"): epoch_figure(frame, modulation, LEARNING_CURVES),
@@ -368,6 +467,12 @@ def main() -> None:
             file_name(modulation, "group_dro"): epoch_figure(frame, modulation, GROUP_DRO_PANELS, columns=2),
             file_name(modulation, "fairness_ranges"): fairness_ranges(groups, modulation, args.split),
             file_name(modulation, "fairness_intersection"): intersection_groups(groups, modulation, args.split),
+            file_name(modulation, "fairness_metrics"): fairness_metrics(
+                pd.read_csv(RESULTS / f"fairness_summary_{args.split}.csv", index_col=["grouping", "model"]),
+                modulation,
+                args.split,
+                groups,
+            ),
         }
         for step in sorted(frame["step_size"].unique()):
             figures[file_name(modulation, "all_groups", f"step{step:g}")] = all_cohorts(
