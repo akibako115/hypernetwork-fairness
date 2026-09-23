@@ -37,16 +37,23 @@ tests/         共有層と、指標の定義が学習側と一致すること�
   reports/      読み手向けの分析メモ
 ```
 
-**生成物は一方向にしか流れない。**
+**生成物の依存関係は一方向に保つ。** ただし、分析の実装を最初からすべて script に分解することは
+要求しない。探索段階では、notebook の中で入力の読み込みから分析・可視化・考察までを完結させてもよい。
+同じ処理を複数の分析で使う、実行に時間がかかる、または notebook が読みにくくなった段階で、必要な
+部分だけを module や script に切り出す。
 
 ```text
+projects/*/runs/  →  runs/  →  notebook  →  figures/（必要な場合）
+                    runs.py import       ↘ cache / results（必要な場合）
+
+再利用・高コストな処理だけを外部化する場合:
+
 projects/*/runs/  →  runs/  →  cache/  →  results/  →  notebook  →  figures/（必要な場合）
-                    runs.py import
 ```
 
-各 script は単独で走り、前段の生成物だけを入力に取る。notebook から split CSV も checkpoint も
-直接読まない。分析固有の可視化は notebook で行い、複数 package で再利用する図だけを `figures/` に保存する。
-script と notebook の書き方は [AGENTS.md](AGENTS.md) を正本とする。
+外部化した script / module は前段の生成物だけを入力に取る。notebook は必要に応じて split CSV、
+checkpoint、run artifact を直接読む。分析固有の可視化は notebook で行い、複数 package で再利用する図だけを
+`figures/` に保存する。script と notebook の使い分けは [AGENTS.md](AGENTS.md) を正本とする。
 
 `common/` で共有するのは **run 契約の読み方**（`run.json`・`metrics.csv`・W&B transaction log・
 checkpoint 選択・予測 cache）までとする。**群の切り方・指標の定義・図は package に閉じる。**
