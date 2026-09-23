@@ -3,6 +3,13 @@
 この project は hypernetwork 系モデルの学習・性能比較を所有する。他 project から import
 せず、他 project 用の共有 module もここに置かない。
 
+## 実験 logger
+
+- 通常の実験 fit では、外部 logger に `WandbLogger`（project `fairness_hypernet`）を必ず使う。
+- `CSVLogger` は `run_fit` が常に追加するため、`metrics/metrics.csv` として必ず残る。W&Bを無効化してはならない。
+- `logger=none` は preflight、単体テスト、依存関係確認など、結果を分析対象にしない短い動作確認に限る。
+  分析対象の学習でW&B認証や接続に問題がある場合は、loggerを黙って無効化せず起動を止めて確認する。
+
 ## docstring とコメント
 
 - docstring は日本語で書く。公開 module・class・関数には、その **interface** を利用者が

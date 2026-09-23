@@ -86,8 +86,9 @@ Lightning は root に handler が無い状態で import されると自分の l
 その logger にも同じ handler を足して fit の経過を `train.log` に残す。
 
 epoch ごとの metric は必須の `metrics/metrics.csv` にも記録する。これは外部 experiment logger の
-設定に依存しない学習曲線の正本であり、`logger=none` を指定した run でも残る。既定の外部 logger
-は wandb で、project は `fairness_hypernet` とする。`metrics/fit.json` は fit 終了時点の値だけなので、
+設定に依存しない学習曲線の正本であり、`logger=none` を指定した run でも残る。通常の分析対象 fit
+ではCSVとW&Bの両方を有効にする。既定の外部 loggerはwandbで、projectは`fairness_hypernet`とする。
+`logger=none` は preflight・単体テスト・結果を残さない短い動作確認だけに使う。`metrics/fit.json` は fit 終了時点の値だけなので、
 epoch 推移の分析には `metrics/metrics.csv` を使う。
 
 | 項目 | 扱い |

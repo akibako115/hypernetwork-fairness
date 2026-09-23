@@ -25,6 +25,11 @@ allowed-tools: Bash(uv:*) Bash(nvidia-smi:*) Bash(ps:*) Bash(git:*) Bash(ssh:*) 
 project、**study**、experiment preset、seed、trainer、data override、実行先と GPU、logger、概算時間を
 特定する。候補は `projects/<project>/configs/` を読んで確認する。
 
+分析対象の通常 fit では、CSVLogger と WandbLogger を必ず有効にする。hypernet_e2e では CSVLogger は
+`run_fit` が常に追加し、WandbLogger の project は `fairness_hypernet` である。`logger=none` は
+preflight・単体テスト・結果を分析しない短い動作確認に限る。W&B認証や接続に問題がある場合は、
+loggerを無効化して続行せず、ユーザーへ確認する。
+
 `study` は「この run を何のために回したか」で、`analysis/<study>/` の directory 名を渡す。
 既定は無く、未指定の run は起動できない。解決済み設定ごと W&B に載るので、同じ仮説の run は
 project をまたいでも `config.study` で group by できる。結論を出すつもりが無い run は
