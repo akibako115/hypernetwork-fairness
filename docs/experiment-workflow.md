@@ -4,8 +4,8 @@
 個々の契約（run artifact の中身、分析コードの規約、データの分割）は既存の文書を正本とする。
 
 ```text
-仮説を作る  →  条件を決める  →  回す  →  記録を読む  →  分析する  →  結論を書く
-analysis/<slug>/   dry_run=true    run/     runs/<run-id>/   results/ figures/   README.md
+仮説を作る  →  条件を決める  →  回す  →  記録を読む  →  取り込む  →  分析する  →  結論を書く
+analysis/<slug>/   dry_run=true    run/     projects/*/runs/  <slug>/runs/  results/ figures/  README.md
 ```
 
 この repo には境界が 2 つあり、**交差する**。
@@ -132,17 +132,30 @@ project は repo で 1 つ（`fairness_hypernet`）。1 つの仮説が両 proje
 `analysis/<slug>/` で行う。**生成物は一方向にしか流れない。**
 
 ```text
-run artifact  →  cache/  →  results/  →  notebook  →  figures/（必要な場合）
-             predictions.py  analysis.py  可視化・考察   外部再利用用
-                             groups.py
+projects/*/runs/  →  runs/  →  cache/  →  results/  →  notebook  →  figures/（必要な場合）
+                    runs.py   predictions.py  analysis.py  可視化・考察   外部再利用用
+                    import                    groups.py
 ```
+
+### 使う run を package に取り込む
+
+分析は **自分の package の `runs/` だけを読む**。終わった run を hardlink で取り込む（`cp -al` と
+同じで disk は増えない）。baseline のように別の study のために回した run も、引用する package ごとに取り込む。
+
+```bash
+uv run python analysis/common/runs.py import my_new_study \
+  projects/hypernet_e2e/runs/<run-id> projects/hypernet_e2e/runs/<baseline run-id>
+```
+
+実行中の run は拒まれる（取り込み後に学習が作る file は package 側に現れないため）。取り込んだ file は
+正本と同じ inode なので書き換えない。規約の正本は [`analysis/README.md`](../analysis/README.md#run-の取り込み)。
 
 各 script は単独で走り、前段の生成物だけを入力に取る。1 辺が 1 コマンドになる。
 
 ```bash
 # 1. 選択済み checkpoint の予測を cache する（古い cache は自動で作り直される）
 uv run python analysis/common/predictions.py --study my_new_study --split test \
-  --run-dir projects/hypernet_e2e/runs/<run-id> ...
+  --run-dir analysis/my_new_study/runs/<run-id> ...
 
 # 2〜3. run artifact と cache から表を作る
 uv run python analysis/my_new_study/collect.py <run-id> ... --baseline <run-id>
@@ -164,15 +177,15 @@ notebook は `results/` を読み、分析固有の表・図・考察を上か�
 **どの分析がその run を引用したか**は多対多で、あとから増える（baseline は使い回すため）。
 引用の正本は `analysis/<slug>/runs.md` が持つ。表には `project`、`run-id`、repo root からの相対
 `run path`、W&B URL を記録する。W&B URL は dashboard の参照、`run path` は checkpoint や
-epoch metrics を読むための入力として使い分ける。
+epoch metrics を読むための入力として使い分ける。`run path` は取り込み先の `analysis/<slug>/runs/<run-id>` を書く。
 
 ```markdown
 | condition | project | run-id | run path | W&B |
 |---|---|---|---|---|
-| ResNet | `hypernet_e2e` | `2026...` | `projects/hypernet_e2e/runs/2026...` | https://wandb.ai/... |
+| ResNet | `hypernet_e2e` | `2026...` | `analysis/my_new_study/runs/2026...` | https://wandb.ai/... |
 ```
 
-run 一覧の表は生成できる。人が書くのは「**なぜこの条件なのか**」のほう。
+run 一覧の表は生成できる（取り込み済みなら `run path` 列も埋まる）。人が書くのは「**なぜこの条件なのか**」のほう。
 
 ```bash
 uv run python analysis/common/studies.py my_new_study
@@ -197,6 +210,8 @@ uv run ruff check analysis projects
 | やらないこと | 理由 |
 | --- | --- |
 | `projects/*/runs/` を上書き・rename・削除する | run artifact は不変。結論の根拠が消える |
+| 分析コードから `projects/*/runs/` を直接読む | 入力が `runs.md` の引用とずれる。package の `runs/` に取り込んでから読む |
+| 取り込んだ `analysis/<slug>/runs/` の file を書き換える | hardlink なので正本も同時に変わる |
 | project 間でコードを import する | 一致は golden で縛る。共有すると、片方の変更が黙ってもう片方の結論を変える |
 | `study` を後から書き換える | 起動時の記録なので、書き換えた値はその意味を持たない。引用は `runs.md` へ |
 | analysis の slug に hyphen を使う | package として import できなくなる |

@@ -70,12 +70,12 @@ PNG として引用する図・大量条件を一括出力する図が出てき�
 
 ```bash
 uv run python analysis/common/predictions.py --study initial_resnet_vs_invariant --split test \
-  --run-dir projects/hypernet_e2e/runs/20260922T063725Z-resnet-chexpert-s43-efcd \
-  --run-dir projects/hypernet_e2e/runs/20260922T063727Z-resnet-chexpert-s44-6f0c \
-  --run-dir projects/hypernet_e2e/runs/20260922T063727Z-resnet-chexpert-s45-fb77 \
-  --run-dir projects/hypernet_e2e/runs/20260922T063725Z-resnet-chexpert-attribute-invariant-s43-546c \
-  --run-dir projects/hypernet_e2e/runs/20260922T063728Z-resnet-chexpert-attribute-invariant-s44-8e6b \
-  --run-dir projects/hypernet_e2e/runs/20260922T063728Z-resnet-chexpert-attribute-invariant-s45-404a
+  --run-dir analysis/initial_resnet_vs_invariant/runs/20260922T063725Z-resnet-chexpert-s43-efcd \
+  --run-dir analysis/initial_resnet_vs_invariant/runs/20260922T063727Z-resnet-chexpert-s44-6f0c \
+  --run-dir analysis/initial_resnet_vs_invariant/runs/20260922T063727Z-resnet-chexpert-s45-fb77 \
+  --run-dir analysis/initial_resnet_vs_invariant/runs/20260922T063725Z-resnet-chexpert-attribute-invariant-s43-546c \
+  --run-dir analysis/initial_resnet_vs_invariant/runs/20260922T063728Z-resnet-chexpert-attribute-invariant-s44-8e6b \
+  --run-dir analysis/initial_resnet_vs_invariant/runs/20260922T063728Z-resnet-chexpert-attribute-invariant-s45-404a
 uv run python analysis/initial_resnet_vs_invariant/groups.py --split test
 ```
 
@@ -88,7 +88,7 @@ uv run python analysis/initial_resnet_vs_invariant/groups.py --split test
 ```bash
 for split in train val test; do
   uv run python analysis/common/predictions.py --study initial_resnet_vs_invariant \
-    --split "$split" --features --run-dir projects/hypernet_e2e/runs/...   # 上と同じ 6 run
+    --split "$split" --features --run-dir analysis/initial_resnet_vs_invariant/runs/...   # 上と同じ 6 run
 done
 uv run python analysis/initial_resnet_vs_invariant/attribute_probe.py
 ```

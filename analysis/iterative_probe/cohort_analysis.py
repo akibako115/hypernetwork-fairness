@@ -53,7 +53,7 @@ def write_results(run_ids: list[str], runs_root_path: Path) -> list[dict[str, ob
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("run_ids", nargs="+")
-    parser.add_argument("--runs-root", type=Path, default=runs_root("hypernet_iterative"))
+    parser.add_argument("--runs-root", type=Path, default=runs_root("iterative_probe"))
     args = parser.parse_args()
     write_results(args.run_ids, args.runs_root)
 

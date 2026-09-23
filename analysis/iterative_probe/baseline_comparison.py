@@ -70,8 +70,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("run_ids", nargs="+", help="iterative run-id")
     parser.add_argument("--baseline", nargs="+", required=True)
-    parser.add_argument("--runs-root", type=Path, default=runs_root("hypernet_iterative"))
-    parser.add_argument("--baseline-runs-root", type=Path, default=runs_root("hypernet_e2e"))
+    parser.add_argument("--runs-root", type=Path, default=runs_root("iterative_probe"))
+    parser.add_argument("--baseline-runs-root", type=Path, default=runs_root("iterative_probe"))
     args = parser.parse_args()
     from analysis.iterative_probe._shared import collect_epoch_rows
 

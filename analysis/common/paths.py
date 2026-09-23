@@ -22,8 +22,11 @@ ANALYSIS_ROOT = REPOSITORY_ROOT / "analysis"
 STYLE_SHEET = ANALYSIS_ROOT / "styles" / "fairness.mplstyle"
 
 
-def runs_root(project: str) -> Path:
-    """その project の run が積まれる directory を返す。
+def project_runs_root(project: str) -> Path:
+    """学習がその project の run を書き出す directory を返す。
+
+    ここは学習側の正本で、分析は直接読まない。`analysis/common/runs.py import` が
+    ここから package の `runs/` へ hardlink で取り込む。
 
     Args:
         project: `hypernet_e2e` / `hypernet_iterative` など `projects/` 直下の名前
@@ -34,17 +37,29 @@ def runs_root(project: str) -> Path:
     return REPOSITORY_ROOT / "projects" / project / "runs"
 
 
-def run_dir(project: str, run_id: str) -> Path:
-    """run-id から run directory を返す。
+def runs_root(study: str) -> Path:
+    """その分析 package が取り込んだ run の置き場を返す。分析コードはここだけを読む。
 
     Args:
-        project: `projects/` 直下の名前
+        study: `analysis/` 直下の package 名
+
+    Returns:
+        Path: `analysis/<study>/runs`
+    """
+    return study_dir(study) / "runs"
+
+
+def run_dir(study: str, run_id: str) -> Path:
+    """package に取り込んだ run directory を返す。
+
+    Args:
+        study: `analysis/` 直下の package 名
         run_id: run ID
 
     Returns:
-        Path: `projects/<project>/runs/<run-id>`
+        Path: `analysis/<study>/runs/<run-id>`
     """
-    return runs_root(project) / run_id
+    return runs_root(study) / run_id
 
 
 def study_dir(study: str) -> Path:

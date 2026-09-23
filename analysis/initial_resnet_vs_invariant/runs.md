@@ -12,12 +12,12 @@ train / val split の sha256（`ad5356a7...` / `59b71453...`）も 6 本で一�
 
 | condition | seed | project | run-id | run path | W&B |
 |---|---|---|---|---|---|
-| ResNet | 43 | `hypernet_e2e` | `20260922T063725Z-resnet-chexpert-s43-efcd` | `projects/hypernet_e2e/runs/20260922T063725Z-resnet-chexpert-s43-efcd` | [run](https://wandb.ai/kohki-akiba-kyushu-university/fairness_hypernet_e2e/runs/8e0x1wmq) |
-| ResNet | 44 | `hypernet_e2e` | `20260922T063727Z-resnet-chexpert-s44-6f0c` | `projects/hypernet_e2e/runs/20260922T063727Z-resnet-chexpert-s44-6f0c` | [run](https://wandb.ai/kohki-akiba-kyushu-university/fairness_hypernet_e2e/runs/i5he4orn) |
-| ResNet | 45 | `hypernet_e2e` | `20260922T063727Z-resnet-chexpert-s45-fb77` | `projects/hypernet_e2e/runs/20260922T063727Z-resnet-chexpert-s45-fb77` | [run](https://wandb.ai/kohki-akiba-kyushu-university/fairness_hypernet_e2e/runs/9w7uotjc) |
-| attribute-invariant | 43 | `hypernet_e2e` | `20260922T063725Z-resnet-chexpert-attribute-invariant-s43-546c` | `projects/hypernet_e2e/runs/20260922T063725Z-resnet-chexpert-attribute-invariant-s43-546c` | [run](https://wandb.ai/kohki-akiba-kyushu-university/fairness_hypernet_e2e/runs/6pgqjafu) |
-| attribute-invariant | 44 | `hypernet_e2e` | `20260922T063728Z-resnet-chexpert-attribute-invariant-s44-8e6b` | `projects/hypernet_e2e/runs/20260922T063728Z-resnet-chexpert-attribute-invariant-s44-8e6b` | [run](https://wandb.ai/kohki-akiba-kyushu-university/fairness_hypernet_e2e/runs/awdtcal9) |
-| attribute-invariant | 45 | `hypernet_e2e` | `20260922T063728Z-resnet-chexpert-attribute-invariant-s45-404a` | `projects/hypernet_e2e/runs/20260922T063728Z-resnet-chexpert-attribute-invariant-s45-404a` | [run](https://wandb.ai/kohki-akiba-kyushu-university/fairness_hypernet_e2e/runs/23loskog) |
+| ResNet | 43 | `hypernet_e2e` | `20260922T063725Z-resnet-chexpert-s43-efcd` | `analysis/initial_resnet_vs_invariant/runs/20260922T063725Z-resnet-chexpert-s43-efcd` | [run](https://wandb.ai/kohki-akiba-kyushu-university/fairness_hypernet_e2e/runs/8e0x1wmq) |
+| ResNet | 44 | `hypernet_e2e` | `20260922T063727Z-resnet-chexpert-s44-6f0c` | `analysis/initial_resnet_vs_invariant/runs/20260922T063727Z-resnet-chexpert-s44-6f0c` | [run](https://wandb.ai/kohki-akiba-kyushu-university/fairness_hypernet_e2e/runs/i5he4orn) |
+| ResNet | 45 | `hypernet_e2e` | `20260922T063727Z-resnet-chexpert-s45-fb77` | `analysis/initial_resnet_vs_invariant/runs/20260922T063727Z-resnet-chexpert-s45-fb77` | [run](https://wandb.ai/kohki-akiba-kyushu-university/fairness_hypernet_e2e/runs/9w7uotjc) |
+| attribute-invariant | 43 | `hypernet_e2e` | `20260922T063725Z-resnet-chexpert-attribute-invariant-s43-546c` | `analysis/initial_resnet_vs_invariant/runs/20260922T063725Z-resnet-chexpert-attribute-invariant-s43-546c` | [run](https://wandb.ai/kohki-akiba-kyushu-university/fairness_hypernet_e2e/runs/6pgqjafu) |
+| attribute-invariant | 44 | `hypernet_e2e` | `20260922T063728Z-resnet-chexpert-attribute-invariant-s44-8e6b` | `analysis/initial_resnet_vs_invariant/runs/20260922T063728Z-resnet-chexpert-attribute-invariant-s44-8e6b` | [run](https://wandb.ai/kohki-akiba-kyushu-university/fairness_hypernet_e2e/runs/awdtcal9) |
+| attribute-invariant | 45 | `hypernet_e2e` | `20260922T063728Z-resnet-chexpert-attribute-invariant-s45-404a` | `analysis/initial_resnet_vs_invariant/runs/20260922T063728Z-resnet-chexpert-attribute-invariant-s45-404a` | [run](https://wandb.ai/kohki-akiba-kyushu-university/fairness_hypernet_e2e/runs/23loskog) |
 
 invariant 側の adversary は **sex / race（categorical）と age（continuous）** にかかる。入力として
 渡す属性は sex / race / ethnicity / frontal_lateral / ap_pa / age の 6 つで、そのうち上の 3 つだけを

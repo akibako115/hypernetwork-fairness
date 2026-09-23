@@ -8,6 +8,10 @@ experiment・W&B URL を手で写すのをやめるためのもので、**なぜ
 `study` は途中から入れた key なので、それ以前の run は持たない。持たない run は
 `--all` を付けたときだけ `(study 未記録)` として出す。
 
+走査するのは学習が書いた `projects/*/runs/` で、分析 package へ取り込む前の候補を探すために
+使う。`run path` 列は、その study の package に取り込み済みならその path、まだなら空になる。
+取り込みは `analysis/common/runs.py import`。
+
 使い方:
     uv run python analysis/common/studies.py iterative_probe
 """
@@ -26,7 +30,7 @@ rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 from analysis.common.paths import REPOSITORY_ROOT  # noqa: E402
 from analysis.common.run_artifacts import read_config, read_run_record  # noqa: E402
 
-COLUMNS = ["run-id", "project", "experiment", "seed", "状態", "開始 (UTC)", "W&B"]
+COLUMNS = ["run-id", "project", "experiment", "seed", "状態", "開始 (UTC)", "run path", "W&B"]
 
 
 def iter_run_dirs() -> Iterator[Path]:
@@ -48,7 +52,7 @@ def describe(run_dir: Path) -> dict[str, Any]:
     """1 run を表の 1 行にする。
 
     Args:
-        run_dir: `projects/<project>/runs/<run-id>`
+        run_dir: `projects/<project>/runs/<run-id>`（学習が書いた正本）
 
     Returns:
         dict[str, Any]: 表の列と、絞り込みに使う `study`
@@ -58,6 +62,8 @@ def describe(run_dir: Path) -> dict[str, Any]:
     config = read_config(config_path) if config_path.is_file() else {}
     # e2e は logger を複数持ちうるので list、iterative は parent run 1 つなので dict になる。
     wandb = record.get("wandb") or next(iter(record.get("loggers") or []), {})
+    study = record.get("study")
+    imported = _imported_path(study, run_dir)
     return {
         "study": record.get("study"),
         "run-id": run_dir.name,
@@ -66,8 +72,20 @@ def describe(run_dir: Path) -> dict[str, Any]:
         "seed": record.get("seed"),
         "状態": record.get("status"),
         "開始 (UTC)": (record.get("started_at") or "")[:19],
+        "run path": f"`{imported}`" if imported else "",
         "W&B": f"[{wandb.get('id', '')}]({wandb['url']})" if wandb.get("url") else "",
     }
+
+
+def _imported_path(study: str | None, run_dir: Path) -> Path | None:
+    """その run が study の package に取り込み済みなら、repo root からの path を返す。"""
+    if not study:
+        return None
+    # `projects/` の走査と同じ root から組み立てる（test が root を差し替えられるように）。
+    destination = REPOSITORY_ROOT / "analysis" / study / "runs" / run_dir.name
+    if not (destination / "run.json").is_file():
+        return None
+    return destination.relative_to(REPOSITORY_ROOT)
 
 
 def runs_for(study: str | None) -> list[dict[str, Any]]:

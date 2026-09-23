@@ -22,10 +22,10 @@ ResNet-50 ImageNet 初期化。ws11 の GPU 5〜8 で並列実行し、4 本と�
 
 | run-id | project | run path | W&B | 変調範囲 | step size | 所要 |
 |---|---|---|---|---|---|---|
-| `20260921T103222Z-iterative-s42-d24d` | `hypernet_iterative` | `projects/hypernet_iterative/runs/20260921T103222Z-iterative-s42-d24d` | [run](https://wandb.ai/kohki-akiba-kyushu-university/fairness_hypernet/runs/8az23qej) | fc | 1e-3 | 54 分 |
-| `20260921T103225Z-iterative-s42-3166` | `hypernet_iterative` | `projects/hypernet_iterative/runs/20260921T103225Z-iterative-s42-3166` | [run](https://wandb.ai/kohki-akiba-kyushu-university/fairness_hypernet/runs/ic6i26t6) | stage4, fc | 1e-3 | 64 分 |
-| `20260921T103219Z-iterative-s42-e992` | `hypernet_iterative` | `projects/hypernet_iterative/runs/20260921T103219Z-iterative-s42-e992` | [run](https://wandb.ai/kohki-akiba-kyushu-university/fairness_hypernet/runs/1m2xowgf) | fc | 1e-2 | 54 分 |
-| `20260921T103225Z-iterative-s42-fac5` | `hypernet_iterative` | `projects/hypernet_iterative/runs/20260921T103225Z-iterative-s42-fac5` | [run](https://wandb.ai/kohki-akiba-kyushu-university/fairness_hypernet/runs/gexb3ap4) | stage4, fc | 1e-2 | 64 分 |
+| `20260921T103222Z-iterative-s42-d24d` | `hypernet_iterative` | `analysis/iterative_probe/runs/20260921T103222Z-iterative-s42-d24d` | [run](https://wandb.ai/kohki-akiba-kyushu-university/fairness_hypernet/runs/8az23qej) | fc | 1e-3 | 54 分 |
+| `20260921T103225Z-iterative-s42-3166` | `hypernet_iterative` | `analysis/iterative_probe/runs/20260921T103225Z-iterative-s42-3166` | [run](https://wandb.ai/kohki-akiba-kyushu-university/fairness_hypernet/runs/ic6i26t6) | stage4, fc | 1e-3 | 64 分 |
+| `20260921T103219Z-iterative-s42-e992` | `hypernet_iterative` | `analysis/iterative_probe/runs/20260921T103219Z-iterative-s42-e992` | [run](https://wandb.ai/kohki-akiba-kyushu-university/fairness_hypernet/runs/1m2xowgf) | fc | 1e-2 | 54 分 |
+| `20260921T103225Z-iterative-s42-fac5` | `hypernet_iterative` | `analysis/iterative_probe/runs/20260921T103225Z-iterative-s42-fac5` | [run](https://wandb.ai/kohki-akiba-kyushu-university/fairness_hypernet/runs/gexb3ap4) | stage4, fc | 1e-2 | 64 分 |
 
 コードは local の `8c33f20` に、`configs/experiment/spatial_lora_chexpert_{fc,stage4_fc}.yaml` の
 2 ファイルを加えた状態。ws11 側は `.git` を除外して同期しているため、`run.json` の `git_commit` は
@@ -33,11 +33,11 @@ ResNet-50 ImageNet 初期化。ws11 の GPU 5〜8 で並列実行し、4 本と�
 
 ## 比較対象（baseline）
 
-global 指標を並べるための通常 ResNet。`projects/hypernet_e2e/runs/` 側にある。
+global 指標を並べるための通常 ResNet。e2e で回した run を、この package の `runs/` に取り込んである。
 
 | run-id | project | run path | W&B | 条件 | epoch |
 |---|---|---|---|---|---|
-| `20260921T103036Z-resnet-chexpert-s42-5538` | `hypernet_e2e` | `projects/hypernet_e2e/runs/20260921T103036Z-resnet-chexpert-s42-5538` | [run](https://wandb.ai/kohki-akiba-kyushu-university/fairness_hypernet/runs/41gsahly) | ResNet-50 全体を ERM、`weighting=inverse` | 30 |
+| `20260921T103036Z-resnet-chexpert-s42-5538` | `hypernet_e2e` | `analysis/iterative_probe/runs/20260921T103036Z-resnet-chexpert-s42-5538` | [run](https://wandb.ai/kohki-akiba-kyushu-university/fairness_hypernet/runs/41gsahly) | ResNet-50 全体を ERM、`weighting=inverse` | 30 |
 
 `data_manifest.json` の train / val の sha256、optimizer（AdamW lr 1e-4 / wd 0.01）、batch size 128、
 class weight `[0.201358, 1.798642]`、seed、transform が本実験と一致する。違うのは学習の中身

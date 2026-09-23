@@ -82,6 +82,19 @@ def test_runs_are_filtered_by_the_study_they_recorded(repository: Path) -> None:
     assert rows[0]["experiment"] == "resnet-chexpert"
 
 
+def test_the_run_path_column_points_into_the_package_once_imported(repository: Path) -> None:
+    """取り込み済みの run だけが `runs.md` に貼る path を持つ。未取り込みは空欄にする。"""
+    run_id = "20260921T103036Z-resnet-chexpert-s42-5538"
+    source = _run(repository, "hypernet_e2e", run_id, {"status": "succeeded", "study": "iterative_probe"})
+    assert studies.describe(source)["run path"] == ""
+
+    imported = repository / "analysis" / "iterative_probe" / "runs" / run_id
+    imported.mkdir(parents=True)
+    (imported / "run.json").write_text("{}", encoding="utf-8")
+
+    assert studies.describe(source)["run path"] == f"`analysis/iterative_probe/runs/{run_id}`"
+
+
 def test_the_started_at_column_keeps_only_the_timestamp(repository: Path) -> None:
     """表に貼るので秒までにする。`run.json` の値そのものは run が持っている。"""
     record = {"status": "succeeded", "started_at": "2026-09-21T10:30:36.123456+00:00"}

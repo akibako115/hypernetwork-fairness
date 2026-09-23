@@ -73,6 +73,8 @@ rsync -azn --stats \
   --exclude='/.claude' \
   --exclude='/.direnv' \
   --exclude='/projects/*/runs' \
+  --exclude='/analysis/*/runs' \
+  --exclude='/analysis/*/cache' \
   --exclude='/run_logs' \
   --exclude='/remote_logs' \
   --exclude='/wandb' \

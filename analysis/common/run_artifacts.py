@@ -20,7 +20,7 @@ def read_run_record(run_dir: Path) -> dict[str, Any]:
     """`run.json` を読む。
 
     Args:
-        run_dir: `projects/<project>/runs/<run-id>`
+        run_dir: `analysis/<study>/runs/<run-id>`
 
     Returns:
         dict[str, Any]: run record 全体
@@ -80,7 +80,7 @@ def read_wandb_history(run_dir: Path) -> list[dict[str, float]]:
     parse に失敗する。
 
     Args:
-        run_dir: `projects/<project>/runs/<run-id>`
+        run_dir: `analysis/<study>/runs/<run-id>`
 
     Returns:
         list[dict[str, float]]: epoch 昇順の metric
@@ -108,6 +108,30 @@ def read_wandb_history(run_dir: Path) -> list[dict[str, float]]:
     return [by_epoch[epoch] for epoch in sorted(by_epoch)]
 
 
+_PROJECT_BY_KIND = {"fit": "hypernet_e2e", "iterative_fit": "hypernet_iterative"}
+
+
+def run_project(run_dir: Path) -> str:
+    """その run を回した project を返す。
+
+    package の `runs/` には両 project の run が並ぶので、置き場所の path からは project を
+    読めない。`run.json` の `kind` は project ごとに固定の値なので、そこから引く。
+
+    Args:
+        run_dir: `analysis/<study>/runs/<run-id>` または `projects/<project>/runs/<run-id>`
+
+    Returns:
+        str: `hypernet_e2e` / `hypernet_iterative`
+
+    Raises:
+        ValueError: `kind` が既知の値でない場合
+    """
+    kind = read_run_record(run_dir).get("kind")
+    if kind not in _PROJECT_BY_KIND:
+        raise ValueError(f"{run_dir} の run.json の kind {kind!r} から project を決められない")
+    return _PROJECT_BY_KIND[kind]
+
+
 def selected_checkpoint(run_dir: Path) -> Path:
     """その run が「これが成果物」と記録した checkpoint を返す。
 
@@ -117,7 +141,7 @@ def selected_checkpoint(run_dir: Path) -> Path:
     どちらも val AUROC で選んだ checkpoint であり、選び方は揃っている。
 
     Args:
-        run_dir: `projects/<project>/runs/<run-id>`
+        run_dir: `analysis/<study>/runs/<run-id>`
 
     Returns:
         Path: 評価する checkpoint

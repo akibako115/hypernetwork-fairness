@@ -26,6 +26,7 @@ tests/         共有層と、指標の定義が学習側と一致すること�
 <slug>/
   README.md     仮説、対象 run、結論
   runs.md       この仮説に紐づく run の一覧と状態
+  runs/         取り込んだ run（projects/*/runs/ への hardlink。Git 管理外）
   collect.py    run artifact → results/*.csv
   groups.py     群の定義と群別指標 → results/*.csv
   plots.py      results/*.csv → figures/*.png（再利用・レポート用・一括出力の図だけ）
@@ -39,7 +40,8 @@ tests/         共有層と、指標の定義が学習側と一致すること�
 **生成物は一方向にしか流れない。**
 
 ```text
-run artifact  →  cache/  →  results/  →  notebook  →  figures/（必要な場合）
+projects/*/runs/  →  runs/  →  cache/  →  results/  →  notebook  →  figures/（必要な場合）
+                    runs.py import
 ```
 
 各 script は単独で走り、前段の生成物だけを入力に取る。notebook から split CSV も checkpoint も
@@ -53,6 +55,7 @@ checkpoint 選択・予測 cache）までとする。**群の切り方・指標�
 | module | 責務 |
 | --- | --- |
 | `common/paths.py` | repo root と、run・split CSV・style の標準 path |
+| `common/runs.py` | 学習が書いた run を package の `runs/` へ hardlink で取り込む（CLI 付き） |
 | `common/run_artifacts.py` | run artifact の読み取りと checkpoint 選択、CSV 書き出し |
 | `common/predictions.py` | 選択済み checkpoint → split 予測 `.npz`（CLI 付き） |
 | `common/studies.py` | study に属する run の一覧と `runs.md` 用の表 |
@@ -73,12 +76,35 @@ checkpoint 選択・予測 cache）までとする。**群の切り方・指標�
   `cache/` / `outputs/` / `checkpoints/` と `*.npz` / `*.pt` / `*.pth`
 
 図も表も run artifact から再生成できる。repo に残すのは、再生成できない判断のほうとする。
-run そのもの（`projects/*/runs/<run-id>/`）と実行ログ（`run_logs/`）も追跡しない。
+run そのもの（`projects/*/runs/<run-id>/` と、取り込んだ `analysis/<slug>/runs/`）と実行ログ（`run_logs/`）も追跡しない。
 
-## ログの扱い
+## run の取り込み
 
-分析パッケージへログを持ち込まない。hardlink も copy も作らない。分析が読む数値は run artifact
-（e2e の `metrics/metrics.csv`、iterative の `stages/*/metrics/metrics.csv`、`run.json`）にあり、実行ログには入っていない。
+学習は `projects/<project>/runs/<run-id>/` に書く。**分析は自分の package の `runs/` だけを読む。**
+使う run は、分析を始める前に package へ取り込む。
+
+```bash
+uv run python analysis/common/runs.py import <slug> projects/hypernet_e2e/runs/<run-id> ...
+```
+
+取り込みは directory を作り直し、file を hardlink にする（`cp -al` と同じ）。
+
+- **disk は増えない。** checkpoint が 270MB/本あっても、取り込みにかかるのは directory の分だけ
+- **同じ run を複数の package が取り込める。** baseline は、引用する package ごとに取り込む。
+  run の置き場を 1 つの package に決めない（引用は多対多で、あとから増える）
+- **package が単体で完結する。** `projects/` 側の run を整理しても、取り込んだ file は消えない
+
+守ること:
+
+- **終わった run（`status` が `succeeded` / `failed`）だけ取り込む。** 取り込んだ後に学習が作る
+  file（checkpoint など）は package 側に現れない。`runs.py` は実行中の run を拒む
+- **取り込んだ file を書き換えない。** hardlink は元と同じ inode なので、書き換えると正本も変わる。
+  run artifact は不変という約束がそのまま効く
+- 同じ run を 2 回渡しても何もしない。出力される表の行を `runs.md` に貼る
+- 別マシンへ rsync するときは `-H` を付ける。付けないと hardlink が実体の複製になる
+
+controller log（`run_logs/`）は分析の入力ではないので取り込まない。分析が読む数値は run artifact
+（e2e の `metrics/metrics.csv`、iterative の `stages/*/metrics/metrics.csv`、`run.json`）にある。
 
 `run_logs/` のファイル名は起動時に人が付けるため run-id とは対応しないが、ログ本文に run dir が
 出るので run-id から引ける。落ちた run の理由を確かめる時だけこれを使う。

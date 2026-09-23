@@ -160,6 +160,8 @@ checkpoints/*.pth
 # 再生成できるものであり、repo に残すのは再生成の手順（collect.py と notebook）と、
 # そこから読み取った結論（README / runs.md / reports）とする。
 # 構成と追跡境界の説明は analysis/README.md を参照する。
+# 取り込んだ run（analysis/common/runs.py import）。projects/*/runs/ への hardlink。
+/analysis/*/runs/
 /analysis/**/checkpoints/
 /analysis/**/outputs/
 /analysis/**/cache/

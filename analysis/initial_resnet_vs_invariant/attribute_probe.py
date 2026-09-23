@@ -45,7 +45,7 @@ probe が「読んでいる」のか「覚えている」のかの切り分け�
 
 使い方:
     uv run python analysis/common/predictions.py --study initial_resnet_vs_invariant \
-      --split train --features --run-dir projects/hypernet_e2e/runs/<run-id>   # val / test も同様
+      --split train --features --run-dir analysis/initial_resnet_vs_invariant/runs/<run-id>   # val / test も同様
     uv run python analysis/initial_resnet_vs_invariant/attribute_probe.py
 """
 

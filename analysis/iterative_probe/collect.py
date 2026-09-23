@@ -18,9 +18,9 @@ from analysis.iterative_probe.epoch_metrics import write_results as write_epoch_
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("run_ids", nargs="+")
-    parser.add_argument("--runs-root", type=Path, default=runs_root("hypernet_iterative"))
+    parser.add_argument("--runs-root", type=Path, default=runs_root("iterative_probe"))
     parser.add_argument("--baseline", nargs="*", default=[])
-    parser.add_argument("--baseline-runs-root", type=Path, default=runs_root("hypernet_e2e"))
+    parser.add_argument("--baseline-runs-root", type=Path, default=runs_root("iterative_probe"))
     args = parser.parse_args()
 
     rows = write_epoch_results(args.run_ids, args.runs_root)

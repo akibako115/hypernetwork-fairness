@@ -18,11 +18,13 @@ checkpoint の選び方（`run_artifacts.selected_checkpoint`）と、network �
 
 使い方:
     uv run python analysis/common/predictions.py --study iterative_probe --split test \
-      --run-dir projects/hypernet_e2e/runs/<run-id> \
-      --run-dir projects/hypernet_iterative/runs/<run-id>
+      --run-dir analysis/iterative_probe/runs/<run-id> \
+      --run-dir analysis/iterative_probe/runs/<run-id>
 
     uv run python analysis/common/predictions.py --study initial_resnet_vs_invariant \
-      --split val --features --run-dir projects/hypernet_e2e/runs/<run-id>
+      --split val --features --run-dir analysis/initial_resnet_vs_invariant/runs/<run-id>
+
+`--run-dir` には package に取り込んだ run を渡す（`analysis/common/runs.py import`）。
 """
 
 from __future__ import annotations
@@ -41,8 +43,8 @@ from omegaconf import OmegaConf
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 
-from analysis.common.paths import REPOSITORY_ROOT, local_data_path, study_dir  # noqa: E402
-from analysis.common.run_artifacts import read_config, selected_checkpoint  # noqa: E402
+from analysis.common.paths import REPOSITORY_ROOT, local_data_path, runs_root, study_dir  # noqa: E402
+from analysis.common.run_artifacts import read_config, run_project, selected_checkpoint  # noqa: E402
 
 SCHEMA_VERSION = 1
 # 特徴量は予測 cache と**別 file** に持つ。1 run 1 split で 90MB あり、読むのは属性 probe
@@ -93,18 +95,32 @@ def read_metadata(path: Path) -> dict[str, Any]:
 
 
 def checkpoint_reference(run_dir: Path) -> str:
-    """cache に記録する checkpoint を、repo root からの相対 path で返す。
+    """cache に記録する checkpoint を、run-id から始まる相対 path で返す。
 
-    書く側と照合する側で同じ文字列になる必要があるので 1 箇所で作る。呼ぶ側が相対 path の
-    run directory を渡しても同じ値になるよう、ここで絶対 path に直す。
+    書く側と照合する側で同じ文字列になる必要があるので 1 箇所で作る。run-id より上を
+    含めないのは、同じ run が `projects/<project>/runs/` にも、hardlink で取り込んだ
+    `analysis/<study>/runs/` にも居るため。置き場所が変わっても checkpoint は同じ file になる。
 
     Args:
         run_dir: config と checkpoint を持つ run directory
 
     Returns:
-        str: `projects/<project>/runs/<run-id>/.../<name>.ckpt`
+        str: `<run-id>/.../<name>.ckpt`
     """
-    return str(selected_checkpoint(run_dir.resolve()).relative_to(REPOSITORY_ROOT))
+    run_dir = run_dir.resolve()
+    return str(selected_checkpoint(run_dir).relative_to(run_dir.parent))
+
+
+def _from_run_id(recorded: str, run_id: str) -> str:
+    """cache に記録された checkpoint path を、run-id から始まる形へ揃える。
+
+    run-id より上を持つ古い記録（`projects/<project>/runs/<run-id>/...`）も同じ checkpoint として
+    照合できるようにする。run-id を含まない記録はそのまま返し、不一致として作り直させる。
+    """
+    parts = Path(recorded).parts
+    if run_id not in parts:
+        return recorded
+    return str(Path(*parts[parts.index(run_id) :]))
 
 
 def stale_reason(path: Path, run_dir: Path, schema_version: int = SCHEMA_VERSION) -> str | None:
@@ -130,7 +146,7 @@ def stale_reason(path: Path, run_dir: Path, schema_version: int = SCHEMA_VERSION
     if metadata.get("schema_version") != schema_version:
         return f"schema_version が {metadata.get('schema_version')}（現在は {schema_version}）"
     checkpoint = checkpoint_reference(run_dir)
-    if metadata.get("checkpoint") != checkpoint:
+    if _from_run_id(str(metadata.get("checkpoint")), run_dir.resolve().name) != checkpoint:
         return f"checkpoint が {metadata.get('checkpoint')} から {checkpoint} へ変わった"
     return None
 
@@ -334,7 +350,7 @@ def write_cache(
     metadata = {
         "schema_version": SCHEMA_VERSION,
         "run_id": run_dir.name,
-        "project": run_dir.parents[1].name,
+        "project": run_project(run_dir),
         "study": read_config(run_dir / "config.yaml").get("study"),
         "split": split,
         "checkpoint": checkpoint_reference(run_dir),
@@ -430,7 +446,7 @@ def main() -> None:
     """
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--study", required=True, help="cache の置き場を決める analysis/<study>")
-    run_help = "repo root からの run directory。複数回指定できる"
+    run_help = "repo root からの run directory（analysis/<study>/runs/<run-id>）。複数回指定できる"
     parser.add_argument("--run-dir", action="append", dest="run_dirs", required=True, help=run_help)
     parser.add_argument("--split", default="test", choices=("train", "val", "test"))
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
@@ -442,6 +458,10 @@ def main() -> None:
     device = torch.device(args.device)
     for relative in args.run_dirs:
         run_dir = REPOSITORY_ROOT / relative
+        if run_dir.resolve().parent != runs_root(args.study).resolve():
+            # package は自分の runs/ だけを読む。別の置き場を読むと runs.md の引用と入力がずれる。
+            remedy = "先に analysis/common/runs.py import で取り込む"
+            parser.error(f"{relative} は analysis/{args.study}/runs/ に無い。{remedy}")
         reason = rebuild_reason(cache_dir, run_dir, args.split, args.features)
         if reason is None and not args.overwrite:
             print(f"cache is current: {cache_path(cache_dir, run_dir.name, args.split)}")

@@ -18,6 +18,7 @@ allowed-tools: Bash(uv:*) Bash(find:*) Bash(ls:*) Bash(cat:*) Bash(grep:*) Bash(
 | --- | --- | --- |
 | 対象の特定 | `logs_*` を `find` で探す | `run.json` の `study` から引く（`analysis/common/studies.py`） |
 | 置き場 | `experiments/<slug>/outputs/` から `figures/` へ昇格 | `analysis/<study>/` の `results/` と `figures/` へ直接書く |
+| 入力の run | `logs_*` を直接読む | `analysis/<study>/runs/` に hardlink で取り込んだものだけを読む（`analysis/common/runs.py`） |
 | 実験記録 | `docs/experiments/YYYY-MM-DD/*.md` | 無い。run directory と `analysis/<study>/runs.md` が持つ |
 | remote 回収 | `src.training.sync` | 無い。回線をまたぐ転送はユーザーが打つ（train skill の transfer.md） |
 | 共有 CLI | `src/analysis` の module 群 | `analysis/common/`（run 記録の読み方と予測 cache だけ） |
@@ -35,6 +36,16 @@ uv run python analysis/common/studies.py --all   # study を持たない過去 r
 `analysis/<study>/runs.md` の手書きの表が対象の正本になる。
 
 対象が複数あってどれを見るべきか決まらないときは、ユーザーに確認する。
+
+決まった run を package へ取り込む。別の study のために回した run（baseline など）も、引用する
+package ごとに取り込む。実行中の run は拒まれるので、終わるまで待つ。
+
+```bash
+uv run python analysis/common/runs.py import <study> projects/<project>/runs/<run-id> ...
+```
+
+出力された表の行を `runs.md` に貼る。表の `run path` 列には `analysis/<study>/runs/<run-id>` が入る。
+取り込んだ file は正本と同じ inode なので、書き換えない。
 
 ## 2. 仮説 package を読む
 
@@ -61,7 +72,7 @@ package が無い run は起動できない。構成は `analysis/README.md` の
 DAG の向きに沿って、必要な段だけを走らせる。
 
 ```bash
-uv run python analysis/common/predictions.py --study <study> --split test --run-dir <run dir> ...
+uv run python analysis/common/predictions.py --study <study> --split test --run-dir analysis/<study>/runs/<run-id> ...
 uv run python analysis/<study>/collect.py <run-id> ... [--baseline <run-id>]
 uv run python analysis/<study>/groups.py --split test
 uv run python analysis/<study>/plots.py --split test
@@ -95,6 +106,7 @@ run directory の内容（run-id・状態・experiment・W&B URL）を手で写�
 ## 完了条件
 
 - 対象 run が study で特定されている（`study` を持たない run はその旨を明示している）
+- 対象 run が `analysis/<study>/runs/` に取り込まれ、`runs.md` の `run path` がそこを指している
 - 実行した分析がユーザーの選んだものに一致している
 - 生成物が `results/` と `figures/` にあり、notebook からも script からも再生成できる
 - 観察事実と解釈が分かれて報告されている

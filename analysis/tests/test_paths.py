@@ -7,6 +7,7 @@ from analysis.common.paths import (
     REPOSITORY_ROOT,
     STYLE_SHEET,
     local_data_path,
+    project_runs_root,
     run_dir,
     runs_root,
     split_csv,
@@ -27,9 +28,13 @@ def test_analysis_paths_hang_off_the_repository_root() -> None:
 
 
 def test_run_and_split_paths_follow_the_repository_layout() -> None:
-    """run と split CSV の置き場は repo の約束であり、呼ぶ側で組み立てない。"""
-    assert runs_root("hypernet_e2e") == REPOSITORY_ROOT / "projects/hypernet_e2e/runs"
-    assert run_dir("hypernet_e2e", "run-id") == REPOSITORY_ROOT / "projects/hypernet_e2e/runs/run-id"
+    """run と split CSV の置き場は repo の約束であり、呼ぶ側で組み立てない。
+
+    学習は `projects/<project>/runs/` に書き、分析は package に取り込んだ `analysis/<study>/runs/` を読む。
+    """
+    assert project_runs_root("hypernet_e2e") == REPOSITORY_ROOT / "projects/hypernet_e2e/runs"
+    assert runs_root("iterative_probe") == REPOSITORY_ROOT / "analysis/iterative_probe/runs"
+    assert run_dir("iterative_probe", "run-id") == REPOSITORY_ROOT / "analysis/iterative_probe/runs/run-id"
     assert study_dir("iterative_probe") == REPOSITORY_ROOT / "analysis/iterative_probe"
     assert split_csv("chexpert", "test") == REPOSITORY_ROOT / "data/chexpert/splits/test.csv"
 

@@ -21,9 +21,12 @@
 
 ```text
 run artifact  →  cache/      →  results/     →  notebook     →  figures/（必要な場合）
-(projects/*/runs)  predictions.py  analysis.py   可視化・考察   外部再利用用
+(<slug>/runs)    predictions.py  analysis.py   可視化・考察   外部再利用用
                                    groups.py
 ```
+
+run artifact は package の `runs/` に取り込んだものだけを読む（`common/runs.py import`、
+[README](README.md#run-の取り込み)）。`projects/*/runs/` を直接読まない。
 
 - `collect.py` — run artifact を読んで `results/*.csv` を書く。run の形（`run.json`、e2e の
   `metrics/metrics.csv`、iterative の `stages/*/metrics/metrics.csv`）を知ってよいのはここと

@@ -18,8 +18,8 @@
 
 ## 対象 run
 
-変調範囲 × GroupDRO step size の 2×2（`projects/hypernet_iterative/runs/`）と、global 指標の
-比較対象にする通常 ResNet（`projects/hypernet_e2e/runs/20260921T103036Z-resnet-chexpert-s42-5538`）。
+変調範囲 × GroupDRO step size の 2×2（`runs/` に取り込み済み）と、global 指標の
+比較対象にする通常 ResNet（`analysis/iterative_probe/runs/20260921T103036Z-resnet-chexpert-s42-5538`）。
 run-id の一覧と中断した試行は [runs.md](runs.md) を見る。
 
 baseline は [initial_resnet_vs_invariant](../initial_resnet_vs_invariant/) が invariant 化の対照に
@@ -68,11 +68,11 @@ hidden cohort の epoch ログは cohort ごとの `AUROC`・`bACC`・`loss`（�
 
 ```bash
 uv run python analysis/common/predictions.py --study iterative_probe --split test \
-  --run-dir projects/hypernet_e2e/runs/20260921T103036Z-resnet-chexpert-s42-5538 \
-  --run-dir projects/hypernet_iterative/runs/20260921T103222Z-iterative-s42-d24d \
-  --run-dir projects/hypernet_iterative/runs/20260921T103219Z-iterative-s42-e992 \
-  --run-dir projects/hypernet_iterative/runs/20260921T103225Z-iterative-s42-3166 \
-  --run-dir projects/hypernet_iterative/runs/20260921T103225Z-iterative-s42-fac5
+  --run-dir analysis/iterative_probe/runs/20260921T103036Z-resnet-chexpert-s42-5538 \
+  --run-dir analysis/iterative_probe/runs/20260921T103222Z-iterative-s42-d24d \
+  --run-dir analysis/iterative_probe/runs/20260921T103219Z-iterative-s42-e992 \
+  --run-dir analysis/iterative_probe/runs/20260921T103225Z-iterative-s42-3166 \
+  --run-dir analysis/iterative_probe/runs/20260921T103225Z-iterative-s42-fac5
 uv run python analysis/iterative_probe/collect.py \
   20260921T103222Z-iterative-s42-d24d 20260921T103219Z-iterative-s42-e992 \
   20260921T103225Z-iterative-s42-3166 20260921T103225Z-iterative-s42-fac5 \

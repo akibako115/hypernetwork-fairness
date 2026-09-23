@@ -95,6 +95,19 @@ def test_the_checkpoint_reference_does_not_depend_on_how_the_run_was_addressed(
     assert predictions.checkpoint_reference(Path("runs/r")) == predictions.checkpoint_reference(run_dir)
 
 
+def test_a_cache_keeps_matching_after_the_run_is_imported_into_a_package(repository: Path) -> None:
+    """取り込み前の置き場（`projects/<project>/runs/`）を記録した cache も、同じ checkpoint なら使い回す。
+
+    hardlink で取り込んだ run は同じ file を持つ。置き場所が変わっただけで推論をやり直さない。
+    """
+    run_dir = _run(repository, "best_val_auroc_007.ckpt")
+    recorded = "projects/hypernet_e2e/runs/r/checkpoints/best_val_auroc_007.ckpt"
+    path = _cache(repository / "cache" / "r_test.npz", checkpoint=recorded)
+
+    assert predictions.checkpoint_reference(run_dir) == "r/checkpoints/best_val_auroc_007.ckpt"
+    assert stale_reason(path, run_dir) is None
+
+
 def test_a_cache_from_another_checkpoint_is_rebuilt_without_asking(repository: Path) -> None:
     """checkpoint を選び直したら、`--overwrite` を思い出せなくても作り直す。"""
     run_dir = _run(repository, "best_val_auroc_009.ckpt")
