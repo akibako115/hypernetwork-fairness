@@ -38,19 +38,34 @@ host 側の repo は [remote.md](remote.md) の rsync で同期したツリー�
 
 ## 3. GPU を固定して 1 run 起動する
 
-baseline が root 実行かつ host 所有の bind mount なら `--user 0:0` を維持する。DataLoader worker を
-使うので `--ipc=host`、または十分な `--shm-size` を明示する。`ipc=private` の既定 64 MiB は
-worker を `Bus error` で殺す。
+**`--user` を指定せず、image の既定ユーザーで実行する。** `docker/build.sh` が host の UID/GID を
+image の `app` ユーザーに焼くので、container が書いた run・log は host の `kohkiakiba` の所有になる。
+`--user 0:0` で起動すると bind mount 先が root 所有になり、host からは消せず、次に root 以外で
+起動した学習は `runs/` に run directory を作れなくなる（2026-09-23 に ws11 で実際に起きた）。
+baseline の container が root で動いていても、それを引き継がない。
+
+起動の前に、image の uid が host と一致することを確かめる。一致しなければ、その host で
+`docker/build.sh` を実行し直してから起動する。
+
+```bash
+ssh -o ConnectTimeout=10 -o ControlPath=~/.ssh/sockets/%r@%h-%p kohkiakiba@192.168.1.<N+10> \
+  "id -u; docker run --rm <image> id -u 2>/dev/null | tail -1"
+```
+
+DataLoader worker を使うので `--ipc=host`、または十分な `--shm-size` を明示する。`ipc=private` の
+既定 64 MiB は worker を `Bus error` で殺す。W&B の認証は host の `~/.netrc` を `app` の home へ
+read-only で mount して渡す。
 
 ```bash
 ssh -o ConnectTimeout=10 -o ControlPath=~/.ssh/sockets/%r@%h-%p kohkiakiba@192.168.1.<N+10> 'bash -s' <<'REMOTE_SCRIPT'
 set -euo pipefail
 cd <remote_path>
 mkdir -p run_logs
-docker run --user 0:0 --ipc=host --gpus 'device=<gpu>' -d \
+docker run --ipc=host --gpus 'device=<gpu>' -d \
   --name <container_name> \
   -v <remote_path>:/workspaces/hypernet-fairness \
   -v <ws_data_path>:/workspaces/hypernet-fairness/data:ro \
+  -v /home/kohkiakiba/.netrc:/home/app/.netrc:ro \
   <image> bash -lc '
     cd /workspaces/hypernet-fairness
     set -euo pipefail
@@ -77,7 +92,8 @@ ssh -o ConnectTimeout=10 -o ControlPath=~/.ssh/sockets/%r@%h-%p kohkiakiba@192.1
   "docker ps -a --filter name=<container_name> --format 'table {{.Names}}\t{{.Status}}'; \
    nvidia-smi --query-gpu=index,memory.used --format=csv,noheader; \
    tail -n 80 <remote_path>/run_logs/<run_name>.log; \
-   ls -1dt <remote_path>/projects/hypernet_e2e/runs/*/ | head -3"
+   ls -1dt <remote_path>/projects/hypernet_e2e/runs/*/ | head -3; \
+   stat -c '%U %n' \$(ls -1dt <remote_path>/projects/hypernet_e2e/runs/*/ | head -1)"
 ```
 
 起動成功と報告する前に、すべて満たすことを確認する。
@@ -87,7 +103,25 @@ ssh -o ConnectTimeout=10 -o ControlPath=~/.ssh/sockets/%r@%h-%p kohkiakiba@192.1
 - log に `GPU available: True` と、意図した weighting / preset が出ている
 - 予約された run directory に `preflight.json`（`exit_code` 0）と `run.json`（`status: running`）がある
 - `Bus error`、`DataLoader worker ... exited unexpectedly`、permission error、traceback が無い
+- 予約された run directory の所有者が `kohkiakiba` である（`root` なら `--user` の指定が残っている）
 
 worker が bus error を起こした場合、失敗 container と成功 container の `IpcMode` と `ShmSize` を
 比べる。成功側の IPC mode で `retryN` の名前を付けて再起動し、失敗側の log は残す。
 失敗が確定した exited container だけを、ID とエラーを記録してから削除する。
+
+## root 所有のファイルが残ったとき
+
+host の `kohkiakiba` では消せない・書けない。root の container を **1 回だけ**使い、対象を明示して
+所有者を戻す（消す場合も同じ container で消す）。mount は repo だけにし、`rm` の対象は run-id を
+1 本ずつ書く。glob や repo root への `rm -rf` を書かない。
+
+```bash
+ssh -o ConnectTimeout=10 -o ControlPath=~/.ssh/sockets/%r@%h-%p kohkiakiba@192.168.1.<N+10> \
+  "docker run --rm --user 0:0 -v <remote_path>:/repo <image> \
+     chown -R <remote_uid>:<remote_gid> /repo/projects/hypernet_e2e/runs /repo/projects/hypernet_iterative/runs /repo/run_logs; \
+   find <remote_path> -user root | wc -l"
+```
+
+`<remote_uid>:<remote_gid>` は remote で `id -u` / `id -g` を打った値にする（ws11 では `10090:10091`）。
+`$(id -u)` と書くと、ssh の引数を組み立てる時点でローカルの値に展開される。最後の件数が 0 に
+なっていることを確かめる。
