@@ -69,17 +69,18 @@ package が無い run は起動できない。構成は `analysis/README.md` の
 
 ## 4. 実行
 
-DAG の向きに沿って、必要な段だけを走らせる。
+分析トピックごとに notebook を作り、入力の読み込みから集計・可視化・観察までをその中に置く
+（`analysis/AGENTS.md` の notebook-first）。予測 cache が要る分析だけ、先に共有 CLI で作る。
 
 ```bash
 uv run python analysis/common/predictions.py --study <study> --split test --run-dir analysis/<study>/runs/<run-id> ...
-uv run python analysis/<study>/collect.py <run-id> ... [--baseline <run-id>]
-uv run python analysis/<study>/groups.py --split test
-uv run python analysis/<study>/plots.py --split test
+cd analysis/<study> && uv run jupyter nbconvert --to notebook --execute --inplace \
+  --ExecutePreprocessor.kernel_name=hypernet-fairness <name>.ipynb
 ```
 
-script が無い、あるいは形が合わないなら、`analysis/AGENTS.md` の層の分け方に従って足す。
-**notebook へ処理を書き足して済ませない。** notebook に置くのは主張と、その根拠の表示だけとする。
+notebook は kernel restart から通しで実行できる状態で終える。処理を module へ切り出すのは、複数の
+notebook で共有する・実行に時間がかかる・テストで固定したい、のいずれかに当たる場合だけにする。
+切り出しても、どの run を比べるか・何をどこへ書くかは notebook に残す。
 
 run 記録の読み方（`run.json` / `metrics.csv` / W&B transaction log / checkpoint 選択）を書く前に
 `analysis/common/run_artifacts.py` を見る。同じ読み方が既にあるなら、そちらへ寄せる。
