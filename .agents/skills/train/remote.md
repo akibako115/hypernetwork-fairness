@@ -111,25 +111,30 @@ ssh -o ConnectTimeout=10 -o ControlPath=~/.ssh/sockets/%r@%h-%p kohkiakiba@192.1
 
 ## 起動
 
-remote では detached container か detached `docker exec` を使う。SSH session と一緒に死ぬ
-foreground Docker を使わない。新規 container は [ws_docker.md](ws_docker.md) のテンプレートを読む。
-起動は転送ではないので、承認済みならエージェントが実行してよい。
+**run ごとに detached container を 1 つ作る。** 手順は [ws_docker.md](ws_docker.md) の
+テンプレート（`--gpus 'device=<gpu>'`、`--ipc=host`、`.netrc` の read-only mount）を正本とする。
+SSH session と一緒に死ぬ foreground Docker を使わない。起動は転送ではないので、承認済みなら
+エージェントが実行してよい。
+
+**既存 container への `docker exec` で学習を起動しない。** 常駐 container が W&B の認証
+（`~/.netrc`）を mount しているとは限らず、W&B 必須の run は起動直後に
+`wandb UsageError: No API key configured` で落ちる（2026-09-24 に ws11 で 8 本が全滅した）。
+container 全体に GPU を見せている場合は、`CUDA_VISIBLE_DEVICES` の付け忘れがそのまま GPU の
+取り違えになる。やむを得ず使うなら、先に mount を確認する。
 
 ```bash
 ssh -o ConnectTimeout=10 -o ControlPath=~/.ssh/sockets/%r@%h-%p kohkiakiba@192.168.1.[N+10] \
-  "docker exec -d <container> bash -lc '
-    cd <container_repo_path> &&
-    mkdir -p run_logs &&
-    uv run python -m projects.hypernet_e2e.run experiment=<preset> seed=<seed> \
-      > run_logs/<name>.log 2>&1
-  '"
+  "docker inspect --format '{{range .Mounts}}{{.Destination}} {{end}}' <container> | tr ' ' '\n' | grep netrc"
 ```
 
-監視:
+起動の成否は container が `Up` なことでは判断しない。log に `wandb: Syncing run` と
+`GPU available: True` が出て、指定した GPU にメモリが載るまで確認する（ws_docker.md の 4 節）。
+
+監視は host 側の bind mount 先を直接読む。
 
 ```bash
-ssh -o ConnectTimeout=10 kohkiakiba@192.168.1.[N+10] \
-  "docker exec <container> bash -lc 'tail -n 80 <container_repo_path>/run_logs/<name>.log'"
+ssh -o ConnectTimeout=10 -o ControlPath=~/.ssh/sockets/%r@%h-%p kohkiakiba@192.168.1.[N+10] \
+  "tail -n 80 <remote_path>/run_logs/<name>.log"
 ```
 
 ## 結果の回収（提示用テンプレート）
@@ -174,3 +179,14 @@ ssh -o ConnectTimeout=10 -o ControlPath=~/.ssh/sockets/%r@%h-%p kohkiakiba@192.1
 - 旧 repo の配置: `/home/file_server2/kohkiakiba/fairness`（container 内 `/workspaces/fairness`）
 - **この repo の remote 配置・container 名・データ置き場は未確定。** 初回は ws_docker.md の
   baseline 確認から決め、決まった値をこの節に追記する
+
+## ws11 メモ
+
+- アドレス: `kohkiakiba@192.168.1.21`。A100 80GB × 9（index 0-8）。uid:gid は `10090:10091`
+- repo の配置: `/mnt/fast/kohkiakiba/hypernet-fairness`（container 内 `/workspaces/hypernet-fairness`）
+- データ置き場: `/mnt/fast/kohkiakiba/fairness_data`。container には**同じ path** で `:ro` mount する
+- image: `hypernet-fairness`。baseline は run ごとの container（`hypernet_iter_*_20260924_retry1`、
+  `hypernet_e2e_dann_*_20260924_retry1`）で、mount・IPC はそれに揃える
+- 常駐 container `hypernet-fairness-adversary-strength` は `.netrc` を mount していない。学習の
+  起動に使わない（上の「起動」）
+- W&B project は `fairness_hypernet`（entity `kohki-akiba-kyushu-university`）
