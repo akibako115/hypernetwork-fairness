@@ -18,18 +18,19 @@ def demographic_group_ids(
     cardinalities: Sequence[int],
     *,
     group_key: str,
+    missing_values: Mapping[str, int] | None = None,
 ) -> pd.Series:
     """属性値の組を mixed-radix で 1 つの group ID に畳み、`[0, prod(cardinalities))` を返す。
 
-    `attribute_names` の先頭ほど上位桁になる。欠損は group を持たないので、欠損 flag が立った行が
-    1 行でもあれば例外を投げる。0 に丸めて先頭 group へ混ぜると、その group の loss だけが
-    静かに汚れて原因が追えなくなるため。
+    `attribute_names` の先頭ほど上位桁になる。通常、欠損は group を持たないので例外を投げる。
+    `missing_values` に属性ごとの値を明示した場合だけ、その値を欠損カテゴリとして使う。
 
     Args:
         frame: group 属性列とその `*_missing` 列を持つ split DataFrame
         attribute_names: group を構成する属性列名。先頭ほど上位桁になる
         cardinalities: 各属性が取りうる値の数。attribute_names と同じ長さ
         group_key: エラーメッセージに出す group ID の列名
+        missing_values: 欠損を独立カテゴリへ割り当てる属性ごとの値。未指定の属性は欠損を拒否する
 
     Returns:
         pd.Series: frame と同じ index の `int64` group ID
@@ -46,7 +47,11 @@ def demographic_group_ids(
         values = pd.to_numeric(frame[name], errors="coerce")
         missing = frame[missing_name].astype(bool) | values.isna()
         if missing.any():
-            raise ValueError(f"group 属性 {name!r} が欠損した行は {group_key} を決められない: {frame.loc[missing, 'image'].head(5).tolist()}")
+            if missing_values is None or name not in missing_values:
+                raise ValueError(f"group 属性 {name!r} が欠損した行は {group_key} を決められない: {frame.loc[missing, 'image'].head(5).tolist()}")
+            fill_value = int(missing_values[name])
+            values = values.fillna(fill_value)
+            values.loc[missing] = fill_value
         values = values.astype("int64")
         out_of_range = (values < 0) | (values >= cardinality)
         if out_of_range.any():
@@ -122,6 +127,7 @@ class GroupImageDataModule(ImageDataModule):
         group_cardinalities: Sequence[int],
         num_groups: int,
         group_key: str = "group_id",
+        group_missing_values: Mapping[str, int] | None = None,
         prefetch_factor: int | None = None,
         train_sampling: str = "uniform",
         attribute_names: Mapping[str, Sequence[str]] | None = None,
@@ -163,6 +169,7 @@ class GroupImageDataModule(ImageDataModule):
             train_transform=train_transform,
             val_transform=val_transform,
         )
+        self.group_missing_values = group_missing_values
 
     def setup(self, stage: str) -> None:
         """親の Dataset を構築し、fit の train split が全 group を含むことを確かめる。
@@ -198,6 +205,7 @@ class GroupImageDataModule(ImageDataModule):
             self.hparams.group_attribute_names,
             self.hparams.group_cardinalities,
             group_key=self.hparams.group_key,
+            missing_values=self.group_missing_values,
         )
         return GroupImageDataset(
             frame,

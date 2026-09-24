@@ -218,7 +218,7 @@ def test_group_presets_pair_the_grouped_datamodule_with_a_group_objective(experi
     assert cfg.model.loss_fn.group_key == cfg.data.group_key
 
 
-def test_age_race_group_preset_uses_the_intersectional_12_group_definition() -> None:
+def test_age_race_group_preset_uses_the_intersectional_14_group_definition() -> None:
     for experiment in (
         "spatial_lora_chexpert_age_race_group_dro",
         "spatial_lora_chexpert_from_resnet_age_race_group_dro",
@@ -226,8 +226,9 @@ def test_age_race_group_preset_uses_the_intersectional_12_group_definition() -> 
         cfg = _compose(f"experiment={experiment}")
 
         assert list(cfg.data.group_attribute_names) == ["age_group_65", "race"]
-        assert list(cfg.data.group_cardinalities) == [2, 6]
-        assert cfg.data.num_groups == cfg.model.loss_fn.num_groups == 12
+        assert list(cfg.data.group_cardinalities) == [2, 7]
+        assert cfg.data.num_groups == cfg.model.loss_fn.num_groups == 14
+        assert cfg.data.group_missing_values.race == 6
 
     stage2 = _compose("experiment=spatial_lora_chexpert_from_resnet_age_race_group_dro")
     assert stage2.model.freeze_backbone is True

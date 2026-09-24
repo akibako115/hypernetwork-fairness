@@ -13,8 +13,8 @@ E2E 条件は、同じ fairness objective を初期学習から与えた対照�
 
 ## 群定義
 
-`age_group_65`（age < 65 / age >= 65）× `race`（6カテゴリ）の12群。train split では全群が
-非空で、最小セルは106件。
+`age_group_65`（age < 65 / age >= 65）× `race`（6カテゴリ + missingカテゴリ）の14群。
+train split では全群が非空で、最小セルは106件。
 
 ## 対象 run
 

@@ -170,6 +170,7 @@ def _resolve_inverse_class_weights(config: DictConfig) -> None:
             config.data.group_attribute_names,
             config.data.group_cardinalities,
             group_key=config.data.group_key,
+            missing_values=config.data.get("group_missing_values"),
         )
         weights = _group_inverse_frequency_weights(frame["target"].tolist(), group_ids.tolist(), int(config.data.num_groups), num_classes)
     else:
