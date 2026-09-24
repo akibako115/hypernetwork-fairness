@@ -116,6 +116,21 @@ def test_default_callbacks_include_metrics_and_fairness_without_text_progress() 
     assert cfg.callbacks.model_checkpoint._target_ == "projects.hypernet_e2e.callbacks.checkpoint.LastEpochModelCheckpoint"
 
 
+@pytest.mark.parametrize("name", _preset_names())
+def test_every_preset_keeps_the_final_epoch_as_last_checkpoint(name: str) -> None:
+    """`save_last` を持つ checkpoint は、標準の `ModelCheckpoint` へ戻さない。
+
+    標準の `ModelCheckpoint` は `save_top_k=1` のとき `last.ckpt` を best の epoch で止める。
+    preset が callback を差し替えても、`last` が最終 epoch を指し続けることを固定する。
+    """
+    cfg = _compose(f"experiment={name}", "study=scratch")
+
+    assert cfg.callbacks.model_checkpoint.save_last is True
+    for key, value in cfg.callbacks.items():
+        if value.get("save_last") is True:
+            assert value._target_ == "projects.hypernet_e2e.callbacks.checkpoint.LastEpochModelCheckpoint", key
+
+
 def test_default_logger_is_wandb_with_its_output_left_to_the_run_record() -> None:
     cfg = _compose("experiment=spatial_lora_chexpert", "study=scratch")
 
