@@ -10,7 +10,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
-from projects.hypernet_e2e.loss import AttributeInvariantTaskLoss, ObjectiveInput, TaskLoss
+from projects.hypernet_e2e.loss import (
+    AlternatingAttributeInvariantTaskLoss,
+    AttributeInvariantTaskLoss,
+    ObjectiveInput,
+    TaskLoss,
+)
 from projects.hypernet_e2e.module import LitModule
 
 
@@ -175,6 +180,72 @@ def test_optimizer_factory_stays_out_of_the_checkpoint_hparams() -> None:
 def test_freezing_the_backbone_requires_a_checkpoint_to_freeze() -> None:
     with pytest.raises(ValueError, match="backbone_checkpoint_path"):
         _module(freeze_backbone=True)
+
+
+def _alfr_objective() -> AlternatingAttributeInvariantTaskLoss:
+    return AlternatingAttributeInvariantTaskLoss(
+        TaskLoss(),
+        feature_dim=1,
+        input_attribute_names={"categorical": ["sex"], "continuous": []},
+        adversarial_attribute_names={"categorical": ["sex"], "continuous": []},
+        categorical_cardinalities=[2],
+        hidden_dim=3,
+    )
+
+
+def _alfr_batch() -> tuple[torch.Tensor, dict[str, torch.Tensor], torch.Tensor]:
+    return (
+        torch.randn(4, 3, 4, 4),
+        {
+            "categorical": torch.tensor([[0], [1], [0], [1]]),
+            "categorical_missing": torch.zeros(4, 1, dtype=torch.bool),
+            "continuous": torch.empty(4, 0),
+            "continuous_missing": torch.empty(4, 0, dtype=torch.bool),
+        },
+        torch.tensor([0, 1, 0, 1]),
+    )
+
+
+def test_alfr_configures_disjoint_task_and_adversary_optimizers() -> None:
+    objective = _alfr_objective()
+    module = _module(
+        loss_fn=objective,
+        optimizer=lambda params: torch.optim.SGD(params, lr=0.1),
+        adversary_optimizer=lambda params: torch.optim.SGD(params, lr=0.2),
+    )
+    module._trainer = SimpleNamespace(model=module)
+    task_optimizer, adversary_optimizer = module.configure_optimizers()
+    task_ids = {id(parameter) for group in task_optimizer.param_groups for parameter in group["params"]}
+    adversary_ids = {id(parameter) for group in adversary_optimizer.param_groups for parameter in group["params"]}
+    expected_adversary_ids = {id(parameter) for parameter in objective.adversary_parameters()}
+    assert task_ids.isdisjoint(adversary_ids)
+    assert adversary_ids == expected_adversary_ids
+    assert module.automatic_optimization is False
+
+
+def test_trainer_runs_one_alfr_epoch_and_updates_both_sides(tmp_path) -> None:
+    objective = _alfr_objective()
+    module = _module(
+        loss_fn=objective,
+        optimizer=lambda params: torch.optim.SGD(params, lr=0.1),
+        adversary_optimizer=lambda params: torch.optim.SGD(params, lr=0.1),
+    )
+    before_net = module.net.fc.weight.detach().clone()
+    before_adversary = next(objective.attribute_adversary.parameters()).detach().clone()
+    loader = DataLoader([_alfr_batch()], batch_size=None)
+    trainer = L.Trainer(
+        accelerator="cpu",
+        devices=1,
+        max_epochs=1,
+        logger=False,
+        enable_checkpointing=False,
+        enable_model_summary=False,
+        enable_progress_bar=False,
+        default_root_dir=tmp_path,
+    )
+    trainer.fit(module, train_dataloaders=loader)
+    assert not torch.equal(module.net.fc.weight, before_net)
+    assert not torch.equal(next(objective.attribute_adversary.parameters()), before_adversary)
 
 
 def test_feature_requiring_loss_receives_features_and_its_parameters_enter_the_optimizer() -> None:

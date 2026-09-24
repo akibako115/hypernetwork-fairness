@@ -5,6 +5,7 @@
 """
 
 from .objectives import (
+    AlternatingAttributeInvariantTaskLoss,
     AttributeInvariantTaskLoss,
     ClassBalancedGroupDROTaskLoss,
     GroupDROTaskLoss,
@@ -14,6 +15,7 @@ from .objectives import (
 )
 
 __all__ = [
+    "AlternatingAttributeInvariantTaskLoss",
     "AttributeInvariantTaskLoss",
     "ClassBalancedGroupDROTaskLoss",
     "GroupDROTaskLoss",

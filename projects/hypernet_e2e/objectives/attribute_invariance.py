@@ -1,5 +1,6 @@
 """GRL による属性不変な backbone 学習 objective を定義する。"""
 
+import math
 from collections.abc import Mapping, Sequence
 
 import torch
@@ -54,9 +55,15 @@ class _AttributeAdversary(nn.Module):
         self.categorical_heads = nn.ModuleList([nn.Linear(hidden_dim, cardinality) for cardinality in categorical_cardinalities])
         self.continuous_head = nn.Linear(hidden_dim, num_continuous) if num_continuous else None
 
-    def component_losses(self, features: torch.Tensor, attributes: Mapping[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    def component_losses(
+        self,
+        features: torch.Tensor,
+        attributes: Mapping[str, torch.Tensor],
+        gradient_scale: float | None = None,
+    ) -> dict[str, torch.Tensor]:
         """選択済み属性ごとの観測済み損失を返す。"""
-        hidden = self.trunk(_GradientReverse.apply(features, self.gradient_scale))
+        scale = self.gradient_scale if gradient_scale is None else gradient_scale
+        hidden = self.trunk(_GradientReverse.apply(features, scale))
         losses: dict[str, torch.Tensor] = {}
         if self.categorical_heads:
             categorical = attributes["categorical"]
@@ -107,6 +114,7 @@ class AttributeInvariantTaskLoss(nn.Module):
         hidden_dim: int = 256,
         gradient_scale: float = 1.0,
         attribute_adversary_weight: float = 1.0,
+        gradient_schedule: Mapping[str, float] | None = None,
     ) -> None:
         """task loss、full attribute spec、および選択済み属性予測器を構築する。
 
@@ -120,6 +128,8 @@ class AttributeInvariantTaskLoss(nn.Module):
             hidden_dim: 内部属性予測器の隠れ次元。1 以上。
             gradient_scale: backbone へ逆向きに渡す勾配の倍率。0 以上。
             attribute_adversary_weight: task loss に加える属性予測損失の重み。0 以上。
+            gradient_schedule: GRL scale の schedule。``{"name": "dann", "gamma": 10.0,
+                "max_scale": 1.0}`` を指定すると DANN schedule を使う。None は固定 scale。
 
         Returns:
             None
@@ -171,6 +181,48 @@ class AttributeInvariantTaskLoss(nn.Module):
             gradient_scale,
         )
         self.attribute_adversary_weight = attribute_adversary_weight
+        schedule = dict(gradient_schedule or {})
+        schedule_name = str(schedule.pop("name", "constant"))
+        gamma = float(schedule.pop("gamma", 10.0))
+        max_scale = float(schedule.pop("max_scale", gradient_scale))
+        if schedule_name not in {"constant", "dann"}:
+            raise ValueError(f"gradient_schedule.name は constant または dann である必要がある: {schedule_name}")
+        if schedule:
+            unknown = ", ".join(sorted(schedule))
+            raise ValueError(f"gradient_schedule に未知の設定がある: {unknown}")
+        self._gradient_schedule_name = schedule_name
+        self._gradient_schedule_gamma = gamma
+        self._gradient_schedule_max_scale = max_scale
+        if self._gradient_schedule_gamma <= 0 or self._gradient_schedule_max_scale < 0:
+            raise ValueError("gradient_schedule.gamma は正、max_scale は非負である必要がある")
+        self._active_gradient_scale = float(gradient_scale)
+
+    def set_training_progress(self, progress: float) -> None:
+        """学習進捗に応じて GRL scale を更新する。
+
+        Args:
+            progress: 学習全体の進捗。0 以上 1 以下に丸める。
+
+        Returns:
+            None
+
+        Raises:
+            ValueError: progress が有限でない場合。
+        """
+        if not math.isfinite(progress):
+            raise ValueError(f"training progress must be finite, got {progress}")
+        progress = min(max(float(progress), 0.0), 1.0)
+        if self._gradient_schedule_name == "dann":
+            scale = self._gradient_schedule_max_scale * (2.0 / (1.0 + math.exp(-self._gradient_schedule_gamma * progress)) - 1.0)
+        else:
+            scale = self._active_gradient_scale
+        self._active_gradient_scale = scale
+        self.attribute_adversary.gradient_scale = scale
+
+    @property
+    def adversary_scale(self) -> float:
+        """現在の GRL scale を返す。"""
+        return self._active_gradient_scale
 
     def forward(self, inputs: ObjectiveInput) -> torch.Tensor:
         """task loss と選択属性の重み付き予測損失を合成して返す。
@@ -234,3 +286,31 @@ class AttributeInvariantTaskLoss(nn.Module):
             selected[kind] = values.index_select(1, indices)
             selected[f"{kind}_missing"] = missing.index_select(1, indices)
         return selected
+
+
+class AlternatingAttributeInvariantTaskLoss(AttributeInvariantTaskLoss):
+    """adversary と task/backbone を交互に更新する属性不変化 objective。"""
+
+    requires_manual_optimization = True
+
+    def adversary_loss(self, inputs: ObjectiveInput) -> torch.Tensor:
+        """feature を固定して adversary だけを学習する loss を返す。
+
+        Args:
+            inputs: logits、属性辞書、および backbone feature を持つ入力。
+
+        Returns:
+            torch.Tensor: adversary parameter だけに勾配を流す scalar loss。
+
+        Raises:
+            ValueError: feature が指定されていない場合。
+        """
+        if inputs.features is None:
+            raise ValueError("AlternatingAttributeInvariantTaskLoss には ObjectiveInput.features が必要")
+        selected = self._select_attributes(inputs.attributes)
+        losses = self.attribute_adversary.component_losses(inputs.features.detach(), selected, gradient_scale=0.0)
+        return torch.stack(list(losses.values())).mean() if losses else inputs.features.sum() * 0
+
+    def adversary_parameters(self) -> list[nn.Parameter]:
+        """交互更新で adversary optimizer が所有する parameter を返す。"""
+        return list(self.attribute_adversary.parameters())

@@ -21,6 +21,8 @@ EXPERIMENT_DIR = CONFIG_DIR / "experiment"
 CHEXPERT_PRESETS: dict[str, tuple[str, str, str]] = {
     "resnet_chexpert": ("inverse", "uniform", "erm"),
     "resnet_chexpert_attribute_invariant": ("inverse", "uniform", "erm"),
+    "resnet_chexpert_attribute_invariant_dann": ("inverse", "uniform", "erm"),
+    "resnet_chexpert_attribute_invariant_alfr": ("inverse", "uniform", "erm"),
     "resnet_chexpert_group_dro": ("inverse", "uniform", "group_dro"),
     "resnet_chexpert_inverse_weighted_sampling": ("none", "inverse_frequency", "erm"),
     "spatial_lora_chexpert": ("inverse", "uniform", "erm"),
@@ -145,6 +147,19 @@ def test_from_resnet_preset_freezes_the_backbone_and_demands_a_stage1_checkpoint
     assert cfg.model.backbone_checkpoint_path is None
     with pytest.raises(Exception, match="backbone_checkpoint_path"):
         instantiate(cfg.model)
+
+
+def test_attribute_invariant_variants_compose_with_expected_objectives() -> None:
+    dann = _compose("experiment=resnet_chexpert_attribute_invariant_dann")
+    alfr = _compose("experiment=resnet_chexpert_attribute_invariant_alfr")
+
+    assert dann.model.loss_fn._target_.endswith("AttributeInvariantTaskLoss")
+    assert dann.model.loss_fn.attribute_adversary_weight == 1.0
+    assert dann.model.loss_fn.gradient_schedule.name == "dann"
+    assert alfr.model.loss_fn._target_.endswith("AlternatingAttributeInvariantTaskLoss")
+    assert alfr.model.adversary_optimizer._target_.endswith("AdamW")
+    assert instantiate(dann.model).automatic_optimization is True
+    assert instantiate(alfr.model).automatic_optimization is False
 
 
 def test_attribute_invariant_stage1_and_its_stage2_preset_compose() -> None:

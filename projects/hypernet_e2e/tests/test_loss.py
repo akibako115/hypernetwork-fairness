@@ -3,6 +3,7 @@ import torch
 import torch.nn.functional as F
 
 from projects.hypernet_e2e.loss import (
+    AlternatingAttributeInvariantTaskLoss,
     AttributeInvariantTaskLoss,
     ClassBalancedGroupDROTaskLoss,
     GroupDROTaskLoss,
@@ -58,6 +59,43 @@ def test_gradient_reverse_negates_only_the_feature_gradient() -> None:
     (_GradientReverse.apply(features, 0.5) * weights).sum().backward()
 
     assert torch.equal(features.grad, -0.5 * weights)
+
+
+def test_dann_gradient_schedule_warms_up_monotonically() -> None:
+    objective = _attribute_invariant_loss(
+        gradient_schedule={"name": "dann", "gamma": 10.0, "max_scale": 1.0},
+    )
+    objective.set_training_progress(0.0)
+    start = objective.adversary_scale
+    objective.set_training_progress(0.5)
+    middle = objective.adversary_scale
+    objective.set_training_progress(1.0)
+    end = objective.adversary_scale
+    assert start == pytest.approx(0.0)
+    assert 0.0 < middle < end <= 1.0
+
+
+def test_alfr_adversary_loss_updates_only_the_adversary() -> None:
+    objective = AlternatingAttributeInvariantTaskLoss(
+        TaskLoss(),
+        feature_dim=2,
+        input_attribute_names=_ONE_CATEGORICAL_ATTRIBUTE,
+        adversarial_attribute_names=_ONE_CATEGORICAL_ATTRIBUTE,
+        categorical_cardinalities=[2],
+    )
+    features = torch.randn(4, 2, requires_grad=True)
+    inputs = ObjectiveInput(
+        logits=torch.randn(4, 2, requires_grad=True),
+        target=torch.tensor([0, 1, 0, 1]),
+        attributes={
+            "categorical": torch.tensor([[0], [1], [0], [1]]),
+            "categorical_missing": torch.zeros(4, 1, dtype=torch.bool),
+        },
+        features=features,
+    )
+    objective.adversary_loss(inputs).backward()
+    assert features.grad is None
+    assert any(parameter.grad is not None for parameter in objective.adversary_parameters())
 
 
 def test_attribute_invariant_task_loss_combines_task_and_observed_attribute_losses() -> None:

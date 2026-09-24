@@ -36,6 +36,7 @@ class LitModule(L.LightningModule):
         loss_fn: nn.Module,
         optimizer: Callable[..., torch.optim.Optimizer] | None,
         scheduler: Callable[..., Any] | None,
+        adversary_optimizer: Callable[..., torch.optim.Optimizer] | None = None,
         compile: bool = False,
         use_attributes: bool = False,
         backbone_checkpoint_path: str | None = None,
@@ -50,6 +51,7 @@ class LitModule(L.LightningModule):
             loss_fn: `ObjectiveInput` から task loss を計算する目的関数。
             optimizer: trainable parameter を受けて optimizer を作る factory。
             scheduler: optimizer を受けて scheduler を作る任意の factory。
+            adversary_optimizer: ALFR の adversary optimizer factory。None なら optimizer を再利用する。
             compile: `torch.compile` を fit 開始時に使うか。
             use_attributes: net の forward に属性辞書を渡すか。
             backbone_checkpoint_path: 初期化または第2段用に読む checkpoint の path。
@@ -72,11 +74,13 @@ class LitModule(L.LightningModule):
         # optimizer / scheduler factory は lambda や Hydra partial を取り得る。hparams に残すと
         # checkpoint に pickle され、load 側が同じ import を解決できることを要求してしまう。
         # ignore して実行中の module だけが保持し、Lightning のシリアライズ経路から切り離す。
-        self.save_hyperparameters(logger=False, ignore=["net", "loss_fn", "optimizer", "scheduler"])
+        self.save_hyperparameters(logger=False, ignore=["net", "loss_fn", "optimizer", "scheduler", "adversary_optimizer"])
         self.net = net
         self.loss_fn = loss_fn
         self._optimizer_factory = optimizer
         self._scheduler_factory = scheduler
+        self._adversary_optimizer_factory = adversary_optimizer
+        self.automatic_optimization = not getattr(loss_fn, "requires_manual_optimization", False)
         self.use_attributes = use_attributes
         self.attribute_names = attribute_names
         self.fairness_attribute_names = fairness_attribute_names
@@ -127,6 +131,9 @@ class LitModule(L.LightningModule):
             dict[str, Any]: `loss` / `logits` / `preds` / `target` / `attributes`。
                 callback がこれを epoch 集計に使う。`loss` は backward 可能なまま返す
         """
+        self._update_adversary_progress()
+        if not self.automatic_optimization:
+            return self._alternating_training_step(batch)
         logits, preds, target, attributes, features = self._shared_step(batch)
         inputs = ObjectiveInput(logits=logits, target=target, attributes=attributes, features=features)
         components = self._objective_components(inputs)
@@ -233,7 +240,7 @@ class LitModule(L.LightningModule):
             return load_compatible_state_dict(self.net.backbone, backbone_dict, load_fc=load_fc)
         return load_compatible_state_dict(self.net, state_dict, load_fc=load_fc)
 
-    def configure_optimizers(self) -> dict[str, Any]:
+    def configure_optimizers(self) -> dict[str, Any] | list[torch.optim.Optimizer]:
         """学習可能な model / loss parameter から optimizer と任意 scheduler を構築する。
 
         Args:
@@ -249,6 +256,21 @@ class LitModule(L.LightningModule):
         """
         if self._optimizer_factory is None:
             raise ValueError("optimizer を指定する必要がある")
+        if not self.automatic_optimization:
+            if self._scheduler_factory is not None:
+                raise ValueError("ALFR の manual optimization は scheduler をまだサポートしない")
+            if not hasattr(self.loss_fn, "adversary_parameters"):
+                raise TypeError("manual optimization の loss は adversary_parameters() を実装する必要がある")
+            adversary_parameters = list(self.loss_fn.adversary_parameters())
+            adversary_ids = {id(parameter) for parameter in adversary_parameters}
+            task_parameters = [parameter for parameter in self.net.parameters() if parameter.requires_grad]
+            task_parameters.extend(parameter for parameter in self.loss_fn.parameters() if parameter.requires_grad and id(parameter) not in adversary_ids)
+            if not task_parameters or not adversary_parameters:
+                raise ValueError("ALFR の task/adversary optimizer に trainable parameter が必要")
+            task_optimizer = self._optimizer_factory(params=task_parameters)
+            adversary_factory = self._adversary_optimizer_factory or self._optimizer_factory
+            adversary_optimizer = adversary_factory(params=adversary_parameters)
+            return [task_optimizer, adversary_optimizer]
         parameters = [parameter for parameter in self.parameters() if parameter.requires_grad]
         if not parameters:
             raise ValueError("optimizer 構成に使う trainable parameter が見つからない")
@@ -260,6 +282,54 @@ class LitModule(L.LightningModule):
             "optimizer": optimizer,
             "lr_scheduler": {"scheduler": scheduler, "monitor": "val/loss", "interval": "epoch", "frequency": 1},
         }
+
+    def _update_adversary_progress(self) -> None:
+        """DANN objective に現在の fit 進捗を渡す。"""
+        if not hasattr(self.training_objective, "set_training_progress") or self._trainer is None:
+            return
+        total_steps = max(int(getattr(self.trainer, "estimated_stepping_batches", 1)), 1)
+        progress = min(float(getattr(self, "global_step", 0)) / max(total_steps - 1, 1), 1.0)
+        self.training_objective.set_training_progress(progress)
+        if hasattr(self._trainer, "barebones"):
+            self.log("train/adversary_scale", self.training_objective.adversary_scale, on_step=False, on_epoch=True)
+
+    def _alternating_training_step(self, batch: tuple[Any, Mapping[str, torch.Tensor], torch.Tensor]) -> dict[str, Any]:
+        """ALFR の adversary update と representation update を1:1で実行する。"""
+        task_optimizer, adversary_optimizer = self.optimizers()
+        # adversary update は feature を detach して行うため、ここで backbone の
+        # BatchNorm running statistics まで二重に更新しない。task update 側だけを
+        # train mode にして、1 iteration を 1 回の表現更新として扱う。
+        was_training = self.net.training
+        self.net.eval()
+        try:
+            logits, preds, target, attributes, features = self._shared_step(batch)
+        finally:
+            self.net.train(was_training)
+        adversary_inputs = ObjectiveInput(logits=logits, target=target, attributes=attributes, features=features)
+        adversary_optimizer.zero_grad()
+        adversary_loss = self.training_objective.adversary_loss(adversary_inputs)
+        self.manual_backward(adversary_loss)
+        adversary_optimizer.step()
+
+        logits, preds, target, attributes, features = self._shared_step(batch)
+        inputs = ObjectiveInput(logits=logits, target=target, attributes=attributes, features=features)
+        adversary_parameters = list(self.training_objective.adversary_parameters())
+        previous_requires_grad = [parameter.requires_grad for parameter in adversary_parameters]
+        for parameter in adversary_parameters:
+            parameter.requires_grad_(False)
+        try:
+            task_optimizer.zero_grad()
+            components = self._objective_components(inputs)
+            loss = components["loss"]
+            self.manual_backward(loss)
+            task_optimizer.step()
+        finally:
+            for parameter, requires_grad in zip(adversary_parameters, previous_requires_grad, strict=True):
+                parameter.requires_grad_(requires_grad)
+        self._log_objective_components("train", components)
+        if hasattr(self._trainer, "barebones"):
+            self.log("train/alfr/adversary_loss", adversary_loss.detach(), on_step=False, on_epoch=True)
+        return self._step_output(loss, logits, preds, target, attributes, detach_loss=False)
 
     def _shared_step(self, batch: tuple[Any, Mapping[str, torch.Tensor], torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, Mapping[str, torch.Tensor], torch.Tensor | None]:
         image, attributes, target = batch

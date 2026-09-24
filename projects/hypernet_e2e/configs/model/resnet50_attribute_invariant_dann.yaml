@@ -28,10 +28,11 @@ loss_fn:
   num_continuous: ${data.attribute_spec.continuous_dim}
   hidden_dim: 256
   gradient_scale: 1.0
-  attribute_adversary_weight: 0.1
-
-# 第1段: GRL は属性予測器を強化しつつ、backbone には属性予測を悪化させる勾配を渡す。
-# λ は `attribute_adversary_weight * gradient_scale` として効く。
+  attribute_adversary_weight: 1.0
+  gradient_schedule:
+    name: dann
+    gamma: 10.0
+    max_scale: 1.0
 
 use_attributes: false
 backbone_checkpoint_path: ${paths.checkpoints_dir}/resnet50_imagenet.pth
