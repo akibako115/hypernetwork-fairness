@@ -38,4 +38,9 @@ probe が chance へ落ちていない水準の gap を読んでも、[initial_r
 seed を積んでも、効いていない設定の分散が精密になるだけになる。水準が決まってから seed を足す。
 したがって **この package の数値は、まだ手法の比較に使えない**（n=1）。
 
+**adversary head 自身が属性を読めていない。** loss を記録して回し直した 4 本では、λ=1〜10 のどれでも
+adversary loss が数 epoch で「事前分布だけを答える予測器」の水準に張り付く。λ=1 の head は、入力に sex の情報が
+残っているのに AUROC 0.50 だった（[adversary_head.md](reports/adversary_head.md)）。λ を振る前に、
+head が属性を追えるようにする必要がある。
+
 対象 run は [runs.md](runs.md) を正本とする。
