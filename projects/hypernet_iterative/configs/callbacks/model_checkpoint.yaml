@@ -1,5 +1,7 @@
 model_checkpoint:
-  _target_: lightning.pytorch.callbacks.ModelCheckpoint
+  # Lightning の ModelCheckpoint は top-k を保存しない epoch に last.ckpt を更新しない。
+  # 次 stage の warm-start と cohort 生成は last を読むので、最終 epoch を残す subclass を使う。
+  _target_: projects.hypernet_iterative.callbacks.checkpoint.LastEpochModelCheckpoint
   # workflow が予約した stage run_dir/checkpoints を注入する。未予約の共有出力先は使わない。
   dirpath: null
   filename: best_val_auroc_{epoch:03d}
