@@ -1,0 +1,13 @@
+defaults:
+  - chexpert
+  - _self_
+
+_target_: projects.hypernet_e2e.data.group_datamodule.GroupImageDataModule
+
+# age_group_65 × race の intersectional group。
+# age_group_65 は fairness_age_groups が raw age から生成し、race は split の categorical 属性を使う。
+group_attribute_names: [age_group_65, race]
+group_cardinalities: [2, 6]
+# Hydra は乗算できないため明示し、DataModule 側で積と突き合わせる。
+num_groups: 12
+group_key: group_id

@@ -26,6 +26,7 @@ CHEXPERT_PRESETS: dict[str, tuple[str, str, str]] = {
     "resnet_chexpert_group_dro": ("inverse", "uniform", "group_dro"),
     "resnet_chexpert_inverse_weighted_sampling": ("none", "inverse_frequency", "erm"),
     "spatial_lora_chexpert": ("inverse", "uniform", "erm"),
+    "spatial_lora_chexpert_age_race_group_dro": ("inverse", "uniform", "group_dro"),
     "spatial_lora_chexpert_fc": ("inverse", "uniform", "erm"),
     "spatial_lora_chexpert_stage4_fc": ("inverse", "uniform", "erm"),
     "spatial_lora_chexpert_group_dro": ("inverse", "uniform", "group_dro"),
@@ -33,6 +34,7 @@ CHEXPERT_PRESETS: dict[str, tuple[str, str, str]] = {
     "spatial_lora_chexpert_from_resnet": ("inverse", "uniform", "erm"),
     "spatial_lora_chexpert_from_attribute_invariant": ("inverse", "uniform", "erm"),
     "spatial_lora_chexpert_from_resnet_group_dro": ("inverse", "uniform", "group_dro"),
+    "spatial_lora_chexpert_from_resnet_age_race_group_dro": ("inverse", "uniform", "group_dro"),
 }
 
 
@@ -214,6 +216,22 @@ def test_group_presets_pair_the_grouped_datamodule_with_a_group_objective(experi
     # group 数は data 側の定義が正本であり、目的関数はそれを参照するだけにする。
     assert cfg.model.loss_fn.num_groups == cfg.data.num_groups == 4
     assert cfg.model.loss_fn.group_key == cfg.data.group_key
+
+
+def test_age_race_group_preset_uses_the_intersectional_12_group_definition() -> None:
+    for experiment in (
+        "spatial_lora_chexpert_age_race_group_dro",
+        "spatial_lora_chexpert_from_resnet_age_race_group_dro",
+    ):
+        cfg = _compose(f"experiment={experiment}")
+
+        assert list(cfg.data.group_attribute_names) == ["age_group_65", "race"]
+        assert list(cfg.data.group_cardinalities) == [2, 6]
+        assert cfg.data.num_groups == cfg.model.loss_fn.num_groups == 12
+
+    stage2 = _compose("experiment=spatial_lora_chexpert_from_resnet_age_race_group_dro")
+    assert stage2.model.freeze_backbone is True
+    assert stage2.model.backbone_checkpoint_path is None
 
 
 @pytest.mark.parametrize("strategy", ["erm", "uniform_group", "group_dro", "group_dro_balanced"])

@@ -1,0 +1,10 @@
+# @package _global_
+# Spatial LoRA を初期から学習し、age_group_65 × race の intersectional Group DRO を適用する。
+defaults:
+  - spatial_lora_chexpert
+  - override /data: chexpert_age_race_groups
+  - override /training_strategy: group_dro
+  - _self_
+
+experiment_name: spatial-lora-chexpert-age-race-group-dro
+tags: [intersectional_demographic_fairness]

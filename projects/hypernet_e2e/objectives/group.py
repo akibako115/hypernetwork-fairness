@@ -11,6 +11,46 @@ from .input import ObjectiveInput
 from .task import _class_weight_tensor
 
 
+def _group_class_weight_tensor(
+    class_weight: Sequence[float] | Sequence[Sequence[float]] | None,
+    *,
+    num_groups: int,
+) -> torch.Tensor | None:
+    """group ごとの class weight を検証して Tensor へ変換する。"""
+    if class_weight is None:
+        return None
+    values = list(class_weight)
+    if not values:
+        raise ValueError(f"class_weight must not be empty, got {values}")
+    if isinstance(values[0], Sequence) and not isinstance(values[0], (str, bytes)):
+        rows = [list(row) for row in values]
+        if len(rows) != num_groups:
+            raise ValueError(f"group ごとの class_weight は {num_groups} 行である必要があるが、{len(rows)} 行が指定された")
+        if not rows or len({len(row) for row in rows}) != 1 or not rows[0]:
+            raise ValueError(f"group ごとの class_weight は [num_groups, num_classes] である必要があるが、{values} が指定された")
+        weight = torch.tensor(rows, dtype=torch.float32)
+    else:
+        weight = _class_weight_tensor(values)
+    if weight is not None and (not torch.isfinite(weight).all() or (weight <= 0).any()):
+        raise ValueError(f"class_weight must contain only finite positive values, got {values}")
+    return weight
+
+
+def _per_sample_loss(
+    logits: torch.Tensor,
+    target: torch.Tensor,
+    group_ids: torch.Tensor,
+    weight: torch.Tensor | None,
+) -> torch.Tensor:
+    """group/class weight を適用した per-sample cross-entropy を返す。"""
+    losses = F.cross_entropy(logits, target, reduction="none")
+    if weight is None:
+        return losses
+    if weight.ndim == 1:
+        return losses * weight[target.long()]
+    return losses * weight[group_ids, target.long()]
+
+
 def _group_losses(per_sample_loss: torch.Tensor, group_ids: torch.Tensor, *, num_groups: int, group_key: str) -> tuple[torch.Tensor, torch.Tensor]:
     """全groupの平均loss（欠損groupは0）と観測マスクを返す。"""
     if group_ids.ndim != 1 or group_ids.shape != per_sample_loss.shape:
@@ -60,7 +100,7 @@ def _balanced_group_losses(cell_losses: torch.Tensor, observed: torch.Tensor) ->
 class UniformGroupTaskLoss(nn.Module):
     """観測されたgroupごとの平均cross-entropyを等重みで最適化する。"""
 
-    def __init__(self, num_groups: int, class_weight: Sequence[float] | None = None, group_key: str = "group_id"):
+    def __init__(self, num_groups: int, class_weight: Sequence[float] | Sequence[Sequence[float]] | None = None, group_key: str = "group_id"):
         """num_groups・group_key を検証し、class_weight を buffer 化する。
 
         Args:
@@ -79,7 +119,7 @@ class UniformGroupTaskLoss(nn.Module):
             raise ValueError(f"num_groups must be at least 2, got {num_groups}")
         if not group_key:
             raise ValueError("group_key must not be empty")
-        self.register_buffer("_class_weight", _class_weight_tensor(class_weight), persistent=False)
+        self.register_buffer("_class_weight", _group_class_weight_tensor(class_weight, num_groups=num_groups), persistent=False)
         self.num_groups = num_groups
         self.group_key = group_key
 
@@ -95,15 +135,16 @@ class UniformGroupTaskLoss(nn.Module):
         Raises:
             ValueError: `attributes[group_key]` の shape が `[B]` でない場合。
         """
-        per_sample_loss = F.cross_entropy(inputs.logits, inputs.target, weight=self._class_weight, reduction="none")
-        group_losses, observed = _group_losses(per_sample_loss, inputs.attributes[self.group_key].long(), num_groups=self.num_groups, group_key=self.group_key)
+        group_ids = inputs.attributes[self.group_key].long()
+        per_sample_loss = _per_sample_loss(inputs.logits, inputs.target, group_ids, self._class_weight)
+        group_losses, observed = _group_losses(per_sample_loss, group_ids, num_groups=self.num_groups, group_key=self.group_key)
         return group_losses[observed].mean()
 
 
 class GroupDROTaskLoss(nn.Module):
     """固定groupに対するonline Group DROの学習目的を計算する。"""
 
-    def __init__(self, num_groups: int, class_weight: Sequence[float] | None = None, step_size: float = 0.01, group_key: str = "group_id"):
+    def __init__(self, num_groups: int, class_weight: Sequence[float] | Sequence[Sequence[float]] | None = None, step_size: float = 0.01, group_key: str = "group_id"):
         """num_groups・step_size・group_key を検証し、一様初期化した adv_probs buffer を作る。
 
         Args:
@@ -126,7 +167,7 @@ class GroupDROTaskLoss(nn.Module):
         if not group_key:
             raise ValueError("group_key must not be empty")
         self.register_buffer("adv_probs", torch.full((num_groups,), 1.0 / num_groups))
-        self.register_buffer("_class_weight", _class_weight_tensor(class_weight), persistent=False)
+        self.register_buffer("_class_weight", _group_class_weight_tensor(class_weight, num_groups=num_groups), persistent=False)
         self.num_groups = num_groups
         self.step_size = float(step_size)
         self.group_key = group_key
@@ -143,8 +184,9 @@ class GroupDROTaskLoss(nn.Module):
         Raises:
             ValueError: `attributes[group_key]` の shape が `[B]` でない場合。
         """
-        per_sample_loss = F.cross_entropy(inputs.logits, inputs.target, weight=self._class_weight, reduction="none")
-        group_losses, _ = _group_losses(per_sample_loss, inputs.attributes[self.group_key].long(), num_groups=self.num_groups, group_key=self.group_key)
+        group_ids = inputs.attributes[self.group_key].long()
+        per_sample_loss = _per_sample_loss(inputs.logits, inputs.target, group_ids, self._class_weight)
+        group_losses, _ = _group_losses(per_sample_loss, group_ids, num_groups=self.num_groups, group_key=self.group_key)
         with torch.no_grad():
             updated = self.adv_probs * torch.exp(self.step_size * group_losses.detach())
             self.adv_probs.copy_(updated / updated.sum())
