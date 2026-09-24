@@ -10,26 +10,53 @@ run-id・状態・experiment・W&B URL の表は、`run.json` から生成でき
 uv run python analysis/common/studies.py iterative_probe
 ```
 
-ただし `study` は本実験より後に入れた key なので、**下の run は `study` を持たない**。加えて
-`study` が記録するのは「何のために回したか」だけなので、**どの run をこの分析が引用しているかは
+本実験の 4 本は `study=iterative_probe` を持つ。baseline と先行の探り run は `study` を入れる前の run なので
+持たない。加えて `study` が記録するのは「何のために回したか」だけなので、**どの run をこの分析が引用しているかは
 この表が恒久的な正本**になる（baseline のように、別の study のために回した run も引用する）。
 生成された表は補助として読む。ここに人が書くのは「なぜこの条件なのか」のほうとする。
 
 ## 本実験（2×2、seed 42）
 
 warmup 2 epoch → stage01 5 epoch → stage02 5 epoch、cohort 10 クラスタ、`weighting=inverse`、
-ResNet-50 ImageNet 初期化。ws11 の GPU 5〜8 で並列実行し、4 本とも `succeeded`。
+ResNet-50 ImageNet 初期化。ws11 で 4 本を並列実行し、4 本とも `succeeded`。
 
 | run-id | project | run path | W&B | 変調範囲 | step size | 所要 |
 |---|---|---|---|---|---|---|
-| `20260921T103222Z-iterative-s42-d24d` | `hypernet_iterative` | `analysis/iterative_probe/runs/20260921T103222Z-iterative-s42-d24d` | [run](https://wandb.ai/kohki-akiba-kyushu-university/fairness_hypernet/runs/8az23qej) | fc | 1e-3 | 54 分 |
-| `20260921T103225Z-iterative-s42-3166` | `hypernet_iterative` | `analysis/iterative_probe/runs/20260921T103225Z-iterative-s42-3166` | [run](https://wandb.ai/kohki-akiba-kyushu-university/fairness_hypernet/runs/ic6i26t6) | stage4, fc | 1e-3 | 64 分 |
-| `20260921T103219Z-iterative-s42-e992` | `hypernet_iterative` | `analysis/iterative_probe/runs/20260921T103219Z-iterative-s42-e992` | [run](https://wandb.ai/kohki-akiba-kyushu-university/fairness_hypernet/runs/1m2xowgf) | fc | 1e-2 | 54 分 |
-| `20260921T103225Z-iterative-s42-fac5` | `hypernet_iterative` | `analysis/iterative_probe/runs/20260921T103225Z-iterative-s42-fac5` | [run](https://wandb.ai/kohki-akiba-kyushu-university/fairness_hypernet/runs/gexb3ap4) | stage4, fc | 1e-2 | 64 分 |
+| `20260923T060357Z-spatial-lora-iterative-chexpert-fc-s42-64d2` | `hypernet_iterative` | `analysis/iterative_probe/runs/20260923T060357Z-spatial-lora-iterative-chexpert-fc-s42-64d2` | [run](https://wandb.ai/kohki-akiba-kyushu-university/fairness_hypernet/runs/u7gz2gk3) | fc | 1e-3 | 51 分 |
+| `20260923T060356Z-spatial-lora-iterative-chexpert-stage4-fc-s42-fdbc` | `hypernet_iterative` | `analysis/iterative_probe/runs/20260923T060356Z-spatial-lora-iterative-chexpert-stage4-fc-s42-fdbc` | [run](https://wandb.ai/kohki-akiba-kyushu-university/fairness_hypernet/runs/x9dvyz3x) | stage4, fc | 1e-3 | 60 分 |
+| `20260923T060357Z-spatial-lora-iterative-chexpert-fc-s42-bd9f` | `hypernet_iterative` | `analysis/iterative_probe/runs/20260923T060357Z-spatial-lora-iterative-chexpert-fc-s42-bd9f` | [run](https://wandb.ai/kohki-akiba-kyushu-university/fairness_hypernet/runs/raukij7a) | fc | 1e-2 | 51 分 |
+| `20260923T060357Z-spatial-lora-iterative-chexpert-stage4-fc-s42-56b1` | `hypernet_iterative` | `analysis/iterative_probe/runs/20260923T060357Z-spatial-lora-iterative-chexpert-stage4-fc-s42-56b1` | [run](https://wandb.ai/kohki-akiba-kyushu-university/fairness_hypernet/runs/32imd7v6) | stage4, fc | 1e-2 | 60 分 |
 
-コードは local の `8c33f20` に、`configs/experiment/spatial_lora_chexpert_{fc,stage4_fc}.yaml` の
-2 ファイルを加えた状態。ws11 側は `.git` を除外して同期しているため、`run.json` の `git_commit` は
-`null` である。
+2026-09-21 に同じ 2×2 を回したが（`20260921T1032*Z-iterative-s42-*`）、cohort ごとの loss・bacc を
+記録していなかったため logger を直して回し直し、旧 4 本は取り下げた。今回の run は stage01 / stage02 の
+`metrics.csv` に cohort ごとの `val/hidden_{loss,bacc,auroc,support}_NN` を持つ（warmup は cohort が
+無いので持たない）。属性ごとの群については、引き続き worst と gap までしか記録していない。
+
+ws11 側は `.git` を除外して同期しているため、`run.json` の `git_commit` は `null` である。
+
+### 選択 checkpoint
+
+分析に使うのは、各 run の `selected_checkpoint`（stage02 の中で val AUROC が最大の epoch）である。
+12 epoch を通した best ではない。4 本とも、val AUROC の最大値は warmup の最終 epoch にある。
+epoch は 0 始まりで、checkpoint 内の `epoch` / `global_step` と照合した。通し epoch は warmup 0–1、stage01 2–6、
+stage02 7–11 と数える。
+
+| run | stage02 の epoch | 通し epoch（全 12） | val AUROC |
+|---|---|---|---|
+| `…-fc-s42-64d2` | 2 | 9 | 0.8502 |
+| `…-stage4-fc-s42-fdbc` | 3 | 10 | 0.8495 |
+| `…-fc-s42-bd9f` | 1 | 8 | 0.8510 |
+| `…-stage4-fc-s42-56b1` | 0 | 7 | 0.8514 |
+
+baseline は `best_val_auroc_009.ckpt`（epoch 9、全 30）。
+
+**`run.json` の score はこの表と一致しない。** `selected_checkpoint.score` と
+`stages.*.checkpoints["val/auroc"].score` には、best の値ではなく各 stage の最終 epoch の値が入っている
+（例: `64d2` は best 0.8502 に対して記録は 0.8446）。原因は `projects/hypernet_iterative/stage.py` が、
+score を `checkpoint.best_model_score` ではなく fit 後の `trainer.callback_metrics` から取っていること。
+checkpoint の path は正しく、分析は score を読まないので、予測 cache には影響しない。
+run 記録は不変なので書き換えていない。best の score は checkpoint 内の `ModelCheckpoint` の状態か、
+`metrics.csv` から読む。
 
 ## 比較対象（baseline）
 
@@ -43,8 +70,8 @@ global 指標を並べるための通常 ResNet。e2e で回した run を、こ
 class weight `[0.201358, 1.798642]`、seed、transform が本実験と一致する。違うのは学習の中身
 （全体 ERM 30 epoch か、Spatial LoRA + cohort GroupDRO 12 epoch か）だけになる。
 
-この run は CSVLogger を付けずに回しているため、epoch 推移は `wandb/<run>/run-*.wandb` から読む。
-`collect.py --baseline <run-id>` がそれを行う。
+この run は CSVLogger を付けずに回しているため、epoch 推移は `wandb/<run>/run-*.wandb` から読む
+（`analysis/common/run_artifacts.read_wandb_history`。`global_training_curves.ipynb` が使う）。
 
 ## 先行する探り run
 
@@ -75,7 +102,7 @@ step size が小さく GroupDRO が動かなかった run。変調範囲も epoc
 
 群ごと・交差群ごとの公平性指標は run artifact に無い（属性ごとの worst と gap までしか記録して
 いない）。`analysis/common/predictions.py` が `selected_checkpoint`（iterative）と `best_val_auroc`（baseline）
-を test split で推論し、`cache/<run-id>_test.npz` に予測を置く。群の切り方は `groups.py` が決める。
+を test split で推論し、`cache/<run-id>_test.npz` に予測を置く。
 
 実行ログは `run_logs/` にあり、ファイル名は run-id と対応しない。必要なら run-id で引く。
 

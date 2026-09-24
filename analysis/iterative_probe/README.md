@@ -6,25 +6,44 @@
 
 ## 決めたいこと
 
-1. **GroupDRO の step size をどこに置くか。** 今回の `group_dro_step_size=0.001` は adversarial
-   weight をほとんど動かさない。実際 stage01 / stage02 とも `train/group_dro/q_*` は 0.09〜0.11 に
-   収まり、`weight_entropy` は一様分布の log(10)=2.303 付近に張り付いている。この run を
-   「GroupDRO が効いていない状態の反復」の基準線として使えるか、次にどれだけ上げるかを決める。
+1. **GroupDRO の step size をどこに置くか。** 先行の探り run（[runs.md](runs.md)）では
+   `group_dro_step_size=0.001` で `q` がほとんど動かなかった。本実験は 1e-3 と 1e-2 を並べ、
+   `q` がどこまで偏り、その代わりに global と群の性能がどう動くかを見る。
 2. **stage を重ねる価値があるか。** warmup → stage01 → stage02 で、global の `val/auroc` と
-   hidden cohort の `val/hidden_min_auroc` がどちらへ動くか。cohort は stage ごとに引き直されるため
-   stage 間で hidden group の対応が取れない点をどう扱うかも、ここで方針を決める。
-3. **epoch 数と stage 数の最小ライン。** warmup 2 epoch / stage 2 epoch では推移ではなく到達点しか
-   読めない。本番の実験で何 epoch 必要かの当たりを付ける。
+   hidden cohort の worst がどちらへ動くか。cohort は stage ごとに引き直されるので、stage をまたいで
+   hidden group を対応させることはできない。この点をどう扱うかも、ここで方針を決める。
+3. **変調範囲（`fc` / `stage4+fc`）を広げる価値があるか。**
+4. **epoch 数と stage 数の最小ライン。** 本番の実験で何 epoch 必要かの当たりを付ける。
 
 ## 対象 run
 
-変調範囲 × GroupDRO step size の 2×2（`runs/` に取り込み済み）と、global 指標の
-比較対象にする通常 ResNet（`analysis/iterative_probe/runs/20260921T103036Z-resnet-chexpert-s42-5538`）。
-run-id の一覧と中断した試行は [runs.md](runs.md) を見る。
+変調範囲 × GroupDRO step size の 2×2（seed 42）と、global 指標の比較対象にする通常 ResNet
+（ERM、30 epoch）を読む。5 本とも `runs/` に取り込み済みである。run-id と条件、選択 checkpoint の
+epoch は [runs.md](runs.md) を正本とする。
 
 baseline は [initial_resnet_vs_invariant](../initial_resnet_vs_invariant/) が invariant 化の対照に
-使っているものと同じ run になる。split の sha256・optimizer・batch size・class weight・seed が
-iterative 側と揃っているので、global の val 指標はそのまま並べて読める。
+使っている run と同じである。split の sha256・optimizer・batch size・class weight・seed が iterative 側と
+揃っているので、global の val 指標はそのまま並べて読める。val loss も両 project で同じ定義
+（重みを掛けない素の cross-entropy）である。
+
+## 読み方
+
+| 見るもの | 入力 | notebook / report |
+|---|---|---|
+| global 指標の epoch 推移（AUROC・bACC・loss） | `stages/*/metrics/metrics.csv`、baseline は W&B transaction log | [`global_training_curves.ipynb`](global_training_curves.ipynb) / [report](reports/global_training_curves.md) |
+| `q` と cohort ごとの性能推移、属性群の worst / gap / Eopp の推移 | `stages/*/metrics/metrics.csv`、baseline は W&B transaction log | [`subgroup_training_curves.ipynb`](subgroup_training_curves.ipynb) / [report](reports/subgroup_training_curves.md) |
+| cohort の属性・撮影方向の構成、cohort × class の class weight、`q` の上位・下位 cohort の構成 | `artifacts/cohorts/`、`stages/*/config.yaml`、train split CSV | [`cohort_composition.ipynb`](cohort_composition.ipynb) / [report](reports/cohort_composition.md) |
+| test の属性群・交差群の worst / best / gap | 予測 cache（`cache/<run-id>_test.npz`） | 未着手 |
+| 特徴量 | checkpoint から取る表現 | 未着手 |
+
+**global を払った分だけ群が良くなったのかを見る。** GroupDRO は worst を持ち上げる代わりに global を
+払いうる。global の推移だけで判断せず、群別の結果と組にして読む。
+
+## いまの段階
+
+**各条件 seed 1 本（42）の探り段階である。** 条件間の差は seed 間の揺れと区別できない。baseline 自身も
+epoch 間で val AUROC が 0.01 前後振れる。したがって、**この package の数値は推移の形と桁を読むためのもの**で、
+条件の優劣を決める根拠には使わない。
 
 ## 公平性の評価軸
 
@@ -68,22 +87,27 @@ gap だけでなく worst と best の値も出す。gap が縮んでも、worst
    - stage / epoch ごとの GroupDRO の `q`
    - hidden cohort やサブグループの性能推移
    - stage の切り替えと cohort の引き直しを踏まえた解釈
+   - cohort の中身（属性の構成と class weight）は学習前に決まる性質なので、推移とは別の notebook に置く
 3. **特徴量分析**
    - checkpoint から取得した特徴量の読み込み
    - 特徴量と属性・cohort・予測性能の関係
    - 必要に応じた低次元可視化や probe
 
-notebook のファイル名は、分析対象が一目で分かる名前を採用する。現在の `probe.ipynb` は既存結果を
-まとめて読む notebook として残っているが、今後の整理で上の 3 トピックへ分割する対象とする。
+notebook のファイル名は、分析対象が一目で分かる名前を採用する。いまある notebook は
+`global_training_curves.ipynb`（トピック 1 の global 推移）、`subgroup_training_curves.ipynb`（トピック 2 の推移）、
+`cohort_composition.ipynb`（トピック 2 の cohort の中身）。1 つの notebook には 1 つの問いの型（推移か、静的な構成か、
+test での比較か）だけを置く。
 
-既存の `epoch_metrics.py`、`cohort_analysis.py`、`baseline_comparison.py`、`groups.py`、
-`collect.py` は現在の実装として残っているが、新しい分析を追加する際の必須の分割単位ではない。
 まず notebook 内で分析を組み立て、同じ処理を複数の分析で使う、実行に時間がかかる、または処理が
-長くなって読めない、と分かった段階で外部モジュールへ切り出す。
+長くなって読めない、と分かった段階で外部モジュールへ切り出す。いま package にある module は次の 2 つで、
+どちらも notebook から import する（CLI は持たない）。
 
-例えば `groups.py` のような群定義・群別集計は、群の切り方自体がこの仮説固有の判断なので、まずは
-分析 notebook の中に置く。必要になった場合だけ `iterative_probe` 内の小さな module へ切り出し、
-群定義・集計関数などの重い実装をまとめる。実行順序、分析の意図、採用した判断は notebook に残す。
+| module | 持つもの | 切り出した理由 |
+|---|---|---|
+| `_shared.py` | iterative run の stage をまたいだ epoch 表と cohort 表の読み取り | 複数の notebook が同じ読み方をする |
+| `groups.py` | 属性群・交差群の切り方と、群別指標・worst / best / gap の定義 | 学習側と同じ定義であることを golden データで固定する（`analysis/tests/test_fairness_agreement.py`、`test_group_rows.py`） |
+
+どの run を比べるか、表や図をどこへ書くかは notebook が決め、module には置かない。
 
 予測 cache は共有 CLI（`analysis/common/predictions.py`）を使ってもよいが、cache の読み込みから
 群別指標の計算・可視化までを別々の script に分けること自体は要求しない。群ごとの公平性指標は
@@ -93,44 +117,29 @@ run artifact に無いため、群の切り方と指標の意味を分析 notebo
 決まった次の実験方針を置く。
 
 hidden cohort の epoch ログは cohort ごとの `AUROC`・`bACC`・`loss`（および support）を raw metric とし、
-`epoch_metrics.py` が `min`・`max`・`gap` を後計算する。これにより logger 側と分析側で派生指標の定義が
+`_shared.add_hidden_summaries` が `min`・`max`・`gap` を後計算する。これにより logger 側と分析側で派生指標の定義が
 重複しない。
 
 ## 再実行
 
 分析 notebook は、冒頭に対象 run、split、checkpoint、使用する入力の場所を明記し、kernel restart
-後に上から実行できる状態にする。run-id は条件順（fc 0.001 → fc 0.01 → stage4+fc 0.001 →
-stage4+fc 0.01）に並べる。表と図の並びがこの順になる。
+後に上から実行できる状態にする。run-id は条件順（fc 1e-3 → fc 1e-2 → stage4+fc 1e-3 →
+stage4+fc 1e-2）に並べる。表と図の並びがこの順になる。
 
-予測 cache が必要な場合は、notebook の分析を実行する前に共有 CLI で作成する。cache の作成自体を
-分析 notebook に埋め込むかどうかは、実行時間と再利用性を見て決める。
+予測 cache が必要な場合は、notebook の分析を実行する前に共有 CLI で作成する。
 
 ```bash
 uv run python analysis/common/predictions.py --study iterative_probe --split test \
   --run-dir analysis/iterative_probe/runs/20260921T103036Z-resnet-chexpert-s42-5538 \
-  --run-dir analysis/iterative_probe/runs/20260921T103222Z-iterative-s42-d24d \
-  --run-dir analysis/iterative_probe/runs/20260921T103219Z-iterative-s42-e992 \
-  --run-dir analysis/iterative_probe/runs/20260921T103225Z-iterative-s42-3166 \
-  --run-dir analysis/iterative_probe/runs/20260921T103225Z-iterative-s42-fac5
-uv run python analysis/iterative_probe/collect.py \
-  20260921T103222Z-iterative-s42-d24d 20260921T103219Z-iterative-s42-e992 \
-  20260921T103225Z-iterative-s42-3166 20260921T103225Z-iterative-s42-fac5 \
-  --baseline 20260921T103036Z-resnet-chexpert-s42-5538
-uv run python analysis/iterative_probe/groups.py --split test
+  --run-dir analysis/iterative_probe/runs/20260923T060357Z-spatial-lora-iterative-chexpert-fc-s42-64d2 \
+  --run-dir analysis/iterative_probe/runs/20260923T060357Z-spatial-lora-iterative-chexpert-fc-s42-bd9f \
+  --run-dir analysis/iterative_probe/runs/20260923T060356Z-spatial-lora-iterative-chexpert-stage4-fc-s42-fdbc \
+  --run-dir analysis/iterative_probe/runs/20260923T060357Z-spatial-lora-iterative-chexpert-stage4-fc-s42-56b1
 ```
 
-現在の script 群を使って既存の結果を再生成する場合は、次のコマンドを利用できる。ただし、これは
-今後の分析を必ずこの DAG に分解することを意味しない。
+notebook は repo root の kernel（`hypernet-fairness`）で開くか、次のように通しで実行する。
 
 ```bash
-uv run python analysis/iterative_probe/epoch_metrics.py \
-  20260921T103222Z-iterative-s42-d24d 20260921T103219Z-iterative-s42-e992 \
-  20260921T103225Z-iterative-s42-3166 20260921T103225Z-iterative-s42-fac5
-uv run python analysis/iterative_probe/cohort_analysis.py \
-  20260921T103222Z-iterative-s42-d24d 20260921T103219Z-iterative-s42-e992 \
-  20260921T103225Z-iterative-s42-3166 20260921T103225Z-iterative-s42-fac5
-uv run python analysis/iterative_probe/baseline_comparison.py \
-  20260921T103222Z-iterative-s42-d24d 20260921T103219Z-iterative-s42-e992 \
-  20260921T103225Z-iterative-s42-3166 20260921T103225Z-iterative-s42-fac5 \
-  --baseline 20260921T103036Z-resnet-chexpert-s42-5538
+cd analysis/iterative_probe && uv run jupyter nbconvert --to notebook --execute --inplace \
+  --ExecutePreprocessor.kernel_name=hypernet-fairness global_training_curves.ipynb subgroup_training_curves.ipynb cohort_composition.ipynb
 ```

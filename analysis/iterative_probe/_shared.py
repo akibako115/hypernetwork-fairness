@@ -10,21 +10,6 @@ import pandas as pd
 
 from analysis.common.run_artifacts import read_config, read_epoch_metrics
 
-HEADLINE = [
-    "val/auroc",
-    "val/bacc",
-    "val/loss",
-    "val/hidden_min_auroc",
-    "val/hidden_auroc_gap",
-    "val/hidden_min_bacc",
-    "train/group_dro/weight_entropy",
-    "train/group_dro/max_q",
-    "val/sex/worst_group_auroc",
-    "val/race/worst_group_auroc",
-    "val/ethnicity/worst_group_auroc",
-    "val/age_group_65/worst_group_auroc",
-]
-
 
 def add_hidden_summaries(row: dict[str, Any]) -> dict[str, Any]:
     """cohort ごとの raw 指標から hidden の派生サマリを後計算する。"""
@@ -40,8 +25,7 @@ def add_hidden_summaries(row: dict[str, Any]) -> dict[str, Any]:
             row["val/hidden_loss_gap"] = max(values) - min(values) if len(values) >= 2 else None
         else:
             row[f"val/hidden_min_{metric}"] = min(values) if values else None
-            if metric == "auroc":
-                row["val/hidden_auroc_gap"] = max(values) - min(values) if len(values) >= 2 else None
+            row[f"val/hidden_{metric}_gap"] = max(values) - min(values) if len(values) >= 2 else None
     auroc_values = [
         value
         for key, value in row.items()
@@ -105,3 +89,40 @@ def collect_cohort_rows(run_dir: Path) -> list[dict[str, Any]]:
                 }
             )
     return rows
+
+
+def rank_cohorts_by_q(epochs: pd.DataFrame, pick: int = 2, cohort_count: int = 10) -> pd.DataFrame:
+    """stage ごとに cohort を `q` の stage 内平均で順位付けし、上位・下位 `pick` 個に印を付ける。
+
+    Args:
+        epochs: `collect_epoch_rows` の行を並べた表（`run_id`・`condition`・`stage`・`train/group_dro/q_NN` を持つ）
+        pick: 上位・下位それぞれから選ぶ cohort の数
+        cohort_count: stage あたりの cohort 数
+
+    Returns:
+        pd.DataFrame: run × stage × cohort ごとの `q_mean`・`q_end`・`rank_mean`・`rank_end`・`pick`
+        （`high` / `middle` / `low`）。順位は 1 が最大の `q`
+    """
+    stages = epochs[epochs["stage"].str.startswith("stage")]
+    rows = []
+    for (run_id, condition, stage), part in stages.groupby(["run_id", "condition", "stage"], sort=False):
+        for cohort in range(cohort_count):
+            q = part[f"train/group_dro/q_{cohort:02d}"]
+            rows.append(
+                {
+                    "run_id": run_id,
+                    "condition": condition,
+                    "stage": stage,
+                    "cohort": cohort,
+                    "q_mean": q.mean(),
+                    "q_end": q.iloc[-1],
+                }
+            )
+    ranks = pd.DataFrame(rows)
+    by_stage = ranks.groupby(["run_id", "stage"])
+    ranks["rank_mean"] = by_stage["q_mean"].rank(ascending=False).astype(int)
+    ranks["rank_end"] = by_stage["q_end"].rank(ascending=False).astype(int)
+    ranks["pick"] = pd.cut(
+        ranks["rank_mean"], bins=[0, pick, cohort_count - pick, cohort_count], labels=["high", "middle", "low"]
+    ).astype(str)
+    return ranks

@@ -14,35 +14,23 @@ run artifact に残るのは属性ごとの worst と gap までで、**群そ�
 - gap だけでなく **worst と best の値も出す**。gap が縮んでも、worst が上がったのか
   best が下がったのかで意味が逆になる。
 
-入力: `cache/<run-id>_<split>.npz`、`results/epoch_metrics.csv`、`results/baseline_epoch_metrics.csv`
-出力: `results/group_metrics_<split>.csv`、`results/fairness_summary_<split>.csv`
+notebook から import して使う。どの run を比べるか、表をどこへ書くかは notebook が決める。
+群の切り方と指標の定義だけをここに置くのは、golden データでテストして固定するためである。
 
 ここで出す Eopp0 / Eopp1 / Eodds と worst / gap が学習側の `compute_fairness_metrics` と
 同じ定義であることは、`analysis/tests/test_fairness_agreement.py` が golden データで固定する。
 突き合わせを実行時に 1 model だけ行うのをやめ、毎回の `pytest` で全 case を確かめる。
-
-使い方:
-    uv run python analysis/iterative_probe/groups.py --split test
 """
 
 from __future__ import annotations
 
-import argparse
-from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pandas as pd
-import rootutils
 from sklearn.metrics import balanced_accuracy_score, roc_auc_score
 
-rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
-
-from analysis.common.paths import split_csv  # noqa: E402
-from analysis.common.predictions import cache_path, load_cache  # noqa: E402
-
-PACKAGE = Path(__file__).parent
-CACHE, RESULTS = PACKAGE / "cache", PACKAGE / "results"
+from analysis.common.paths import split_csv
 
 # split CSV の符号。旧 repo の `create_cv_chexpert.py` が付けた対応で、race は 6 値のうち 3 つを使う。
 AGE_LABELS = {0: "<65", 1: ">=65"}
@@ -50,7 +38,6 @@ SEX_LABELS = {0: "Male", 1: "Female"}
 RACE_LABELS = {0: "White", 2: "Asian", 3: "Black"}
 GROUPINGS = [("age",), ("sex",), ("race",), ("age", "sex"), ("age", "race"), ("sex", "race"), ("age", "sex", "race")]
 GROUPING_NAMES = [" x ".join(keys) for keys in GROUPINGS]
-BASELINE_LABEL = "ResNet (ERM)"
 
 
 def demographics_of(split: str) -> pd.DataFrame:
@@ -79,35 +66,6 @@ def demographics_of(split: str) -> pd.DataFrame:
     missing = age_missing | frame["sex_missing"].astype(bool) | frame["race_missing"].astype(bool)
     valid = ~missing & labelled.notna().all(axis=1)
     return labelled[valid]
-
-
-def models_under_test(split: str) -> list[dict[str, Any]]:
-    """比較する model を、baseline を先頭にして並べる。
-
-    どの run を比べるかは `collect.py` が書いた表が持つ。ここで run-id を書き直さない。
-
-    Args:
-        split: `val` または `test`
-
-    Returns:
-        list[dict[str, Any]]: `run_id` / `label` / `modulation` / `step_size` と予測 cache
-    """
-    epochs = pd.read_csv(RESULTS / "epoch_metrics.csv")
-    baseline = pd.read_csv(RESULTS / "baseline_epoch_metrics.csv")
-    models = [{"run_id": baseline["run_id"].iloc[0], "label": BASELINE_LABEL, "modulation": "", "step_size": np.nan}]
-    for row in epochs.drop_duplicates("run_id")[["run_id", "modulation", "step_size"]].itertuples():
-        models.append(
-            {
-                "run_id": row.run_id,
-                "label": f"{row.modulation} / {row.step_size:g}",
-                "modulation": row.modulation,
-                "step_size": row.step_size,
-            }
-        )
-    images = pd.read_csv(split_csv("chexpert", split))["image"].to_numpy(dtype=str)
-    for model in models:
-        model["cache"] = load_cache(cache_path(CACHE, model["run_id"], split), images=images)
-    return models
 
 
 def group_metrics(target: np.ndarray, probability: np.ndarray, prediction: np.ndarray) -> dict[str, float]:
@@ -221,35 +179,3 @@ def summarize(part: pd.DataFrame) -> pd.Series:
             "Eodds": (tpr_gap + fpr_gap) / 2,
         }
     )
-
-
-def main() -> None:
-    """群別指標と、粒度ごとの worst / best / gap を `results/` へ書く。
-
-    Args:
-        なし
-
-    Returns:
-        None
-    """
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--split", default="test", choices=("val", "test"))
-    args = parser.parse_args()
-
-    demographics = demographics_of(args.split)
-    models = models_under_test(args.split)
-    groups = pd.DataFrame([row for model in models for row in group_rows(model, demographics)])
-    RESULTS.mkdir(exist_ok=True)
-    groups.to_csv(RESULTS / f"group_metrics_{args.split}.csv", index=False)
-
-    summary = groups.groupby(["grouping", "model"]).apply(summarize, include_groups=False)
-    labels = [model["label"] for model in models]
-    order = pd.MultiIndex.from_product([GROUPING_NAMES, labels], names=["grouping", "model"])
-    summary = summary.reindex(order)
-    summary.to_csv(RESULTS / f"fairness_summary_{args.split}.csv")
-
-    print(f"{len(models)} models / {len(groups)} group rows ({len(demographics)} 行) -> {RESULTS}")
-
-
-if __name__ == "__main__":
-    main()
