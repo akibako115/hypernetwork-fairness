@@ -36,7 +36,9 @@ cohort 間の `min` / `max` / `gap` はこれらの raw metric から分析側�
 
 各 `artifacts/cohorts/cohortNN/` は直前 stage の `last` checkpoint に基づく cohort である。
 次 stage の warm-start も同じ checkpoint を使う。best を引き継ぐと、GroupDRO が効いた更新ほど
-stage 境界で巻き戻る。
+stage 境界で巻き戻る。`last` を最終 epoch に保つため、主 checkpoint は `LastEpochModelCheckpoint` を使う。
+Lightning 標準の `ModelCheckpoint` は `save_top_k=1` のとき `last.ckpt` を best の epoch で止めるので、
+2026-09-24 の修正より前の run では、warm-start と cohort の参照が実際には各 stage の best だった。
 `cohort.json` に参照 checkpoint の絶対 path と SHA-256、KMeans の設定、group 数を記録し、`assignments.parquet` を
 後続 stage の固定 cohort DataModule へ渡す。optimizer、scheduler、GroupDRO の内部状態は stage をまたいで引き継がない。
 

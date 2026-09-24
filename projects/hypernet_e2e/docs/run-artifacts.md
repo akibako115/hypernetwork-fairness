@@ -61,7 +61,10 @@ projects/hypernet_e2e/runs/
 fairness metric の key 集合はデータ依存で変わる。ある属性で観測される群が 1 つしかない batch では
 `Eopp0` / `Eopp1` / `Eodds` が定義できず、その属性の key ごと出力されない。run をまたいで集計する
 側は、key の欠損を前提に書く。
-`checkpoints/` は ModelCheckpoint が出力し、`config.yaml` の `callbacks.model_checkpoint.dirpath` と一致する。
+`checkpoints/` は `LastEpochModelCheckpoint` が出力し、`config.yaml` の `callbacks.model_checkpoint.dirpath` と一致する。
+`best_val_auroc_<epoch>.ckpt` は `val/auroc` が最良の epoch、`last.ckpt` は最後に終えた epoch の状態である。
+Lightning 標準の `ModelCheckpoint` は `save_top_k=1` のとき `last.ckpt` を best の epoch で止めてしまうため、
+この subclass を使う。2026-09-24 の修正より前の run では `last.ckpt` が best と同じ中身になっている。
 
 ## 段をまたぐ checkpoint の受け渡し
 

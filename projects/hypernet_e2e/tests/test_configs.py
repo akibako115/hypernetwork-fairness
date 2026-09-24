@@ -113,6 +113,7 @@ def test_default_callbacks_include_metrics_and_fairness_without_text_progress() 
 
     assert set(cfg.callbacks) == {"model_checkpoint", "model_summary", "metrics_logger", "fairness_metrics"}
     assert cfg.callbacks.model_checkpoint.dirpath is None
+    assert cfg.callbacks.model_checkpoint._target_ == "projects.hypernet_e2e.callbacks.checkpoint.LastEpochModelCheckpoint"
 
 
 def test_default_logger_is_wandb_with_its_output_left_to_the_run_record() -> None:

@@ -8,6 +8,7 @@ from hydra.errors import ConfigCompositionException
 from hydra.utils import instantiate
 from omegaconf import OmegaConf
 
+from projects.hypernet_iterative import stage as stage_runner
 from projects.hypernet_iterative import workflow
 
 CONFIG_DIR = Path(__file__).parent.parent / "configs"
@@ -114,7 +115,7 @@ def test_cohort_stage_config_matches_the_training_strategy_group_it_declares(tmp
 
 def _checkpoint_callbacks(config) -> dict:
     """ModelCheckpoint の callback だけを名前つきで取り出す。"""
-    return {name: OmegaConf.to_container(value, resolve=True) for name, value in config.callbacks.items() if value.get("_target_") == "lightning.pytorch.callbacks.ModelCheckpoint"}
+    return {name: OmegaConf.to_container(value, resolve=True) for name, value in config.callbacks.items() if value.get("_target_", "").endswith("ModelCheckpoint")}
 
 
 def test_cohort_stage_config_matches_the_checkpoint_selection_group_it_declares(tmp_path) -> None:
@@ -138,6 +139,25 @@ def test_cohort_stage_config_matches_the_checkpoint_selection_group_it_declares(
 
         assert _checkpoint_callbacks(stage) == _checkpoint_callbacks(declared)
         assert stage.checkpoint_selection.name == declared.checkpoint_selection.name
+
+
+def test_every_stage_keeps_the_final_epoch_as_last_and_writes_into_its_stage_directory(tmp_path) -> None:
+    """次 stage の warm-start と cohort 生成は `last` を読むので、主 checkpoint は最終 epoch を残す。
+
+    補助 checkpoint も含め、`stage.run` が dirpath を注入する target に入っていないと、
+    checkpoint が stage directory の外に出る。
+    """
+    for selection in ("global_auroc_bacc", "hidden_min_auroc"):
+        warmup = _compose(f"iteration.cohort_checkpoint_selection={selection}")
+        stage = workflow.cohort_stage_config(
+            warmup,
+            assignment_path=tmp_path / "assignments.parquet",
+            checkpoint_path=tmp_path / "reference.ckpt",
+            reference_id="warmup",
+        )
+        for config in (warmup, stage):
+            assert config.callbacks.model_checkpoint._target_ == "projects.hypernet_iterative.callbacks.checkpoint.LastEpochModelCheckpoint"
+            assert {value["_target_"] for value in _checkpoint_callbacks(config).values()} <= stage_runner._CHECKPOINT_TARGETS
 
 
 def test_modulation_presets_change_only_the_modulated_stages() -> None:
