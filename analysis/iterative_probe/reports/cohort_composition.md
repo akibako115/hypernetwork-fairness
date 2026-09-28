@@ -80,8 +80,8 @@ stage01 は、同じ変調範囲の 2 run で割り当てが一致する（step 
   - 撮影方向は公平性の評価軸ではない（撮影プロトコル）。この設定の GroupDRO は、評価軸の属性群ではなく撮影条件の群の損失を下げにいっていることになる。
 - **上位に男性が多いのは、AP を含まない cohort が男性側で切り出されやすいことの表れかもしれない。** sex そのものが `q` を決めているのかは、この表からは分けられない。
 - **class weight は、sex ごとの閾値はほとんど動かさない。** cohort は sex で割れているが、sex では陽性率が変わらないためである。
-- **race の欠損が偏った cohort があるのは、画像の側に欠損と結び付く特徴があることを示唆する。** 撮影時期や撮影元などの交絡の可能性がある。
-- **この設定の hidden group は、既知の属性と撮影条件の近似になっている。** hidden cohort が sex × 撮影方向 × age をほぼそのまま拾っているためである。
+- **race の欠損が偏った cohort があるのは、欠損そのものがモデルの入力だからである。** cohort は画像ではなく、metadata（sex・race・ethnicity・frontal/lateral・AP/PA・age と、それぞれの欠損フラグ）を metadata encoder に通した出力の k-means である（`cohort.json` の `metadata_kmeans`）。metadata encoder は欠損を専用の埋め込みに置き換えるので、race の欠損は 1 つの値として cohort を分ける。
+- **この設定の hidden group は、既知の属性と撮影条件そのものである。** cohort は metadata の埋め込みを割ったものなので、sex × 撮影方向 × age（と race の欠損）で割れるのは構成上の帰結である。
   未知の群を見つけるという目的に照らしてこれでよいかは、別に判断が要る。
 
 ## 追加確認
@@ -91,5 +91,5 @@ stage01 は、同じ変調範囲の 2 run で割り当てが一致する（step 
   - **cohort ごとの class weight を外す run:** warmup と同じ目的関数（全体共通の class weight の ERM）のまま、同じ Spatial LoRA で 12 epoch まで続ける。age group の Eopp が下がらなければ、cohort ごとの class weight が原因と確定する。
   - GroupDRO の目的関数は、全 group 共通の class weight を受け取らない（`projects/hypernet_iterative/loss.py`）。そのため、「共通の class weight で GroupDRO」という対照は作れない。
 - 撮影方向ごとの val / test の性能を見る。PA・Lateral が AP より弱いなら、`q` が撮影方向の少数派に寄る理由がそれで説明できる。
-- cohort が sex × 撮影方向 × age を拾う理由を、cohort を作る特徴量の側から見る（トピック 3 の特徴量分析）。
-- race の欠損に偏った cohort が、何の画像特徴で集まっているかを見る。
+- cohort は metadata の k-means なので、画像から未知の群を見つけたい場合は、cohort を作る表現を画像の側（backbone の表現など）に変える必要がある。
+- cohort はモデルの入力から決まるので、cohort ごとの class weight はモデルに cohort ごとの切片のずれを学習させる。その影響は [cohort_logit_correction](cohort_logit_correction.md) で見た。

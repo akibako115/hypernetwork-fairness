@@ -33,7 +33,8 @@ baseline は [initial_resnet_vs_invariant](../initial_resnet_vs_invariant/) が 
 | global 指標の epoch 推移（AUROC・bACC・loss） | `stages/*/metrics/metrics.csv`、baseline は W&B transaction log | [`global_training_curves.ipynb`](global_training_curves.ipynb) / [report](reports/global_training_curves.md) |
 | `q` と cohort ごとの性能推移、属性群の worst / gap / Eopp の推移 | `stages/*/metrics/metrics.csv`、baseline は W&B transaction log | [`subgroup_training_curves.ipynb`](subgroup_training_curves.ipynb) / [report](reports/subgroup_training_curves.md) |
 | cohort の属性・撮影方向の構成、cohort × class の class weight、`q` の上位・下位 cohort の構成 | `artifacts/cohorts/`、`stages/*/config.yaml`、train split CSV | [`cohort_composition.ipynb`](cohort_composition.ipynb) / [report](reports/cohort_composition.md) |
-| test の属性群・交差群の worst / best / gap | 予測 cache（`cache/<run-id>_test.npz`） | 未着手 |
+| cohort ごとの切片のずれと pooled AUROC の低下、test の属性群の worst AUROC と動作点での TPR・FPR の群間差 | 予測 cache（`cache/<run-id>_{val,test}.npz`）、`artifacts/cohorts/cohort02/`、`stages/stage02/config.yaml` | [`cohort_logit_correction.ipynb`](cohort_logit_correction.ipynb) / [report](reports/cohort_logit_correction.md) |
+| test の交差群の worst / best / gap | 予測 cache（`cache/<run-id>_test.npz`） | 未着手 |
 | 特徴量 | checkpoint から取る表現 | 未着手 |
 
 **global を払った分だけ群が良くなったのかを見る。** GroupDRO は worst を持ち上げる代わりに global を
@@ -95,7 +96,7 @@ gap だけでなく worst と best の値も出す。gap が縮んでも、worst
 
 notebook のファイル名は、分析対象が一目で分かる名前を採用する。いまある notebook は
 `global_training_curves.ipynb`（トピック 1 の global 推移）、`subgroup_training_curves.ipynb`（トピック 2 の推移）、
-`cohort_composition.ipynb`（トピック 2 の cohort の中身）。1 つの notebook には 1 つの問いの型（推移か、静的な構成か、
+`cohort_composition.ipynb`（トピック 2 の cohort の中身）、`cohort_logit_correction.ipynb`（トピック 1 の test での比較）。1 つの notebook には 1 つの問いの型（推移か、静的な構成か、
 test での比較か）だけを置く。
 
 まず notebook 内で分析を組み立て、同じ処理を複数の分析で使う、実行に時間がかかる、または処理が
@@ -126,7 +127,8 @@ hidden cohort の epoch ログは cohort ごとの `AUROC`・`bACC`・`loss`（�
 後に上から実行できる状態にする。run-id は条件順（fc 1e-3 → fc 1e-2 → stage4+fc 1e-3 →
 stage4+fc 1e-2）に並べる。表と図の並びがこの順になる。
 
-予測 cache が必要な場合は、notebook の分析を実行する前に共有 CLI で作成する。
+予測 cache が必要な場合は、notebook の分析を実行する前に共有 CLI で作成する。`cohort_logit_correction.ipynb` は
+動作点の閾値を val で決めるので、`--split val` と `--split test` の両方を作る。
 
 ```bash
 uv run python analysis/common/predictions.py --study iterative_probe --split test \
@@ -141,5 +143,6 @@ notebook は repo root の kernel（`hypernet-fairness`）で開くか、次の�
 
 ```bash
 cd analysis/iterative_probe && uv run jupyter nbconvert --to notebook --execute --inplace \
-  --ExecutePreprocessor.kernel_name=hypernet-fairness global_training_curves.ipynb subgroup_training_curves.ipynb cohort_composition.ipynb
+  --ExecutePreprocessor.kernel_name=hypernet-fairness global_training_curves.ipynb subgroup_training_curves.ipynb cohort_composition.ipynb \
+  cohort_logit_correction.ipynb
 ```
