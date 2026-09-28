@@ -18,6 +18,8 @@ models/
 │   ├── blocks.py           # 3x3 conv2 への sample-wise Spatial LoRA
 │   ├── modulation.py       # FC 用 HyperLinear LoRA
 │   └── network.py          # stage3 / stage4 / fc を束ねる SpatialLoRAResNet
+├── hyperadapt/
+│   └── network.py          # 論文 HyperAdapt の全 Bottleneck 主枝と fc の条件付き変調
 └── utils.py                # checkpoint 部分ロードと embedding 分散推定
 ```
 

@@ -14,8 +14,8 @@ import torch.nn.functional as F
 
 from ..resnet.blocks import Bottleneck
 from ..resnet.network import ResNetBackbone
+from ..spatial_hypernet.metadata_encoder import MetadataEncoder
 from ..utils import load_compatible_state_dict
-from .metadata_encoder import MetadataEncoder
 
 
 class HyperAdaptGenerator(nn.Module):

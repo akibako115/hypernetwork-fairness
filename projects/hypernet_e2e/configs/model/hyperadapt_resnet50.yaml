@@ -11,7 +11,7 @@ scheduler:
   gamma: 0.1
 
 net:
-  _target_: projects.hypernet_e2e.models.spatial_hypernet.hyperadapt.HyperAdaptResNet
+  _target_: projects.hypernet_e2e.models.hyperadapt.HyperAdaptResNet
   num_classes: ${data.num_classes}
   rank: 4
   generator_hidden_dim: 128

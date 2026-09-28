@@ -2,8 +2,8 @@ import pytest
 import torch
 import torch.nn.functional as F
 
+from projects.hypernet_e2e.models.hyperadapt import HyperAdaptResNet
 from projects.hypernet_e2e.models.resnet.network import ResNetBackbone
-from projects.hypernet_e2e.models.spatial_hypernet.hyperadapt import HyperAdaptResNet
 from projects.hypernet_e2e.models.spatial_hypernet.metadata_encoder import MetadataEncoder
 
 
