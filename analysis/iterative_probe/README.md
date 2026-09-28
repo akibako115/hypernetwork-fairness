@@ -131,10 +131,10 @@ stage4+fc 1e-2）に並べる。表と図の並びがこの順になる。
 ```bash
 uv run python analysis/common/predictions.py --study iterative_probe --split test \
   --run-dir analysis/iterative_probe/runs/20260921T103036Z-resnet-chexpert-s42-5538 \
-  --run-dir analysis/iterative_probe/runs/20260923T060357Z-spatial-lora-iterative-chexpert-fc-s42-64d2 \
-  --run-dir analysis/iterative_probe/runs/20260923T060357Z-spatial-lora-iterative-chexpert-fc-s42-bd9f \
-  --run-dir analysis/iterative_probe/runs/20260923T060356Z-spatial-lora-iterative-chexpert-stage4-fc-s42-fdbc \
-  --run-dir analysis/iterative_probe/runs/20260923T060357Z-spatial-lora-iterative-chexpert-stage4-fc-s42-56b1
+  --run-dir analysis/iterative_probe/runs/20260924T112035Z-spatial-lora-iterative-chexpert-fc-s42-b81a \
+  --run-dir analysis/iterative_probe/runs/20260924T112045Z-spatial-lora-iterative-chexpert-fc-s42-4602 \
+  --run-dir analysis/iterative_probe/runs/20260924T112034Z-spatial-lora-iterative-chexpert-stage4-fc-s42-1caa \
+  --run-dir analysis/iterative_probe/runs/20260924T112043Z-spatial-lora-iterative-chexpert-stage4-fc-s42-c755
 ```
 
 notebook は repo root の kernel（`hypernet-fairness`）で開くか、次のように通しで実行する。

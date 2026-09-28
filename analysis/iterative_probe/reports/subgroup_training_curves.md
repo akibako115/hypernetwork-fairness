@@ -25,19 +25,19 @@ notebook は [`subgroup_training_curves.ipynb`](../subgroup_training_curves.ipyn
 
 | 条件 | stage | max `q` | 上位 3 の合計 | entropy |
 |---|---|---:|---:|---:|
-| fc / 1e-3 | stage01 / 02 | 0.123 / 0.130 | 0.36 / 0.38 | 2.289 / 2.281 |
-| fc / 1e-2 | stage01 / 02 | 0.324 / 0.354 | 0.73 / 0.83 | 1.732 / 1.596 |
-| stage4+fc / 1e-3 | stage01 / 02 | 0.125 / 0.138 | 0.37 / 0.38 | 2.284 / 2.278 |
-| stage4+fc / 1e-2 | stage01 / 02 | 0.259 / 0.354 | 0.71 / 0.78 | 1.675 / 1.735 |
+| fc / 1e-3 | stage01 / 02 | 0.123 / 0.130 | 0.36 / 0.38 | 2.289 / 2.282 |
+| fc / 1e-2 | stage01 / 02 | 0.315 / 0.387 | 0.74 / 0.82 | 1.732 / 1.666 |
+| stage4+fc / 1e-3 | stage01 / 02 | 0.125 / 0.136 | 0.37 / 0.38 | 2.284 / 2.273 |
+| stage4+fc / 1e-2 | stage01 / 02 | 0.261 / 0.490 | 0.72 / 0.78 | 1.674 / 1.604 |
 
 一様なら max 0.1、上位 3 の合計 0.3、entropy 2.303。
 
-- 1e-3 の `q` はほぼ一様のまま stage を終える。1e-2 は stage の終わりでも偏りが増え続けている。
+- 1e-3 の `q` はほぼ一様のまま stage を終える。1e-2 は stage の終わりでも偏りが増え続けている（max `q` が epoch ごとに単調に増える）。
 
 ### hidden cohort の worst と gap
 
-- hidden 最小 AUROC は 0.76〜0.80 に留まる。stage の頭と終わりの差は −0.002〜+0.028 で、1e-3 の run でも 1e-2 と同じかそれ以上に動く。
-- hidden bACC gap は stage4+fc で stage ごとに 0.027〜0.035 縮む。step size によらない。
+- hidden 最小 AUROC は 0.75〜0.79 に留まる。stage の頭と終わりの差は −0.026〜+0.025 で、上がり幅が大きいのは stage01 の 1e-3（fc +0.025、stage4+fc +0.022）である。1e-2 は −0.026〜+0.005 に留まる。
+- hidden bACC gap は stage4+fc の stage01 で 0.027 / 0.029 縮む。step size によらない。stage02 では −0.017〜+0.006 で、向きが揃わない。
 
 ### `q` の高い cohort と低い cohort の推移
 
@@ -46,45 +46,45 @@ stage 終わりの `q` で選んでも、4 cohort 中 3〜4 個は同じにな�
 
 | 条件 | stage | AUROC の変化（上位 / 下位） | loss の変化（上位 / 下位） |
 |---|---|---|---|
-| fc / 1e-3 | stage01 | −0.012 / +0.010 | −0.100 / +0.016 |
-| fc / 1e-3 | stage02 | +0.002 / −0.002 | −0.120 / +0.023 |
-| fc / 1e-2 | stage01 | −0.013 / +0.003 | −0.111 / +0.011 |
-| fc / 1e-2 | stage02 | −0.004 / +0.005 | −0.199 / +0.055 |
+| fc / 1e-3 | stage01 | −0.007 / +0.010 | −0.087 / +0.019 |
+| fc / 1e-3 | stage02 | +0.006 / +0.001 | −0.039 / +0.019 |
+| fc / 1e-2 | stage01 | −0.014 / +0.005 | −0.096 / +0.011 |
+| fc / 1e-2 | stage02 | +0.008 / −0.002 | −0.168 / +0.067 |
 | stage4+fc / 1e-3 | stage01 | +0.007 / +0.003 | −0.001 / −0.030 |
-| stage4+fc / 1e-3 | stage02 | +0.002 / +0.006 | −0.156 / +0.038 |
-| stage4+fc / 1e-2 | stage01 | +0.006 / −0.005 | −0.016 / −0.026 |
-| stage4+fc / 1e-2 | stage02 | +0.005 / −0.002 | −0.105 / −0.006 |
+| stage4+fc / 1e-3 | stage02 | −0.003 / +0.002 | −0.105 / +0.011 |
+| stage4+fc / 1e-2 | stage01 | +0.008 / −0.007 | −0.020 / −0.023 |
+| stage4+fc / 1e-2 | stage02 | +0.005 / +0.010 | −0.123 / +0.015 |
 
 変化は stage 内の epoch 4 − epoch 0 から、10 cohort の平均の変化を引いた値（global の上下を除く）。各群 2 cohort の平均。
 
 - **`q` の上位 cohort は、ほぼ AP を含まない（PA・Lateral の）cohort である。** 構成は [cohort_composition](cohort_composition.md) で見た。
-- **`q` の上位 cohort は、弱いまま stage を終える。** 上位 2 cohort は 8 通りすべてで、val AUROC が 10 cohort の平均より低い位置を stage の最初から最後まで保つ。下位 2 cohort との差は縮まない。
-- **下位 cohort には例外がある。** 下位 2 cohort の多くは平均より高いが、平均より低い cohort も 3 個ある（fc / 1e-3 の 01:07、stage4+fc / 1e-3 の 01:02、stage4+fc / 1e-2 の 02:03）。
-- **AUROC では上位と下位の差が揃わない。** 平均を引いた変化で、上位が下位を上回る向きに揃わない。step size 1e-2 で `q` が 0.2〜0.35 まで上がった cohort でも同じである。
-- **loss では上位が平均より下がる。** 8 通り中 6 通りで −0.10〜−0.20 になる。ただし step size 1e-3 でも同じ大きさで起きる。1e-3 では、上位の `q` でも stage 終わりで 0.12〜0.14 にしかならない。
+- **`q` の上位 cohort は、弱いまま stage を終える。** 上位 2 cohort は 16 個中 15 個で、val AUROC が 10 cohort の平均より低い位置を stage の最初から最後まで保つ。残る 1 個（fc / 1e-3 の 02:05）も平均付近（−0.012〜+0.005）に留まる。下位 2 cohort との差は縮まない。
+- **下位 cohort には例外がある。** 下位 2 cohort の多くは平均より高いが、平均より低いまま推移する cohort もある（fc / 1e-3 の 01:07、stage4+fc の 01:02。stage01 の cohort は同じ変調範囲の 2 run で同じ集団なので、01:02 は 1e-3 と 1e-2 の両方に出る）。stage4+fc / 1e-3 の 02:06 は平均付近（−0.009〜+0.004）にある。
+- **AUROC では上位と下位の差が揃わない。** 平均を引いた変化で上位が下位を上回るのは 8 通り中 4 通りで、向きが揃わない。step size 1e-2 で `q` が 0.2〜0.5 まで上がった cohort でも同じである。
+- **loss では上位が平均より下がる。** 8 通り中 5 通りで −0.09〜−0.17 になり、stage4+fc の stage01 だけは 2 本とも 0 前後（−0.001 / −0.020）に留まる。step size 1e-3 でも同じ大きさで起きる（fc の stage01 で −0.087、stage4+fc の stage02 で −0.105）。1e-3 では、上位の `q` でも stage 終わりで 0.12〜0.14 にしかならない。
 
 ### 属性群（stage01 / stage02 の区間平均。baseline は同じ epoch の区間）
 
 | 属性 | 指標 | iterative 4 run | baseline |
 |---|---|---|---|
-| age group | Eodds | 0.084〜0.113 | 0.163 / 0.171 |
-| age group | Eopp0 | 0.038〜0.074 | 0.127 / 0.117 |
-| age group | Eopp1 | 0.130〜0.151 | 0.199 / 0.225 |
-| age group | AUROC gap | 0.034〜0.051 | 0.040 / 0.046 |
-| age group | worst-group AUROC | 0.799〜0.811 | 0.824 / 0.822 |
-| sex | Eodds（stage02） | 1e-3: 0.009 / 0.018、1e-2: 0.039 / 0.028（fc / stage4+fc） | 0.009 |
-| sex | worst-group AUROC | 0.835〜0.845 | 0.859 / 0.861 |
+| age group | Eodds | 0.085〜0.112 | 0.163 / 0.171 |
+| age group | Eopp0 | 0.045〜0.073 | 0.127 / 0.117 |
+| age group | Eopp1 | 0.126〜0.156 | 0.199 / 0.225 |
+| age group | AUROC gap | 0.032〜0.050 | 0.040 / 0.046 |
+| age group | worst-group AUROC | 0.802〜0.813 | 0.824 / 0.822 |
+| sex | Eodds（stage02） | 1e-3: 0.013 / 0.014、1e-2: 0.019 / 0.020（fc / stage4+fc） | 0.009 |
+| sex | worst-group AUROC | 0.837〜0.846 | 0.859 / 0.861 |
 
-- age group の Eopp0 / Eopp1 / Eodds は、stage01 の最初の epoch（epoch 2）で下がり、stage02 まで低いまま保たれる。step size 1e-3 でも 1e-2 と同じだけ下がる。
+- age group の Eopp0 / Eopp1 / Eodds は stage01 に入ると下がり、stage02 まで baseline より低いまま保たれる。fc は stage01 の最初の epoch（epoch 2）で下がり、stage4+fc は epoch 3〜4 にかけて下がる。step size 1e-3 でも 1e-2 と同じだけ下がる。
 - age group の AUROC gap と bACC gap は baseline と同じ範囲にある。
-- sex の AUROC gap は 0.016 以下で、baseline と区別できない。step size 1e-2 の run は stage02 で sex の Eopp0 が epoch ごとに開く（fc で 0.02 → 0.05）。
-- sex・age group の worst-group AUROC は、global AUROC が落ちる epoch（fc / 1e-2 の epoch 5、stage4+fc の epoch 8 と 11）に合わせて落ちる。
-- race（6 コード）は epoch 間の振れ（worst-group AUROC で 0.72〜0.84）が条件差より大きい。val では code 5 が 30 件（陽性 3）、code 4 が 322 件しかない。
+- sex の AUROC gap は 0.016 以下で、baseline と区別できない。sex の Eopp は stage02 で 4 run とも baseline よりやや大きく、Eodds は 1e-2 が 0.019 / 0.020、1e-3 が 0.013 / 0.014 になる。この step size の差は、epoch 間の振れ（sex の Eopp0 で 0.00〜0.04）より小さい。
+- sex の worst-group AUROC は、global AUROC が落ちる epoch（fc / 1e-2 の epoch 5 と 11、stage4+fc の epoch 8 と 11）に合わせて落ちる。
+- race（6 コード）は epoch 間の振れ（worst-group AUROC で 0.71〜0.84）が条件差より大きい。val では code 5 が 30 件（陽性 3）、code 4 が 322 件しかない。
 
 ## 解釈候補
 
 - **age group の Eopp が下がるのは、`q` の偏りによるものではない。** 1e-3 で `q` がほぼ一様でも同じだけ下がり、順位（AUROC gap）は変わらずに閾値で決まる TPR / TNR の群間差だけが縮む。stage に入った時点で変わるもう 1 つの要素は、cohort × class の class weight である。この重みが age group と連動していることは [cohort_composition](cohort_composition.md) で見た。
-- **GroupDRO の `q` は、この 5 epoch の stage では弱い cohort の順位を上げていない。** `q` の上位 cohort で val loss が下がるのは、1e-3 でも同じ大きさで起きる。そのため重みの効果ではなく、`q` の順位を決める train の損失が高い cohort ほど val loss も戻りやすいことの表れと読むほうが自然である。1e-2 の stage02 で sex の Eopp が開くのも、閾値付近の較正が群ごとにずれた結果かもしれない。
+- **GroupDRO の `q` は、この 5 epoch の stage では弱い cohort の順位を上げていない。** `q` の上位 cohort で val loss が下がるのは、1e-3 でも同じ大きさで起きる。そのため重みの効果ではなく、`q` の順位を決める train の損失が高い cohort ほど val loss も戻りやすいことの表れと読むほうが自然である。
 - **worst-group AUROC が baseline より低いのは、群の間の差が広がったからではない。** global AUROC の低下が、群全体に一様に出ていると読める。
 
 ## 追加確認

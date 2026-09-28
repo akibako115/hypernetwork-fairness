@@ -22,15 +22,13 @@ ResNet-50 ImageNet 初期化。ws11 で 4 本を並列実行し、4 本とも `s
 
 | run-id | project | run path | W&B | 変調範囲 | step size | 所要 |
 |---|---|---|---|---|---|---|
-| `20260923T060357Z-spatial-lora-iterative-chexpert-fc-s42-64d2` | `hypernet_iterative` | `analysis/iterative_probe/runs/20260923T060357Z-spatial-lora-iterative-chexpert-fc-s42-64d2` | [run](https://wandb.ai/kohki-akiba-kyushu-university/fairness_hypernet/runs/u7gz2gk3) | fc | 1e-3 | 51 分 |
-| `20260923T060356Z-spatial-lora-iterative-chexpert-stage4-fc-s42-fdbc` | `hypernet_iterative` | `analysis/iterative_probe/runs/20260923T060356Z-spatial-lora-iterative-chexpert-stage4-fc-s42-fdbc` | [run](https://wandb.ai/kohki-akiba-kyushu-university/fairness_hypernet/runs/x9dvyz3x) | stage4, fc | 1e-3 | 60 分 |
-| `20260923T060357Z-spatial-lora-iterative-chexpert-fc-s42-bd9f` | `hypernet_iterative` | `analysis/iterative_probe/runs/20260923T060357Z-spatial-lora-iterative-chexpert-fc-s42-bd9f` | [run](https://wandb.ai/kohki-akiba-kyushu-university/fairness_hypernet/runs/raukij7a) | fc | 1e-2 | 51 分 |
-| `20260923T060357Z-spatial-lora-iterative-chexpert-stage4-fc-s42-56b1` | `hypernet_iterative` | `analysis/iterative_probe/runs/20260923T060357Z-spatial-lora-iterative-chexpert-stage4-fc-s42-56b1` | [run](https://wandb.ai/kohki-akiba-kyushu-university/fairness_hypernet/runs/32imd7v6) | stage4, fc | 1e-2 | 60 分 |
+| `20260924T112035Z-spatial-lora-iterative-chexpert-fc-s42-b81a` | `hypernet_iterative` | `analysis/iterative_probe/runs/20260924T112035Z-spatial-lora-iterative-chexpert-fc-s42-b81a` | [run](https://wandb.ai/kohki-akiba-kyushu-university/fairness_hypernet/runs/mw9f32gz) | fc | 1e-3 | 56 分 |
+| `20260924T112045Z-spatial-lora-iterative-chexpert-fc-s42-4602` | `hypernet_iterative` | `analysis/iterative_probe/runs/20260924T112045Z-spatial-lora-iterative-chexpert-fc-s42-4602` | [run](https://wandb.ai/kohki-akiba-kyushu-university/fairness_hypernet/runs/0rnrgqua) | fc | 1e-2 | 56 分 |
+| `20260924T112034Z-spatial-lora-iterative-chexpert-stage4-fc-s42-1caa` | `hypernet_iterative` | `analysis/iterative_probe/runs/20260924T112034Z-spatial-lora-iterative-chexpert-stage4-fc-s42-1caa` | [run](https://wandb.ai/kohki-akiba-kyushu-university/fairness_hypernet/runs/ctz9hw3a) | stage4, fc | 1e-3 | 66 分 |
+| `20260924T112043Z-spatial-lora-iterative-chexpert-stage4-fc-s42-c755` | `hypernet_iterative` | `analysis/iterative_probe/runs/20260924T112043Z-spatial-lora-iterative-chexpert-stage4-fc-s42-c755` | [run](https://wandb.ai/kohki-akiba-kyushu-university/fairness_hypernet/runs/klvddrzc) | stage4, fc | 1e-2 | 66 分 |
 
-2026-09-21 に同じ 2×2 を回したが（`20260921T1032*Z-iterative-s42-*`）、cohort ごとの loss・bacc を
-記録していなかったため logger を直して回し直し、旧 4 本は取り下げた。今回の run は stage01 / stage02 の
-`metrics.csv` に cohort ごとの `val/hidden_{loss,bacc,auroc,support}_NN` を持つ（warmup は cohort が
-無いので持たない）。属性ごとの群については、引き続き worst と gap までしか記録していない。
+stage01 / stage02 の `metrics.csv` は cohort ごとの `val/hidden_{loss,bacc,auroc,support}_NN` を持つ（warmup は
+cohort が無いので持たない）。属性ごとの群については、worst と gap までしか記録していない。
 
 ws11 側は `.git` を除外して同期しているため、`run.json` の `git_commit` は `null` である。
 
@@ -43,17 +41,17 @@ stage02 7–11 と数える。
 
 | run | stage02 の epoch | 通し epoch（全 12） | val AUROC |
 |---|---|---|---|
-| `…-fc-s42-64d2` | 2 | 9 | 0.8502 |
-| `…-stage4-fc-s42-fdbc` | 3 | 10 | 0.8495 |
-| `…-fc-s42-bd9f` | 1 | 8 | 0.8510 |
-| `…-stage4-fc-s42-56b1` | 0 | 7 | 0.8514 |
+| `…-fc-s42-b81a` | 4 | 11 | 0.8510 |
+| `…-fc-s42-4602` | 2 | 9 | 0.8539 |
+| `…-stage4-fc-s42-1caa` | 3 | 10 | 0.8482 |
+| `…-stage4-fc-s42-c755` | 0 | 7 | 0.8495 |
 
 baseline は `best_val_auroc_009.ckpt`（epoch 9、全 30）。
 
 **`run.json` の score はこの表と一致しない。** `selected_checkpoint.score` と
 `stages.*.checkpoints["val/auroc"].score` には、best の値ではなく各 stage の最終 epoch の値が入っている
-（例: `64d2` は best 0.8502 に対して記録は 0.8446）。原因は `projects/hypernet_iterative/stage.py` が、
-score を `checkpoint.best_model_score` ではなく fit 後の `trainer.callback_metrics` から取っていること。
+（例: `4602` は best 0.8539 に対して記録は 0.8349。`b81a` は best が最終 epoch なので一致する）。
+原因は `projects/hypernet_iterative/stage.py` が、score を `checkpoint.best_model_score` ではなく fit 後の `trainer.callback_metrics` から取っていること。
 checkpoint の path は正しく、分析は score を読まないので、予測 cache には影響しない。
 run 記録は不変なので書き換えていない。best の score は checkpoint 内の `ModelCheckpoint` の状態か、
 `metrics.csv` から読む。
