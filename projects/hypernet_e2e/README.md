@@ -132,6 +132,16 @@ uv run python -m projects.hypernet_e2e.run \
   model.backbone_checkpoint_path=projects/hypernet_e2e/runs/<stage1-run-id>/checkpoints/<best>.ckpt
 ```
 
+比較用に、GRL係数を DANN 式に 0 から warm-up する `resnet_chexpert_attribute_invariant_dann` と、
+adversary を先に1回、task/backboneを次に1回更新する ALFR 型の
+`resnet_chexpert_attribute_invariant_alfr` も用意している。ALFR は task optimizer と adversary optimizer を
+分離し、adversary 更新時は feature を detach する。
+
+```bash
+uv run python -m projects.hypernet_e2e.run experiment=resnet_chexpert_attribute_invariant_dann
+uv run python -m projects.hypernet_e2e.run experiment=resnet_chexpert_attribute_invariant_alfr
+```
+
 GRL の学習時の属性損失だけでは不変性の証明にはならない。保持情報量は、凍結した第1段 backbone
 出力に対して、学習に使っていない独立の線形／MLP probe を train/validation split で学習・評価し、
 ERM の第1段と属性 AUC / accuracy / age MAE を比較して判定する。task AUROC と subgroup gap も

@@ -21,9 +21,12 @@ EXPERIMENT_DIR = CONFIG_DIR / "experiment"
 CHEXPERT_PRESETS: dict[str, tuple[str, str, str]] = {
     "resnet_chexpert": ("inverse", "uniform", "erm"),
     "resnet_chexpert_attribute_invariant": ("inverse", "uniform", "erm"),
+    "resnet_chexpert_attribute_invariant_dann": ("inverse", "uniform", "erm"),
+    "resnet_chexpert_attribute_invariant_alfr": ("inverse", "uniform", "erm"),
     "resnet_chexpert_group_dro": ("inverse", "uniform", "group_dro"),
     "resnet_chexpert_inverse_weighted_sampling": ("none", "inverse_frequency", "erm"),
     "spatial_lora_chexpert": ("inverse", "uniform", "erm"),
+    "spatial_lora_chexpert_age_race_group_dro": ("inverse", "uniform", "group_dro"),
     "spatial_lora_chexpert_fc": ("inverse", "uniform", "erm"),
     "spatial_lora_chexpert_stage4_fc": ("inverse", "uniform", "erm"),
     "spatial_lora_chexpert_group_dro": ("inverse", "uniform", "group_dro"),
@@ -31,6 +34,7 @@ CHEXPERT_PRESETS: dict[str, tuple[str, str, str]] = {
     "spatial_lora_chexpert_from_resnet": ("inverse", "uniform", "erm"),
     "spatial_lora_chexpert_from_attribute_invariant": ("inverse", "uniform", "erm"),
     "spatial_lora_chexpert_from_resnet_group_dro": ("inverse", "uniform", "group_dro"),
+    "spatial_lora_chexpert_from_resnet_age_race_group_dro": ("inverse", "uniform", "group_dro"),
 }
 
 
@@ -113,6 +117,22 @@ def test_default_callbacks_include_metrics_and_fairness_without_text_progress() 
 
     assert set(cfg.callbacks) == {"model_checkpoint", "model_summary", "metrics_logger", "fairness_metrics"}
     assert cfg.callbacks.model_checkpoint.dirpath is None
+    assert cfg.callbacks.model_checkpoint._target_ == "projects.hypernet_e2e.callbacks.checkpoint.LastEpochModelCheckpoint"
+
+
+@pytest.mark.parametrize("name", _preset_names())
+def test_every_preset_keeps_the_final_epoch_as_last_checkpoint(name: str) -> None:
+    """`save_last` を持つ checkpoint は、標準の `ModelCheckpoint` へ戻さない。
+
+    標準の `ModelCheckpoint` は `save_top_k=1` のとき `last.ckpt` を best の epoch で止める。
+    preset が callback を差し替えても、`last` が最終 epoch を指し続けることを固定する。
+    """
+    cfg = _compose(f"experiment={name}", "study=scratch")
+
+    assert cfg.callbacks.model_checkpoint.save_last is True
+    for key, value in cfg.callbacks.items():
+        if value.get("save_last") is True:
+            assert value._target_ == "projects.hypernet_e2e.callbacks.checkpoint.LastEpochModelCheckpoint", key
 
 
 def test_default_logger_is_wandb_with_its_output_left_to_the_run_record() -> None:
@@ -145,6 +165,19 @@ def test_from_resnet_preset_freezes_the_backbone_and_demands_a_stage1_checkpoint
     assert cfg.model.backbone_checkpoint_path is None
     with pytest.raises(Exception, match="backbone_checkpoint_path"):
         instantiate(cfg.model)
+
+
+def test_attribute_invariant_variants_compose_with_expected_objectives() -> None:
+    dann = _compose("experiment=resnet_chexpert_attribute_invariant_dann")
+    alfr = _compose("experiment=resnet_chexpert_attribute_invariant_alfr")
+
+    assert dann.model.loss_fn._target_.endswith("AttributeInvariantTaskLoss")
+    assert dann.model.loss_fn.attribute_adversary_weight == 1.0
+    assert dann.model.loss_fn.gradient_schedule.name == "dann"
+    assert alfr.model.loss_fn._target_.endswith("AlternatingAttributeInvariantTaskLoss")
+    assert alfr.model.adversary_optimizer._target_.endswith("AdamW")
+    assert instantiate(dann.model).automatic_optimization is True
+    assert instantiate(alfr.model).automatic_optimization is False
 
 
 def test_attribute_invariant_stage1_and_its_stage2_preset_compose() -> None:
@@ -183,6 +216,23 @@ def test_group_presets_pair_the_grouped_datamodule_with_a_group_objective(experi
     # group 数は data 側の定義が正本であり、目的関数はそれを参照するだけにする。
     assert cfg.model.loss_fn.num_groups == cfg.data.num_groups == 4
     assert cfg.model.loss_fn.group_key == cfg.data.group_key
+
+
+def test_age_race_group_preset_uses_the_intersectional_14_group_definition() -> None:
+    for experiment in (
+        "spatial_lora_chexpert_age_race_group_dro",
+        "spatial_lora_chexpert_from_resnet_age_race_group_dro",
+    ):
+        cfg = _compose(f"experiment={experiment}")
+
+        assert list(cfg.data.group_attribute_names) == ["age_group_65", "race"]
+        assert list(cfg.data.group_cardinalities) == [2, 7]
+        assert cfg.data.num_groups == cfg.model.loss_fn.num_groups == 14
+        assert cfg.data.group_missing_values.race == 6
+
+    stage2 = _compose("experiment=spatial_lora_chexpert_from_resnet_age_race_group_dro")
+    assert stage2.model.freeze_backbone is True
+    assert stage2.model.backbone_checkpoint_path is None
 
 
 @pytest.mark.parametrize("strategy", ["erm", "uniform_group", "group_dro", "group_dro_balanced"])

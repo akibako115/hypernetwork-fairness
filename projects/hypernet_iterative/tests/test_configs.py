@@ -8,6 +8,7 @@ from hydra.errors import ConfigCompositionException
 from hydra.utils import instantiate
 from omegaconf import OmegaConf
 
+from projects.hypernet_iterative import stage as stage_runner
 from projects.hypernet_iterative import workflow
 
 CONFIG_DIR = Path(__file__).parent.parent / "configs"
@@ -114,7 +115,7 @@ def test_cohort_stage_config_matches_the_training_strategy_group_it_declares(tmp
 
 def _checkpoint_callbacks(config) -> dict:
     """ModelCheckpoint の callback だけを名前つきで取り出す。"""
-    return {name: OmegaConf.to_container(value, resolve=True) for name, value in config.callbacks.items() if value.get("_target_") == "lightning.pytorch.callbacks.ModelCheckpoint"}
+    return {name: OmegaConf.to_container(value, resolve=True) for name, value in config.callbacks.items() if value.get("_target_", "").endswith("ModelCheckpoint")}
 
 
 def test_cohort_stage_config_matches_the_checkpoint_selection_group_it_declares(tmp_path) -> None:
@@ -138,6 +139,31 @@ def test_cohort_stage_config_matches_the_checkpoint_selection_group_it_declares(
 
         assert _checkpoint_callbacks(stage) == _checkpoint_callbacks(declared)
         assert stage.checkpoint_selection.name == declared.checkpoint_selection.name
+
+
+@pytest.mark.parametrize("experiment", sorted(path.stem for path in (CONFIG_DIR / "experiment").glob("*.yaml") if not path.name.startswith("_")))
+@pytest.mark.parametrize("selection", ["global_auroc_bacc", "hidden_min_auroc"])
+def test_every_stage_keeps_the_final_epoch_as_last_and_writes_into_its_stage_directory(tmp_path, experiment: str, selection: str) -> None:
+    """次 stage の warm-start と cohort 生成は `last` を読むので、`last` は最終 epoch を指す。
+
+    標準の `ModelCheckpoint` は `save_top_k=1` のとき `last.ckpt` を best の epoch で止めるので、
+    `save_last` を持つ checkpoint は subclass に限る。補助 checkpoint も含め、`stage.run` が dirpath を
+    注入する target に入っていないと、checkpoint が stage directory の外に出る。
+    """
+    warmup = _compose(f"experiment={experiment}", f"iteration.cohort_checkpoint_selection={selection}")
+    stage = workflow.cohort_stage_config(
+        warmup,
+        assignment_path=tmp_path / "assignments.parquet",
+        checkpoint_path=tmp_path / "reference.ckpt",
+        reference_id="warmup",
+    )
+    for config in (warmup, stage):
+        checkpoints = _checkpoint_callbacks(config)
+        assert checkpoints["model_checkpoint"]["save_last"] is True
+        for name, value in checkpoints.items():
+            assert value["_target_"] in stage_runner._CHECKPOINT_TARGETS, name
+            if value.get("save_last") is True:
+                assert value["_target_"] == "projects.hypernet_iterative.callbacks.checkpoint.LastEpochModelCheckpoint", name
 
 
 def test_modulation_presets_change_only_the_modulated_stages() -> None:

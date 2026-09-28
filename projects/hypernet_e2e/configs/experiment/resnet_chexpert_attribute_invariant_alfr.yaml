@@ -1,0 +1,11 @@
+# @package _global_
+defaults:
+  - /model: resnet50_attribute_invariant_alfr
+  - _base_chexpert
+  - _self_
+
+experiment_name: resnet-chexpert-attribute-invariant-alfr
+tags: [attribute_invariant_alfr]
+
+attribute_invariance:
+  enabled: true

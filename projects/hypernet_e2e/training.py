@@ -17,6 +17,8 @@ from lightning import Callback, LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers import CSVLogger
 from omegaconf import DictConfig, OmegaConf
 
+from projects.hypernet_e2e.data.evaluation_attributes import add_age_groups
+from projects.hypernet_e2e.data.group_datamodule import demographic_group_ids
 from projects.hypernet_e2e.run_logging import as_trainer_loggers, experiment_loggers, log_run_config, logger_references, text_log
 from projects.hypernet_e2e.run_plan import format_run_plan
 from projects.hypernet_e2e.run_record import RunRecorder
@@ -159,10 +161,39 @@ def _resolve_inverse_class_weights(config: DictConfig) -> None:
     if config.get("weighting", "none") != "inverse":
         return
     frame = pd.read_csv(Path(str(config.data.cv_splits_dir)) / "train.csv")
-    labels = [int(value) for value in frame["target"]]
     num_classes = int(config.data.num_classes)
-    weights = _inverse_frequency_weights(labels, num_classes)
+    strategy = config.get("training_strategy")
+    if strategy is not None and strategy.get("uses_group_id", False):
+        frame = add_age_groups(frame, config.data.get("fairness_age_groups"))
+        group_ids = demographic_group_ids(
+            frame,
+            config.data.group_attribute_names,
+            config.data.group_cardinalities,
+            group_key=config.data.group_key,
+            missing_values=config.data.get("group_missing_values"),
+        )
+        weights = _group_inverse_frequency_weights(frame["target"].tolist(), group_ids.tolist(), int(config.data.num_groups), num_classes)
+    else:
+        weights = _inverse_frequency_weights([int(value) for value in frame["target"]], num_classes)
     OmegaConf.update(config, class_weight_path(config), weights, merge=False)
+
+
+def _group_inverse_frequency_weights(labels: list[int], group_ids: list[int], num_groups: int, num_classes: int) -> list[list[float]]:
+    """各 group/class セルの頻度から `1 / (C * f[g,c])` を解く。"""
+    counts = [[0] * num_classes for _ in range(num_groups)]
+    for label, group_id in zip(labels, group_ids, strict=True):
+        if not 0 <= int(label) < num_classes:
+            raise ValueError(f"target は [0, {num_classes}) の範囲である必要がある")
+        if not 0 <= int(group_id) < num_groups:
+            raise ValueError(f"group_id は [0, {num_groups}) の範囲である必要がある")
+        counts[int(group_id)][int(label)] += 1
+    weights: list[list[float]] = []
+    for group_id, row in enumerate(counts):
+        if min(row) == 0:
+            raise ValueError(f"group {group_id} に空の (group, class) セルがある: {row}")
+        total = sum(row)
+        weights.append([round(total / (num_classes * cell), 6) for cell in row])
+    return weights
 
 
 def class_weight_path(config: DictConfig) -> str:

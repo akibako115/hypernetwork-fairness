@@ -1,0 +1,11 @@
+# @package _global_
+# 1 段目の ResNet checkpoint から開始し、第2段目だけ age_group_65 × race の
+# intersectional Group DRO を Spatial LoRA 系の trainable parameters へ適用する。
+defaults:
+  - spatial_lora_chexpert_from_resnet
+  - override /data: chexpert_age_race_groups
+  - override /training_strategy: group_dro
+  - _self_
+
+experiment_name: spatial-lora-chexpert-from-resnet-age-race-group-dro
+tags: [two_stage, intersectional_demographic_fairness]

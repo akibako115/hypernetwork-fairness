@@ -81,6 +81,7 @@ python -c 'import json,sys; print(json.load(open(sys.argv[1]))["exit_code"])' \
 
 - `metrics/fit.json` は fit が正常終了した後にだけ書かれる。進行中は存在しない
 - `logs/` は run artifact 契約上の予約領域で、現在の `run.py` は書かない。実行中のログは controller log を見る
-- `checkpoints/` に `best_val_auroc_*.ckpt` と `last.ckpt` が出る。`val/auroc` が最良を更新したときだけ増える
+- `checkpoints/` に `best_val_auroc_*.ckpt` と `last.ckpt` が出る。best は `val/auroc` が最良を更新したときに
+  差し替わり、`last.ckpt` は毎 epoch 上書きされる。2026-09-24 の修正より前の run では、`last.ckpt` が best と同じ中身
 - 二段学習は段ごとに別 run directory を持つ。2 段目の `run.json` の `parent_run` が、読み込んだ
   checkpoint の path・SHA-256 と 1 段目の run ID を持つ

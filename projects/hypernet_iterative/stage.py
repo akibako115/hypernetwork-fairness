@@ -20,6 +20,9 @@ from .validation import validate_training_config
 # 次 stage の warm-start と cohort 生成が参照する checkpoint の選択基準。
 _SELECTION_MONITOR = "val/auroc"
 
+# stage directory に出力先を閉じ込める checkpoint callback。補助 checkpoint は Lightning 標準のまま置く。
+_CHECKPOINT_TARGETS = frozenset({"lightning.pytorch.callbacks.ModelCheckpoint", "projects.hypernet_iterative.callbacks.checkpoint.LastEpochModelCheckpoint"})
+
 # epoch ごとの metric の置き場所。run artifact 契約が stage ごとに予約している。
 _METRICS_DIRNAME = "metrics"
 
@@ -48,7 +51,7 @@ def run(config_path: Path, result_path: Path) -> None:
     # 主 checkpoint だけでなく、BAcc / hidden-cohort 用の補助 checkpoint も stage
     # directory に閉じ込める。callbacks の順番に出力先を依存させない。
     for name, callback in config.callbacks.items():
-        if callback.get("_target_") == "lightning.pytorch.callbacks.ModelCheckpoint":
+        if callback.get("_target_") in _CHECKPOINT_TARGETS:
             OmegaConf.update(config, f"callbacks.{name}.dirpath", str(stage_dir / "checkpoints"), merge=False)
     # stage config は parent が生成するため、各 child でも必ず独立に検証する。
     validate_training_config(config)
