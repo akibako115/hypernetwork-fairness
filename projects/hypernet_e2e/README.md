@@ -44,6 +44,7 @@ model・data・callbacks・trainer を作成し、1 回の `fit` を実行しま
 - `experiment=resnet_chexpert` / `experiment=spatial_lora_chexpert`（系列の基準となる ERM）
 - `experiment=spatial_lora_chexpert_fc` / `_stage4_fc`（変調範囲だけを変えた条件）
 - `experiment=spatial_lora_chexpert_from_resnet`（2 段学習の 2 段目）
+- `experiment=hyperadapt_chexpert_from_resnet`（論文 HyperAdapt の凍結済み ResNet への患者条件付き変調）
 - `experiment=resnet_chexpert_attribute_invariant`（GRL による属性不変な第1段）
 - `experiment=spatial_lora_chexpert_from_attribute_invariant`（上記からの第2段）
 - 各モデルの `group_dro` / `inverse_weighted_sampling`
@@ -147,6 +148,18 @@ GRL の学習時の属性損失だけでは不変性の証明にはならない�
 ERM の第1段と属性 AUC / accuracy / age MAE を比較して判定する。task AUROC と subgroup gap も
 同じ split で併記する。`model.loss_fn.attribute_adversary_weight` は task 性能とのトレードオフなので、
 少なくとも `0.01, 0.03, 0.1` を同一 seed 群で比較する。
+
+### HyperAdapt
+
+`hyperadapt_chexpert_from_resnet` は、論文 *Patient-Conditioned Adaptive Offsets for Reliable Diagnosis across Subgroups* の ResNet 版を CheXpert に適用する。stem を除く stage1〜4 の各 Bottleneck 主枝の `conv1` / `conv2` / `conv3` を、metadata condition から生成する低ランク channel-pair 行列で乗法変調する。分類器は低ランクの加法更新を受ける。同じ出力次元を持つ層は A 側 generator を共有し、B 側は層ごとに独立する。
+
+この preset は論文に合わせて base backbone と共有 classifier を凍結し、metadata encoder と hyper-adapter だけを Adam（LR `1e-3`、200 epoch、100 epoch ごとに LR を 0.1 倍）で学習する。1段目の checkpoint を必ず与える。
+
+```bash
+uv run python -m projects.hypernet_e2e.run \
+  experiment=hyperadapt_chexpert_from_resnet \
+  model.backbone_checkpoint_path=projects/hypernet_e2e/runs/<stage1-run-id>/checkpoints/<best>.ckpt
+```
 
 ## 学習起動
 

@@ -1,0 +1,39 @@
+_target_: projects.hypernet_e2e.module.LitModule
+
+optimizer:
+  _target_: torch.optim.Adam
+  _partial_: true
+  lr: 1e-3
+scheduler:
+  _target_: torch.optim.lr_scheduler.StepLR
+  _partial_: true
+  step_size: 100
+  gamma: 0.1
+
+net:
+  _target_: projects.hypernet_e2e.models.spatial_hypernet.hyperadapt.HyperAdaptResNet
+  num_classes: ${data.num_classes}
+  rank: 4
+  generator_hidden_dim: 128
+  backbone:
+    _target_: projects.hypernet_e2e.models.resnet.network.ResNetBackbone
+    layers: [3, 4, 6, 3]
+    block: Bottleneck
+  metadata_encoder:
+    _target_: projects.hypernet_e2e.models.spatial_hypernet.metadata_encoder.MetadataEncoder
+    categorical_cardinalities: ${data.attribute_spec.categorical_cardinalities}
+    num_continuous: ${data.attribute_spec.continuous_dim}
+    embedding_dim: 4
+    hidden_dim: 128
+    output_dim: 16
+
+loss_fn:
+  _target_: projects.hypernet_e2e.loss.TaskLoss
+  class_weight: null
+
+use_attributes: true
+backbone_checkpoint_path: null
+freeze_backbone: true
+attribute_names: ${data.attribute_names}
+fairness_attribute_names: ${data.fairness_attribute_names}
+compile: false

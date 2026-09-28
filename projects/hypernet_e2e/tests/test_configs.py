@@ -35,6 +35,7 @@ CHEXPERT_PRESETS: dict[str, tuple[str, str, str]] = {
     "spatial_lora_chexpert_from_attribute_invariant": ("inverse", "uniform", "erm"),
     "spatial_lora_chexpert_from_resnet_group_dro": ("inverse", "uniform", "group_dro"),
     "spatial_lora_chexpert_from_resnet_age_race_group_dro": ("inverse", "uniform", "group_dro"),
+    "hyperadapt_chexpert_from_resnet": ("inverse", "uniform", "erm"),
 }
 
 
@@ -165,6 +166,20 @@ def test_from_resnet_preset_freezes_the_backbone_and_demands_a_stage1_checkpoint
     assert cfg.model.backbone_checkpoint_path is None
     with pytest.raises(Exception, match="backbone_checkpoint_path"):
         instantiate(cfg.model)
+
+
+def test_hyperadapt_preset_uses_the_paper_training_protocol() -> None:
+    cfg = _compose("experiment=hyperadapt_chexpert_from_resnet")
+
+    assert cfg.model.net._target_.endswith("HyperAdaptResNet")
+    assert cfg.model.net.rank == 4
+    assert cfg.model.net.generator_hidden_dim == 128
+    assert cfg.model.freeze_backbone is True
+    assert cfg.model.optimizer._target_ == "torch.optim.Adam"
+    assert cfg.model.optimizer.lr == 1e-3
+    assert cfg.trainer.max_epochs == 200
+    assert cfg.model.scheduler.step_size == 100
+    assert cfg.model.scheduler.gamma == 0.1
 
 
 def test_attribute_invariant_variants_compose_with_expected_objectives() -> None:
