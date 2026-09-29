@@ -155,7 +155,7 @@ ERM の第1段と属性 AUC / accuracy / age MAE を比較して判定する。t
 
 `hyperadapt_chexpert_from_resnet` は、論文 *Patient-Conditioned Adaptive Offsets for Reliable Diagnosis across Subgroups* の ResNet 版を CheXpert に適用する。stem を除く stage1〜4 の各 Bottleneck 主枝の `conv1` / `conv2` / `conv3` を、metadata condition から生成する低ランク channel-pair 行列で乗法変調する。分類器は低ランクの加法更新を受ける。同じ出力次元を持つ層は A 側 generator を共有し、B 側は層ごとに独立する。
 
-この preset は論文に合わせて base backbone と共有 classifier を凍結し、metadata encoder と hyper-adapter だけを Adam（LR `1e-3`、200 epoch、100 epoch ごとに LR を 0.1 倍）で学習する。1段目の checkpoint を必ず与える。
+この preset は base backbone と共有 classifier を凍結し、metadata encoder と hyper-adapter だけを学習する。Spatial LoRA との比較条件として、AdamW（LR `1e-4`、weight decay `1e-2`）、scheduler なし、30 epoch を使う。1段目の checkpoint を必ず与える。
 
 ```bash
 uv run python -m projects.hypernet_e2e.run \

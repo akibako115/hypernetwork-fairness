@@ -1,5 +1,5 @@
 # @package _global_
-# 論文 HyperAdapt の CheXpert 検証。1段目 ResNet run の checkpoint を明示してから起動する。
+# HyperAdapt の CheXpert 検証。Spatial LoRA と揃えた optimizer・epoch 数で比較する。
 defaults:
   - /model: hyperadapt_resnet50
   - _base_chexpert
@@ -9,4 +9,4 @@ experiment_name: hyperadapt-chexpert-from-resnet
 tags: [two_stage, hyperadapt]
 
 trainer:
-  max_epochs: 200
+  max_epochs: 30
