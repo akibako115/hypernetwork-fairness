@@ -1,0 +1,8 @@
+# @package _global_
+defaults:
+  - resnet_chexpert
+  - _race_known_standard
+  - override /data: chexpert_race_known
+  - _self_
+
+experiment_name: resnet-chexpert-race-known

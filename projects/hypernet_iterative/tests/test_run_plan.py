@@ -22,7 +22,10 @@ def _config(tmp_path: Path):
             "weighting": "inverse",
             "dataset": "chexpert",
             "data": {"cv_splits_dir": str(split_dir), "num_classes": 2, "batch_size": 8},
-            "model": {"loss_fn": {"_target_": "projects.hypernet_iterative.loss.TaskLoss", "class_weight": None}},
+            "model": {
+                "loss_fn": {"_target_": "projects.hypernet_iterative.loss.TaskLoss", "class_weight": None},
+                "freeze_backbone": True,
+            },
             "trainer": {"max_epochs": 2},
             "callbacks": {"model_checkpoint": {}},
             "iteration": {"warmup_epochs": 2, "stage_epochs": 3, "stages": 4, "clusters": 10, "n_init": 5, "group_dro_step_size": 0.01},
@@ -38,6 +41,7 @@ def test_plan_shows_the_warmup_class_weight_and_the_total_epochs(tmp_path: Path)
     # warmup 2 + stage 3 × 4 回。
     assert "total epochs" in table and "14" in table
     assert "cohort: cohort04" in table and "fit: stage04" in table
+    assert "freeze_backbone" in table and "True" in table
 
 
 def test_plan_refuses_a_study_without_an_analysis_package(tmp_path: Path) -> None:

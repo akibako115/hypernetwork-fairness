@@ -27,10 +27,8 @@ tests/         共有層と、指標の定義が学習側と一致すること�
   README.md     仮説、対象 run、結論
   runs.md       この仮説に紐づく run の一覧と状態
   runs/         取り込んだ run（projects/*/runs/ への hardlink。Git 管理外）
-  collect.py    run artifact → results/*.csv
-  groups.py     群の定義と群別指標 → results/*.csv
-  plots.py      results/*.csv → figures/*.png（再利用・レポート用・一括出力の図だけ）
-  <name>.ipynb  results/*.csv → 分析固有の可視化・主張・考察
+  <name>.ipynb  分析トピックごとの読み込み・集計・可視化・考察（分析の主単位）
+  <module>.py   notebook から切り出した処理（共有する・重い・テストで固定したいものだけ）
   cache/        予測 cache（再生成できる中間物）
   results/      集計した表
   figures/      レポートが参照する図

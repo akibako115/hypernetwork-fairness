@@ -124,7 +124,7 @@ def test_group_dro_reaches_its_group_ids_through_one_lightning_fit(tmp_path: Pat
     import lightning as L
     import torch.nn as nn
 
-    from projects.hypernet_e2e.loss import GroupDROTaskLoss
+    from projects.hypernet_e2e.loss import SubgroupClassWeightedGroupDROTaskLoss
     from projects.hypernet_e2e.module import LitModule
 
     class _Net(nn.Module):
@@ -136,7 +136,7 @@ def test_group_dro_reaches_its_group_ids_through_one_lightning_fit(tmp_path: Pat
             return self.fc(image.mean(dim=(2, 3)))
 
     dm = _datamodule(*_all_four_groups(tmp_path))
-    objective = GroupDROTaskLoss(num_groups=4, step_size=1.0)
+    objective = SubgroupClassWeightedGroupDROTaskLoss(num_groups=4, class_weight=[[1.0, 1.0]] * 4, step_size=1.0)
     module = LitModule(net=_Net(), loss_fn=objective, optimizer=lambda params: torch.optim.SGD(params, lr=0.1), scheduler=None)
 
     L.Trainer(max_epochs=1, accelerator="cpu", logger=False, enable_checkpointing=False, enable_progress_bar=False).fit(module, datamodule=dm)

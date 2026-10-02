@@ -1,0 +1,10 @@
+defaults:
+  - chexpert_race_known
+  - _self_
+
+_target_: projects.hypernet_e2e.data.group_datamodule.GroupImageDataModule
+group_attribute_names: [age_group_65, race_group]
+group_cardinalities: [2, 4]
+group_missing_values: {}
+num_groups: 8
+group_key: group_id

@@ -1,0 +1,12 @@
+# @package _global_
+# HyperAdapt の CheXpert 検証。Spatial LoRA と揃えた optimizer・epoch 数で比較する。
+defaults:
+  - /model: hyperadapt_resnet50
+  - _base_chexpert
+  - _self_
+
+experiment_name: hyperadapt-chexpert-from-resnet
+tags: [two_stage, hyperadapt]
+
+trainer:
+  max_epochs: 30

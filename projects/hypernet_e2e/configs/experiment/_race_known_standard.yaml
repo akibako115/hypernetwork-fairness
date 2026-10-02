@@ -1,0 +1,8 @@
+# @package _global_
+experiment_seed: 42
+callbacks:
+  fairness_metrics:
+    intersectional_groups:
+      age_race_group:
+        attributes: [age_group_65, race_group]
+        cardinalities: [2, 4]

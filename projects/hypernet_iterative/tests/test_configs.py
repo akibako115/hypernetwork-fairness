@@ -45,16 +45,24 @@ def test_warmup_preset_uses_plain_datamodule_and_task_loss() -> None:
     assert config.weighting == "inverse"
     # 条件は解決済み設定として W&B に載るので、preset は tag を付けない。
     assert list(config.tags) == []
-    assert instantiate(config.model) is not None
+    assert config.model.loss_fn.class_weight is None
     assert config.checkpoint_selection.name == "global_auroc_bacc"
     assert config.callbacks.bacc_checkpoint.monitor == "val/bacc"
 
 
-def test_cohort_stage_preset_connects_sidecar_group_dro_and_hidden_callbacks() -> None:
+def test_from_resnet_preset_requires_an_explicit_parent_checkpoint() -> None:
+    config = _compose("experiment=spatial_lora_chexpert_from_resnet")
+
+    assert config.model.freeze_backbone is True
+    assert config.model.backbone_checkpoint_path is None
+    assert config.experiment_name == "spatial-lora-iterative-chexpert-from-resnet"
+
+
+def test_cohort_stage_preset_connects_sidecar_group_dro_subgroup_and_hidden_callbacks() -> None:
     config = _compose("experiment=spatial_lora_iterative_cohort_chexpert")
 
     assert config.data._target_ == "projects.hypernet_iterative.data.cohort_datamodule.CohortImageDataModule"
-    assert config.model.loss_fn._target_ == "projects.hypernet_iterative.loss.GroupDROTaskLoss"
+    assert config.model.loss_fn._target_ == "projects.hypernet_iterative.loss.SubgroupClassWeightedGroupDROTaskLoss"
     assert config.data.num_groups == config.cohort.num_groups == config.iteration.clusters
     assert config.callbacks.hidden_cohort_logger.num_groups == config.cohort.num_groups
     assert config.trainer.max_epochs == config.iteration.stage_epochs
@@ -62,7 +70,7 @@ def test_cohort_stage_preset_connects_sidecar_group_dro_and_hidden_callbacks() -
     assert list(config.tags) == []
     assert config.model.loss_fn.num_groups == config.cohort.num_groups
     assert config.model.loss_fn.step_size == config.iteration.group_dro_step_size
-    assert instantiate(config.model) is not None
+    assert config.model.loss_fn.class_weight is None
 
 
 def test_hidden_min_auroc_selection_adds_its_checkpoint() -> None:
@@ -77,7 +85,7 @@ def test_hidden_min_auroc_selection_adds_its_checkpoint() -> None:
 
 def test_cohort_stage_can_select_each_supported_group_objective() -> None:
     expected = {
-        "group_dro": ("GroupDROTaskLoss", True),
+        "group_dro_subgroup": ("SubgroupClassWeightedGroupDROTaskLoss", True),
         "uniform_group": ("UniformGroupTaskLoss", False),
         "uniform_group_iterative": ("UniformGroupTaskLoss", True),
     }
@@ -95,7 +103,7 @@ def test_cohort_stage_config_matches_the_training_strategy_group_it_declares(tmp
     `cohort_stage_config` は step_size などの数値を自前で持つため、`configs/training_strategy/`
     と二重定義になる。片方だけを変えたら落ちるように、ここで両者を比較する。
     """
-    for strategy in ("group_dro", "uniform_group", "uniform_group_iterative"):
+    for strategy in ("group_dro_subgroup", "uniform_group", "uniform_group_iterative"):
         warmup = _compose(f"iteration.cohort_training_strategy={strategy}")
         stage = workflow.cohort_stage_config(
             warmup,

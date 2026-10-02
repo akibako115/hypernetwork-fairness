@@ -1,0 +1,8 @@
+# @package _global_
+defaults:
+  - spatial_lora_chexpert
+  - _race_known_standard
+  - override /data: chexpert_race_known
+  - _self_
+
+experiment_name: spatial-lora-chexpert-race-known

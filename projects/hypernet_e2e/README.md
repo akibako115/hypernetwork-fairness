@@ -18,6 +18,8 @@ models/
 │   ├── blocks.py           # Bottleneck の conv1/conv2/conv3 への sample-wise Spatial LoRA
 │   ├── modulation.py       # FC 用 HyperLinear LoRA
 │   └── network.py          # stage1〜4 / fc を束ねる SpatialLoRAResNet
+├── hyperadapt/
+│   └── network.py          # 論文 HyperAdapt の全 Bottleneck 主枝と fc の条件付き変調
 └── utils.py                # checkpoint 部分ロードと embedding 分散推定
 ```
 
@@ -45,6 +47,7 @@ model・data・callbacks・trainer を作成し、1 回の `fit` を実行しま
 - `experiment=resnet_chexpert` / `experiment=spatial_lora_chexpert`（系列の基準となる ERM）
 - `experiment=spatial_lora_chexpert_fc` / `_stage4_fc`（変調範囲だけを変えた条件）
 - `experiment=spatial_lora_chexpert_from_resnet`（2 段学習の 2 段目）
+- `experiment=hyperadapt_chexpert_from_resnet`（論文 HyperAdapt の凍結済み ResNet への患者条件付き変調）
 - `experiment=resnet_chexpert_attribute_invariant`（GRL による属性不変な第1段）
 - `experiment=spatial_lora_chexpert_from_attribute_invariant`（上記からの第2段）
 - 各モデルの `group_dro` / `inverse_weighted_sampling`
@@ -67,15 +70,14 @@ group を使う条件は、`data` と `training_strategy` の組で決まりま�
 | `data=chexpert_demographic_groups` | `sex` × `age_group_65` の 4 群を `attributes["group_id"]` に供給する |
 | `training_strategy=erm` | 通常の cross-entropy。group ID を読まない |
 | `training_strategy=uniform_group` | 観測された group ごとの平均 loss を等重みで最適化する |
-| `training_strategy=group_dro` | group loss の exponentiated gradient で adversarial weight を更新する |
-| `training_strategy=group_dro_balanced` | group loss を (group, class) セルのクラス平均に置き換えた Group DRO |
+| `training_strategy=group_dro_global` | global class weight の group loss で adversarial weight を更新する |
+| `training_strategy=group_dro_subgroup` | subgroup-wise class weight の group loss で adversarial weight を更新する |
 
 `_group_dro` 系の experiment はこの 2 つを組にした preset です。目的関数だけを差し替えるときは
 `training_strategy=` を重ねます。
 
 ```bash
 uv run python -m projects.hypernet_e2e.run \
-  experiment=spatial_lora_chexpert_group_dro training_strategy=group_dro_balanced
 ```
 
 `num_groups` は `group_cardinalities` の積として data config に明示します。Hydra が乗算できない
@@ -92,6 +94,43 @@ CheXpert の model 入力は `sex`、`race`、`ethnicity`、連続 `age` と撮�
 標準化済み age とは別に生成します。より細かい年齢群は分析時に split CSV の age から定義します。
 
 ## 2 段学習
+
+### race-known 比較の標準設定
+
+今回の5条件には、既存名に `_race_known` を付けた専用presetを使います。既存presetは変更していません。
+全条件で `splits_race_known`、seed 42、batch size 128、30 epoch、AdamW（lr `1e-4`、
+weight decay `1e-2`）、global inverse class weight、uniform samplingを使用します。
+GroupDROのstep sizeは `0.01`、群は `<65 / ≥65` × `White / Asian / Black / Others` の8群です。
+encoder入力のraceは元の6カテゴリを保持します。
+
+公平性ログはsex・race_group・ethnicity・age_group_65に加え、
+`val/age_race_group/*` と `test/age_race_group/*` に8群のEopp0/Eopp1/Eodds、
+AUROC・balanced accuracyのgapとworst-group指標を記録します。
+群IDは `4 * age_group_65 + race_group` です。
+
+最初の4条件はそれぞれ独立したrunとして起動します（W&Bは有効のままです）。
+
+```bash
+uv run python -m projects.hypernet_e2e.run experiment=resnet_chexpert_race_known study=two_stage_vs_e2e_age_race_group_dro
+uv run python -m projects.hypernet_e2e.run experiment=resnet_chexpert_age_race_group_dro_race_known study=two_stage_vs_e2e_age_race_group_dro
+uv run python -m projects.hypernet_e2e.run experiment=spatial_lora_chexpert_race_known study=two_stage_vs_e2e_age_race_group_dro
+uv run python -m projects.hypernet_e2e.run experiment=spatial_lora_chexpert_age_race_group_dro_race_known study=two_stage_vs_e2e_age_race_group_dro
+```
+
+5条件目は、今回の `resnet_chexpert_race_known` が出力したbest `val/auroc` checkpointを指定します。
+過去の元splitで学習したcheckpointは使用しません。backboneと元classifierは凍結します。
+
+```bash
+uv run python -m projects.hypernet_e2e.run \
+  experiment=spatial_lora_chexpert_from_resnet_age_race_group_dro_race_known \
+  study=two_stage_vs_e2e_age_race_group_dro \
+  model.backbone_checkpoint_path=projects/hypernet_e2e/runs/<今回のResNet-ERM-run>/checkpoints/<best>.ckpt
+```
+
+各コマンドに `dry_run=true` を追加すると学習・run作成なしで起動条件を確認できます。
+two-stageのdry-runはcheckpointなしでも設定確認できますが、実学習は未指定を拒否します。
+
+### 従来のsplitを使う2段学習
 
 ResNet を 1 段目、backbone と classifier を凍結した Spatial LoRA を 2 段目とする学習は、
 `run.py` を 2 回起動して構成します。1 段目の run は通常の単段 run です。
@@ -148,6 +187,18 @@ GRL の学習時の属性損失だけでは不変性の証明にはならない�
 ERM の第1段と属性 AUC / accuracy / age MAE を比較して判定する。task AUROC と subgroup gap も
 同じ split で併記する。`model.loss_fn.attribute_adversary_weight` は task 性能とのトレードオフなので、
 少なくとも `0.01, 0.03, 0.1` を同一 seed 群で比較する。
+
+### HyperAdapt
+
+`hyperadapt_chexpert_from_resnet` は、論文 *Patient-Conditioned Adaptive Offsets for Reliable Diagnosis across Subgroups* の ResNet 版を CheXpert に適用する。stem を除く stage1〜4 の各 Bottleneck 主枝の `conv1` / `conv2` / `conv3` を、metadata condition から生成する低ランク channel-pair 行列で乗法変調する。分類器は低ランクの加法更新を受ける。同じ出力次元を持つ層は A 側 generator を共有し、B 側は層ごとに独立する。
+
+この preset は base backbone と共有 classifier を凍結し、metadata encoder と hyper-adapter だけを学習する。Spatial LoRA との比較条件として、AdamW（LR `1e-4`、weight decay `1e-2`）、scheduler なし、30 epoch を使う。1段目の checkpoint を必ず与える。
+
+```bash
+uv run python -m projects.hypernet_e2e.run \
+  experiment=hyperadapt_chexpert_from_resnet \
+  model.backbone_checkpoint_path=projects/hypernet_e2e/runs/<stage1-run-id>/checkpoints/<best>.ckpt
+```
 
 ## 学習起動
 

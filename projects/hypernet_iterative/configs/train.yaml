@@ -33,7 +33,7 @@ iteration:
   stage_epochs: 2
   clusters: 10
   n_init: 50
-  cohort_training_strategy: group_dro
+  cohort_training_strategy: group_dro_subgroup
   # group loss の大きさと 1 epoch あたりの step 数で決まる。class weight を変えると group
   # loss の大きさも変わるため、weighting と独立には選べない。
   group_dro_step_size: 0.01

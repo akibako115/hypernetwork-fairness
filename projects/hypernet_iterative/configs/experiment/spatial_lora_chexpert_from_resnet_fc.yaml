@@ -1,0 +1,9 @@
+# @package _global_
+defaults:
+  - spatial_lora_chexpert_from_resnet
+  - _self_
+
+experiment_name: spatial-lora-iterative-chexpert-from-resnet-fc
+model:
+  net:
+    modulation_stages: [fc]

@@ -4,7 +4,7 @@
 defaults:
   - spatial_lora_chexpert_from_resnet
   - override /data: chexpert_age_race_groups
-  - override /training_strategy: group_dro
+  - override /training_strategy: group_dro_subgroup
   - _self_
 
 experiment_name: spatial-lora-chexpert-from-resnet-age-race-group-dro

@@ -46,6 +46,32 @@ sha256 と照合した。`last.ckpt` は best と同じ sha256 なので回収�
 取り込んだ後に回収した checkpoint は `runs.py import` を再実行しても package 側に現れない。
 `projects/` 側の `checkpoints/` を `cp -al` で package 側へリンクしてある。
 
+## DANN schedule（ws11、seed 43、最大 λ を振る）
+
+`f879abd` で入れた DANN schedule で、GRL の scale を学習の進捗 p に応じて
+`max_scale · (2 / (1 + exp(−γ p)) − 1)`（γ=10）と上げる。4 本を ws11 で**並列**に起動した。
+いずれも `experiment=resnet_chexpert_attribute_invariant_dann`、`seed=43`、`weighting=inverse`、30 epoch、
+`attribute_adversary_weight=1.0` で、**違いは `gradient_schedule.max_scale` だけ**になる。
+run-id には max_scale が入らないので、正本は各 run の `config.yaml`。
+
+backbone が受け取る逆向きの勾配は **λ = 1.0 × scale** で、最終的な λ は max_scale に一致する。
+scale は max_scale に対する比で、epoch 0 の末に 0.08、epoch 4 で 0.63、epoch 9 で 0.92、epoch 14 以降は 0.98 以上になる
+（記録された `train/adversary_scale` から）。**定数 λ = max_scale の run に約 10 epoch の warmup を付けたもの**として読む。
+adversary head 自身の loss の重みは 1.0 で、定数 λ の run と変わらない。
+
+4 本とも `run.json` の `git_commit` は null（ws11 の container に `.git` が無かったため）。
+
+| 最大 λ | run path | W&B | 状態 |
+|---|---|---|---|
+| 0.1 | `analysis/adversary_strength/runs/20260924T112045Z-resnet-chexpert-attribute-invariant-dann-s43-6f67` | [run](https://wandb.ai/kohki-akiba-kyushu-university/fairness_hypernet/runs/xlinynnz) | succeeded（best: epoch 7） |
+| 1 | `analysis/adversary_strength/runs/20260924T112044Z-resnet-chexpert-attribute-invariant-dann-s43-eeeb` | [run](https://wandb.ai/kohki-akiba-kyushu-university/fairness_hypernet/runs/3w9h2e9r) | succeeded（best: epoch 13） |
+| 3 | `analysis/adversary_strength/runs/20260924T112044Z-resnet-chexpert-attribute-invariant-dann-s43-3ae9` | [run](https://wandb.ai/kohki-akiba-kyushu-university/fairness_hypernet/runs/w6agzr2r) | succeeded（best: epoch 16） |
+| 10 | `analysis/adversary_strength/runs/20260924T112038Z-resnet-chexpert-attribute-invariant-dann-s43-3550` | [run](https://wandb.ai/kohki-akiba-kyushu-university/fairness_hypernet/runs/qt66ue6r) | succeeded（best: epoch 28） |
+
+checkpoint は、最大 λ=0.1 / 1 / 3 の 3 本は val AUROC 最大のもの（`best_val_auroc_<epoch>.ckpt`）だけを回収し、
+`run.json` の sha256 と照合した。`last.ckpt` は best と sha256 が違うが、分析は best しか使わないので回収していない。
+最大 λ=10 の 1 本は `best_val_auroc_028.ckpt` と `last.ckpt` を回収してある（どちらも `run.json` の sha256 と一致）。学習中に回収した epoch 7 / 13 / 16 の best が残っていたが、ws11 側では消えており `run.json` も指さないので、2026-09-28 に削除した。
+
 ## 比較対象（別 study の run）
 
 λ=0.1 の水準は [initial_resnet_vs_invariant](../initial_resnet_vs_invariant/runs.md) の

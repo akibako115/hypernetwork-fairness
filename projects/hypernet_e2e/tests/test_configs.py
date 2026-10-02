@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import torch
 import yaml
 from hydra import compose, initialize_config_dir
 from hydra.errors import ConfigCompositionException
@@ -19,22 +20,32 @@ EXPERIMENT_DIR = CONFIG_DIR / "experiment"
 # 逸脱する preset だけがこの表で違う値を持つ。preset を足したらこの表にも足す。足し忘れは
 # test_every_chexpert_preset_is_registered_in_the_table が落とす。
 CHEXPERT_PRESETS: dict[str, tuple[str, str, str]] = {
+    "resnet_chexpert_race_known": ("inverse", "uniform", "erm"),
+    "resnet_chexpert_age_race_group_dro_race_known": ("inverse", "uniform", "group_dro_global"),
+    "spatial_lora_chexpert_race_known": ("inverse", "uniform", "erm"),
+    "spatial_lora_chexpert_age_race_group_dro_race_known": ("inverse", "uniform", "group_dro_global"),
+    "spatial_lora_chexpert_from_resnet_age_race_group_dro_race_known": ("inverse", "uniform", "group_dro_global"),
     "resnet_chexpert": ("inverse", "uniform", "erm"),
     "resnet_chexpert_attribute_invariant": ("inverse", "uniform", "erm"),
     "resnet_chexpert_attribute_invariant_dann": ("inverse", "uniform", "erm"),
     "resnet_chexpert_attribute_invariant_alfr": ("inverse", "uniform", "erm"),
-    "resnet_chexpert_group_dro": ("inverse", "uniform", "group_dro"),
+    "resnet_chexpert_group_dro": ("inverse", "uniform", "group_dro_subgroup"),
+    "resnet_chexpert_age_race_group_dro": ("inverse", "uniform", "group_dro_subgroup"),
     "resnet_chexpert_inverse_weighted_sampling": ("none", "inverse_frequency", "erm"),
     "spatial_lora_chexpert": ("inverse", "uniform", "erm"),
-    "spatial_lora_chexpert_age_race_group_dro": ("inverse", "uniform", "group_dro"),
+    "spatial_lora_chexpert_age_race_group_dro": ("inverse", "uniform", "group_dro_subgroup"),
     "spatial_lora_chexpert_fc": ("inverse", "uniform", "erm"),
     "spatial_lora_chexpert_stage4_fc": ("inverse", "uniform", "erm"),
-    "spatial_lora_chexpert_group_dro": ("inverse", "uniform", "group_dro"),
+    "spatial_lora_chexpert_group_dro": ("inverse", "uniform", "group_dro_subgroup"),
     "spatial_lora_chexpert_inverse_weighted_sampling": ("none", "inverse_frequency", "erm"),
     "spatial_lora_chexpert_from_resnet": ("inverse", "uniform", "erm"),
     "spatial_lora_chexpert_from_attribute_invariant": ("inverse", "uniform", "erm"),
-    "spatial_lora_chexpert_from_resnet_group_dro": ("inverse", "uniform", "group_dro"),
-    "spatial_lora_chexpert_from_resnet_age_race_group_dro": ("inverse", "uniform", "group_dro"),
+    "spatial_lora_chexpert_from_resnet_group_dro": ("inverse", "uniform", "group_dro_subgroup"),
+    "spatial_lora_chexpert_from_resnet_age_race_group_dro": ("inverse", "uniform", "group_dro_subgroup"),
+    "hyperadapt_chexpert": ("inverse", "uniform", "erm"),
+    "hyperadapt_chexpert_age_race_group_dro": ("inverse", "uniform", "group_dro_subgroup"),
+    "hyperadapt_chexpert_from_resnet": ("inverse", "uniform", "erm"),
+    "hyperadapt_chexpert_from_resnet_age_race_group_dro": ("inverse", "uniform", "group_dro_subgroup"),
 }
 
 
@@ -167,6 +178,23 @@ def test_from_resnet_preset_freezes_the_backbone_and_demands_a_stage1_checkpoint
         instantiate(cfg.model)
 
 
+def test_hyperadapt_preset_matches_the_spatial_lora_training_protocol() -> None:
+    cfg = _compose("experiment=hyperadapt_chexpert_from_resnet")
+
+    assert cfg.model.net._target_.endswith("HyperAdaptResNet")
+    assert cfg.model.net.rank == 4
+    assert cfg.model.net.generator_hidden_dim == 128
+    assert cfg.model.freeze_backbone is True
+    assert cfg.model.backbone_checkpoint_path is None
+    with pytest.raises(Exception, match="backbone_checkpoint_path"):
+        instantiate(cfg.model)
+    assert cfg.model.optimizer._target_ == "torch.optim.AdamW"
+    assert cfg.model.optimizer.lr == 1e-4
+    assert cfg.model.optimizer.weight_decay == 1e-2
+    assert cfg.model.scheduler is None
+    assert cfg.trainer.max_epochs == 30
+
+
 def test_attribute_invariant_variants_compose_with_expected_objectives() -> None:
     dann = _compose("experiment=resnet_chexpert_attribute_invariant_dann")
     alfr = _compose("experiment=resnet_chexpert_attribute_invariant_alfr")
@@ -178,6 +206,22 @@ def test_attribute_invariant_variants_compose_with_expected_objectives() -> None
     assert alfr.model.adversary_optimizer._target_.endswith("AdamW")
     assert instantiate(dann.model).automatic_optimization is True
     assert instantiate(alfr.model).automatic_optimization is False
+
+
+def test_attribute_invariant_adversary_width_and_trunk_sharing_are_overridable() -> None:
+    default = _compose("experiment=resnet_chexpert_attribute_invariant_dann")
+    wide = _compose(
+        "experiment=resnet_chexpert_attribute_invariant_dann",
+        "model.loss_fn.hidden_dim=[1024,1024]",
+        "model.loss_fn.shared_trunk=false",
+    )
+
+    assert instantiate(default.model.loss_fn).attribute_adversary.trunk is not None
+    adversary = instantiate(wide.model.loss_fn).attribute_adversary
+    assert adversary.trunk is None
+    assert len(adversary.categorical_trunks) == 2
+    assert len(adversary.continuous_trunks) == 1
+    assert [layer.out_features for layer in adversary.categorical_trunks[0] if isinstance(layer, torch.nn.Linear)] == [1024, 1024]
 
 
 def test_attribute_invariant_stage1_and_its_stage2_preset_compose() -> None:
@@ -193,7 +237,7 @@ def test_attribute_invariant_stage1_and_its_stage2_preset_compose() -> None:
 
 
 def test_attribute_invariant_preset_rejects_group_dro_override() -> None:
-    config = _compose("experiment=resnet_chexpert_attribute_invariant", "training_strategy=group_dro")
+    config = _compose("experiment=resnet_chexpert_attribute_invariant", "training_strategy=group_dro_subgroup")
 
     with pytest.raises(ValueError, match="training_strategy=erm"):
         _validate_attribute_invariance(config)
@@ -202,15 +246,15 @@ def test_attribute_invariant_preset_rejects_group_dro_override() -> None:
 @pytest.mark.parametrize(
     ("experiment", "loss_target"),
     [
-        ("resnet_chexpert_group_dro", "GroupDROTaskLoss"),
-        ("spatial_lora_chexpert_group_dro", "GroupDROTaskLoss"),
-        ("spatial_lora_chexpert_from_resnet_group_dro", "GroupDROTaskLoss"),
+        ("resnet_chexpert_group_dro", "SubgroupClassWeightedGroupDROTaskLoss"),
+        ("spatial_lora_chexpert_group_dro", "SubgroupClassWeightedGroupDROTaskLoss"),
+        ("spatial_lora_chexpert_from_resnet_group_dro", "SubgroupClassWeightedGroupDROTaskLoss"),
     ],
 )
 def test_group_presets_pair_the_grouped_datamodule_with_a_group_objective(experiment: str, loss_target: str) -> None:
     cfg = _compose(f"experiment={experiment}")
 
-    assert cfg.training_strategy.name == "group_dro"
+    assert cfg.training_strategy.name == "group_dro_subgroup"
     assert cfg.data._target_.endswith("GroupImageDataModule")
     assert cfg.model.loss_fn._target_.endswith(loss_target)
     # group 数は data 側の定義が正本であり、目的関数はそれを参照するだけにする。
@@ -220,6 +264,9 @@ def test_group_presets_pair_the_grouped_datamodule_with_a_group_objective(experi
 
 def test_age_race_group_preset_uses_the_intersectional_14_group_definition() -> None:
     for experiment in (
+        "resnet_chexpert_age_race_group_dro",
+        "hyperadapt_chexpert_age_race_group_dro",
+        "hyperadapt_chexpert_from_resnet_age_race_group_dro",
         "spatial_lora_chexpert_age_race_group_dro",
         "spatial_lora_chexpert_from_resnet_age_race_group_dro",
     ):
@@ -235,13 +282,16 @@ def test_age_race_group_preset_uses_the_intersectional_14_group_definition() -> 
     assert stage2.model.backbone_checkpoint_path is None
 
 
-@pytest.mark.parametrize("strategy", ["erm", "uniform_group", "group_dro", "group_dro_balanced"])
+@pytest.mark.parametrize("strategy", ["erm", "uniform_group", "group_dro_global", "group_dro_subgroup"])
 def test_training_strategy_is_selectable_without_changing_the_experiment(strategy: str) -> None:
     cfg = _compose("experiment=spatial_lora_chexpert_group_dro", f"training_strategy={strategy}")
 
     assert cfg.training_strategy.name == strategy
     assert cfg.training_strategy.uses_group_id is (strategy != "erm")
-    assert instantiate(cfg.model) is not None
+    if strategy in {"group_dro_global", "group_dro_subgroup"}:
+        assert cfg.model.loss_fn.class_weight is None
+    else:
+        assert instantiate(cfg.model) is not None
 
 
 def test_plain_chexpert_preset_keeps_cross_entropy_and_no_group_id() -> None:

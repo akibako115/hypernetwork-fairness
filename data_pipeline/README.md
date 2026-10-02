@@ -38,6 +38,19 @@
 `sex=Unknown` 279 行と `age` 欠損 278 行（重複あり）で、フラグで表現できない属性は行ごと落とす方針。
 残る行については、全属性で欠損フラグの漏れが無く、非欠損行の符号も原文と一致することを確認済み。
 
+### CheXpert の race 既知サンプルによる派生 split
+
+`uv run python -m data_pipeline.chexpert_race_known_splits` で、元の `data/chexpert/splits/` を
+保持したまま `data/chexpert/splits_race_known/` を作成する。`race_missing` が真の行だけを除外し、
+所属 split・行順・既存の属性値は維持する。出力先が存在する場合は上書きしない。
+入力・出力の変更には `--input-dir` / `--output-dir` を使う。
+
+元の `race` は metadata encoder 用に残し、評価・GroupDRO 用の `race_group` を追加する。
+元コード 0 / 2 / 3 を White(0) / Asian(1) / Black(2)、1 / 4 / 5 を Others(3) にまとめる。
+`race_group_missing` は全行 false。入力 hash・使用前後の件数・クラス分布・対応表は
+出力先の `manifest.json` に残す。期待する残存件数は train 157,852 / val 20,058 / test 19,617。
+元データを保持することで、race 欠損群の補足評価と既存 run の再現に利用できる。
+
 ## ISIC 2019
 
 | 項目 | 内容 |

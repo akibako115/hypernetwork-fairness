@@ -27,7 +27,7 @@ def validate_training_config(config: DictConfig) -> None:
         ValueError: cohort に必要な設定が欠けている場合、class weight の形が cohort と
             合わない場合、warm-start が許可されていない場合、
             または hidden cohort 選択に必要な callback が無い場合。
-        FileNotFoundError: warm-start checkpoint が存在しない場合。
+        FileNotFoundError: backbone または warm-start checkpoint が存在しない場合。
     """
     strategy = config.get("training_strategy")
     cohort = config.get("cohort")
@@ -49,13 +49,22 @@ def validate_training_config(config: DictConfig) -> None:
     # ではなく陽性が多い group へ寄る。重みは cohort の構成から解くので、行数が合わない
     # stage config は別 cohort 向けに解いた重みを使っている。
     class_weight = (config.model.get("loss_fn") or {}).get("class_weight")
-    if class_weight is not None and uses_cohort:
+    scope = strategy.get("class_weight_scope") if strategy is not None else None
+    if scope == "subgroup" and "loss_fn" in config.model:
         if not _is_group_class_weight(class_weight):
             raise ValueError("cohort stage の class weight は group ごとの [num_groups, num_classes] である必要がある")
         if len(class_weight) != int(cohort.num_groups):
             raise ValueError(f"group ごとの class weight は {int(cohort.num_groups)} 行である必要があるが、{len(class_weight)} 行が指定された")
+    if scope == "global" and "loss_fn" in config.model and (_is_group_class_weight(class_weight) or class_weight is None):
+        raise ValueError("global Group DRO の class_weight は [num_classes] である必要がある")
     if _is_group_class_weight(class_weight) and not uses_cohort:
         raise ValueError("group ごとの class weight は cohort を使う stage でのみ指定できる")
+
+    backbone_path = config.model.get("backbone_checkpoint_path")
+    if config.model.get("freeze_backbone", False) and not backbone_path:
+        raise ValueError("freeze_backbone=true には model.backbone_checkpoint_path が必要")
+    if backbone_path and not Path(backbone_path).is_file():
+        raise FileNotFoundError(f"backbone checkpoint が見つからない: {backbone_path}")
 
     warm_start_path = config.model.get("warm_start_checkpoint_path")
     if warm_start_path:

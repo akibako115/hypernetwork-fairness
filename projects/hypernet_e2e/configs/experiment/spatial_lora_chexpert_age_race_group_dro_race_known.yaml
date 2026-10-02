@@ -1,0 +1,9 @@
+# @package _global_
+defaults:
+  - spatial_lora_chexpert_age_race_group_dro
+  - _race_known_standard
+  - override /data: chexpert_age_race_known_groups
+  - override /training_strategy: group_dro_global
+  - _self_
+
+experiment_name: spatial-lora-chexpert-age-race-group-dro-race-known

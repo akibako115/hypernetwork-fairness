@@ -1,0 +1,10 @@
+# @package _global_
+# HyperAdapt を初期から学習し、age_group_65 × race の intersectional Group DRO を適用する。
+defaults:
+  - hyperadapt_chexpert
+  - override /data: chexpert_age_race_groups
+  - override /training_strategy: group_dro_subgroup
+  - _self_
+
+experiment_name: hyperadapt-chexpert-age-race-group-dro
+tags: [hyperadapt, intersectional_demographic_fairness]

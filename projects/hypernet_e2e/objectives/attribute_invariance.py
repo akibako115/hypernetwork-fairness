@@ -27,21 +27,37 @@ class _GradientReverse(torch.autograd.Function):
         return -ctx.scale * gradient, None
 
 
+def _trunk(feature_dim: int, hidden_dims: Sequence[int]) -> nn.Sequential:
+    """`Linear → ReLU` を hidden_dims の幅で積んだ trunk を返す。"""
+    layers: list[nn.Module] = []
+    width = feature_dim
+    for hidden_dim in hidden_dims:
+        layers.extend([nn.Linear(width, hidden_dim), nn.ReLU(inplace=True)])
+        width = hidden_dim
+    return nn.Sequential(*layers)
+
+
 class _AttributeAdversary(nn.Module):
-    """GRL 後の選択済み表現から属性を予測する内部 module。"""
+    """GRL 後の選択済み表現から属性を予測する内部 module。
+
+    `shared_trunk=True` は全属性で 1 つの trunk を共有し、parameter 名は
+    `trunk` / `categorical_heads` / `continuous_head` になる（幅 1 層の既存 checkpoint と同じ並び）。
+    `False` は属性列ごとに別の trunk（`categorical_trunks[i]`、`continuous_trunks[j]`）を持つ。
+    """
 
     def __init__(
         self,
         feature_dim: int,
         categorical_cardinalities: Sequence[int],
         num_continuous: int,
-        hidden_dim: int,
+        hidden_dims: Sequence[int],
         gradient_scale: float,
+        shared_trunk: bool = True,
     ) -> None:
         """属性の型・次元に合わせた予測ヘッドを構築する。"""
         super().__init__()
-        if feature_dim < 1 or hidden_dim < 1:
-            raise ValueError("feature_dim と hidden_dim は 1 以上である必要がある")
+        if feature_dim < 1 or not hidden_dims or any(hidden_dim < 1 for hidden_dim in hidden_dims):
+            raise ValueError("feature_dim と hidden_dims の各層の幅は 1 以上、hidden_dims は 1 層以上である必要がある")
         if any(cardinality < 2 for cardinality in categorical_cardinalities):
             raise ValueError("categorical_cardinalities は 2 以上の整数だけを指定する必要がある")
         if num_continuous < 0:
@@ -51,9 +67,19 @@ class _AttributeAdversary(nn.Module):
         if gradient_scale < 0:
             raise ValueError("gradient_scale は 0 以上である必要がある")
         self.gradient_scale = gradient_scale
-        self.trunk = nn.Sequential(nn.Linear(feature_dim, hidden_dim), nn.ReLU(inplace=True))
-        self.categorical_heads = nn.ModuleList([nn.Linear(hidden_dim, cardinality) for cardinality in categorical_cardinalities])
-        self.continuous_head = nn.Linear(hidden_dim, num_continuous) if num_continuous else None
+        if shared_trunk:
+            self.trunk = _trunk(feature_dim, hidden_dims)
+            self.categorical_trunks = self.continuous_trunks = None
+        else:
+            # 共有 trunk では 3 属性の勾配が同じ unit を取り合い、止めた特徴量の上でも sex の学習が遅く
+            # 死ぬ unit も多かった（analysis/adversary_strength/adversary_head_state.ipynb）。
+            self.trunk = None
+            self.categorical_trunks = nn.ModuleList([_trunk(feature_dim, hidden_dims) for _ in categorical_cardinalities])
+            self.continuous_trunks = nn.ModuleList([_trunk(feature_dim, hidden_dims) for _ in range(num_continuous)])
+        width = hidden_dims[-1]
+        self.categorical_heads = nn.ModuleList([nn.Linear(width, cardinality) for cardinality in categorical_cardinalities])
+        # 属性ごとの trunk でも出力層は 1 つにまとめ、連続属性 j は trunk j の出力に対する j 列目だけを使う。
+        self.continuous_head = nn.Linear(width, num_continuous) if num_continuous else None
 
     def component_losses(
         self,
@@ -63,7 +89,8 @@ class _AttributeAdversary(nn.Module):
     ) -> dict[str, torch.Tensor]:
         """選択済み属性ごとの観測済み損失を返す。"""
         scale = self.gradient_scale if gradient_scale is None else gradient_scale
-        hidden = self.trunk(_GradientReverse.apply(features, scale))
+        reversed_features = _GradientReverse.apply(features, scale)
+        shared = self.trunk(reversed_features) if self.trunk is not None else None
         losses: dict[str, torch.Tensor] = {}
         if self.categorical_heads:
             categorical = attributes["categorical"]
@@ -73,17 +100,22 @@ class _AttributeAdversary(nn.Module):
             for index, head in enumerate(self.categorical_heads):
                 observed = ~missing[:, index]
                 if observed.any():
+                    hidden = shared if shared is not None else self.categorical_trunks[index](reversed_features)
                     losses[f"categorical_{index}"] = F.cross_entropy(head(hidden[observed]), categorical[observed, index].long())
         if self.continuous_head is not None:
             continuous = attributes["continuous"]
             missing = attributes["continuous_missing"].bool()
             if continuous.ndim != 2 or continuous.shape[1] != self.continuous_head.out_features or missing.shape != continuous.shape:
                 raise ValueError("continuous / continuous_missing の shape が属性予測器の設定と一致しない")
-            predicted = self.continuous_head(hidden)
-            for index in range(predicted.shape[1]):
+            predicted = self.continuous_head(shared) if shared is not None else None
+            for index in range(continuous.shape[1]):
                 observed = ~missing[:, index]
                 if observed.any():
-                    losses[f"continuous_{index}"] = F.mse_loss(predicted[observed, index], continuous[observed, index])
+                    if shared is None:
+                        column = self.continuous_head(self.continuous_trunks[index](reversed_features))[:, index]
+                    else:
+                        column = predicted[:, index]
+                    losses[f"continuous_{index}"] = F.mse_loss(column[observed], continuous[observed, index])
         return losses
 
     def forward(self, features: torch.Tensor, attributes: Mapping[str, torch.Tensor]) -> torch.Tensor:
@@ -111,10 +143,11 @@ class AttributeInvariantTaskLoss(nn.Module):
         adversarial_attribute_names: Mapping[str, Sequence[str]],
         categorical_cardinalities: Sequence[int] = (),
         num_continuous: int = 0,
-        hidden_dim: int = 256,
+        hidden_dim: int | Sequence[int] = 256,
         gradient_scale: float = 1.0,
         attribute_adversary_weight: float = 1.0,
         gradient_schedule: Mapping[str, float] | None = None,
+        shared_trunk: bool = True,
     ) -> None:
         """task loss、full attribute spec、および選択済み属性予測器を構築する。
 
@@ -125,11 +158,13 @@ class AttributeInvariantTaskLoss(nn.Module):
             adversarial_attribute_names: GRL で予測を妨げる categorical / continuous 列名。
             categorical_cardinalities: full categorical 属性列ごとのカテゴリ数。各要素は 2 以上。
             num_continuous: full continuous 属性列数。0 以上。
-            hidden_dim: 内部属性予測器の隠れ次元。1 以上。
+            hidden_dim: 内部属性予測器の trunk の幅。整数なら 1 層、列なら層ごとの幅（例: ``[1024, 1024]``）。
+                各層 1 以上。
             gradient_scale: backbone へ逆向きに渡す勾配の倍率。0 以上。
             attribute_adversary_weight: task loss に加える属性予測損失の重み。0 以上。
             gradient_schedule: GRL scale の schedule。``{"name": "dann", "gamma": 10.0,
                 "max_scale": 1.0}`` を指定すると DANN schedule を使う。None は固定 scale。
+            shared_trunk: True なら全属性で trunk を共有し、False なら属性列ごとに別の trunk を持つ。
 
         Returns:
             None
@@ -173,12 +208,14 @@ class AttributeInvariantTaskLoss(nn.Module):
             "continuous": [full_continuous[index] for index in selected_indices["continuous"]],
         }
         self.task_loss = task_loss
+        hidden_dims = [hidden_dim] if isinstance(hidden_dim, int) else [int(width) for width in hidden_dim]
         self.attribute_adversary = _AttributeAdversary(
             feature_dim,
             [cardinalities[index] for index in selected_indices["categorical"]],
             len(selected_indices["continuous"]),
-            hidden_dim,
+            hidden_dims,
             gradient_scale,
+            shared_trunk,
         )
         self.attribute_adversary_weight = attribute_adversary_weight
         schedule = dict(gradient_schedule or {})
