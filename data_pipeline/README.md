@@ -102,7 +102,29 @@ FairCLIP 公式実装は `language == -1` を unknown として評価から外�
 ethnicity / language）に `age_group_65` を加えたもので、maritalstatus はモデル入力にだけ使う。
 
 test の language は other が 11 枚（陰性 5 / 陽性 6）、spanish が 31 枚（陰性 9 / 陽性 22）しかない。
-後述の最小セル枚数 20 により、other は全セル、spanish は陰性側（TNR / FPR）のセルが評価から外れる。
+後述の最小セル枚数 20 を当てると、other は全セル、spanish は陰性側（TNR / FPR）のセルが外れる。
+**ただしこの下限は事後分析で適用する規則で、学習中の `FairnessMetricsCallback` には実装されていない。**
+callback がログする language 軸の gap は 11 枚の other 群を含んだ max−min なので、参考値として扱う。
+
+split CSV には、属性ではないフラグ列を 2 つ持たせる。どちらもモデル入力にも評価軸にも入れず、
+事後分析で評価対象を絞るために使う。
+
+| 列 | 内容 | test |
+| --- | --- | --- |
+| `image_blank` | 輝度 10 未満の画素が 95% 以上を占める、ほぼ黒い画像 | 112 / 2,000 |
+| `fairclip_eval_subset` | FairCLIP 公式実装が val / test の評価に残す行 | 1,883 / 2,000 |
+
+`image_blank` は全体で 552 枚（5.5%）あり、配布 zip の JPEG も同じ暗さなので変換の問題ではない。
+目視では大半が撮影失敗で、残りもコントラストを上げてようやく眼底が見える露出不足である。率は
+Black 12.3% / Asian 9.2% / White 3.8% と race で大きく違い、Black の陽性では 14.4% に達する。
+画像から判定できない例が特定の群の陽性に偏るので、群間 gap の一部は画質の差を測ってしまう。
+FairCLIP はこれらを除かずに評価しているため行は残し、除いた評価を感度分析として並べる。
+閾値の境界に明確な谷は無く（90% 以上なら 688 枚）、操作的な定義である。blank を除いても平均輝度は
+White 40 / Black 22 / Asian 23（0–255）と race で違う。
+
+`fairclip_eval_subset` は、先行研究の数値と突き合わせるための評価対象である。FairCLIP 公式実装は
+npz の race / gender / ethnicity / language のいずれかが -1 の行を、群別だけでなく全体 AUC からも外す。
+npz の language は入れ替わっているので、外れるのは ethnicity の unknown と language の other になる。
 
 ## CV 戦略
 

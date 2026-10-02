@@ -16,9 +16,20 @@ target は `glaucoma`（yes=1）。属性の欠損は `unknown` で表されて�
 `-1` を格納して `{属性}_missing` を立てる。npz 側にも同じ属性が整数で入っているので、
 展開時に CSV の符号化と突き合わせ、食い違えば止める。
 
+属性ではない 2 種類のフラグ列も持たせる。どちらもモデル入力にも fairness の評価軸にも入れず、
+事後分析で評価対象を絞るために使う。
+
+- `image_blank`: 撮影に失敗した、または極端に露出不足のほぼ黒い画像（552 枚、5.5%）。率は Black 12.3% / Asian 9.2% /
+  White 3.8% と race で大きく違い、Black の陽性に多い。画像から判定できない例が特定の群に偏るので、
+  群間 gap の一部は画質の差を測ってしまう。FairCLIP と比較できるよう行は除かず、除いた評価を
+  感度分析として並べられるようにする
+- `fairclip_eval_subset`: FairCLIP 公式実装が val / test で評価に残す行（test 2,000 枚中 1,883 枚）。
+  同実装は npz の race / gender / ethnicity / language のいずれかが -1 の行を全体 AUC からも外す。
+  npz の language は入れ替わっているので、外れるのは ethnicity の unknown と language の other である
+
 Usage:
     uv run python -m data_pipeline.fairvlmed_splits
-    uv run python -m data_pipeline.fairvlmed_splits --skip-images  # split CSV だけ作り直す
+    uv run python -m data_pipeline.fairvlmed_splits --skip-images  # 展開済み PNG から split CSV だけ作り直す
 """
 
 from __future__ import annotations
@@ -74,6 +85,13 @@ NPZ_CHECK_KEYS: tuple[str, ...] = ("glaucoma", *CATEGORICAL)
 # 評価から外しているため、実際には other を外し unknown を Others 群として評価していることになる。
 NPZ_LANGUAGE_TO_CSV: dict[int, int] = {2: MISSING_CATEGORY, MISSING_CATEGORY: 2}
 
+# ほぼ黒い画像の判定。輝度 BLANK_PIXEL_MAX 未満の画素が BLANK_FRACTION 以上を占める画像とする。
+# 背景の黒は全画像の中央値で画素の 5% 程度。95% 以上の画像は目視で大半が撮影失敗で、残りも
+# コントラストを上げてようやく眼底が見える極端な露出不足だった。境界に明確な谷は無く
+# （90% 以上は 688 枚）、閾値は感度分析のための操作的な定義である。
+BLANK_PIXEL_MAX = 10
+BLANK_FRACTION = 0.95
+
 
 def encode(summary: pd.DataFrame) -> pd.DataFrame:
     """`data_summary.csv` を split CSV の列へ符号化し、`split` 列を付ける。
@@ -114,13 +132,38 @@ def encode(summary: pd.DataFrame) -> pd.DataFrame:
     unknown_use = set(summary["use"].unique()) - set(USE_TO_SPLIT)
     if unknown_use:
         raise ValueError(f"use に未知の値がある: {sorted(unknown_use)}")
+    # FairCLIP の除外条件を CSV の符号で書く。npz の language == -1 は CSV の other に当たる。
+    # race と gender は欠損を持たないので条件に現れない。
+    kept = (result["ethnicity_missing"] == 0) & (result["language"] != LANGUAGE_TO_INT["other"])
+    result["fairclip_eval_subset"] = kept.astype(int)
+
     result["split"] = summary["use"].map(USE_TO_SPLIT)
     return result
 
 
-def build(summary: pd.DataFrame) -> dict[str, pd.DataFrame]:
-    """split 名から split CSV の DataFrame への辞書を作る。"""
-    frame = encode(summary)
+def is_blank(fundus: np.ndarray) -> bool:
+    """撮影に失敗したほぼ黒い画像かを返す。"""
+    return bool((fundus < BLANK_PIXEL_MAX).mean() >= BLANK_FRACTION)
+
+
+def add_image_blank(frame: pd.DataFrame, image_dir: Path) -> pd.DataFrame:
+    """展開済み PNG を読み、`image_blank` と `image_blank_missing` を付けた表を返す。
+
+    `image_blank_missing` は常に 0。列を評価軸として指定したときにも split CSV の契約を満たすよう置く。
+
+    Raises:
+        FileNotFoundError: PNG が展開されていない場合。
+    """
+    flags = []
+    for image in frame["image"]:
+        with Image.open(image_dir / image) as handle:
+            flags.append(int(is_blank(np.asarray(handle))))
+    return frame.assign(image_blank=flags, image_blank_missing=0)
+
+
+def build(summary: pd.DataFrame, image_dir: Path) -> dict[str, pd.DataFrame]:
+    """split 名から split CSV の DataFrame への辞書を作る。`image_dir` には展開済みの PNG が要る。"""
+    frame = add_image_blank(encode(summary), image_dir)
     return {split: frame[frame["split"] == split].drop(columns=["split"]).reset_index(drop=True) for split in USE_TO_SPLIT.values()}
 
 
@@ -199,29 +242,32 @@ def extract_images(zip_path: Path, image_dir: Path, encoded: pd.DataFrame) -> in
 
 
 def _print_breakdown(splits: dict[str, pd.DataFrame]) -> None:
-    """split ごとの枚数・陽性率・race 分布を表示する。"""
+    """split ごとの枚数・陽性率・race 分布・フラグ列の件数を表示する。"""
     for split, part in splits.items():
         races = ", ".join(f"{name} {(part['race'] == code).sum():,}" for name, code in RACE_TO_INT.items())
-        print(f"  {split:5s} {len(part):6,d}  glaucoma {part['target'].mean() * 100:4.1f}%  {races}")
+        flags = f"blank {part['image_blank'].sum():,}, fairclip {part['fairclip_eval_subset'].sum():,}"
+        print(f"  {split:5s} {len(part):6,d}  glaucoma {part['target'].mean() * 100:4.1f}%  {races}  {flags}")
 
 
 def main() -> None:
     """PNG を展開して split CSV を書き出し、結果の内訳を表示する。"""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-dir", type=Path, default=Path("data/fairvlmed"))
-    parser.add_argument("--skip-images", action="store_true", help="PNG の展開と npz の突き合わせを省く")
-    parser.add_argument("--dry-run", action="store_true", help="何も書き出さずに内訳だけ表示する")
+    parser.add_argument("--skip-images", action="store_true", help="PNG の展開と npz の突き合わせを省き、展開済みの PNG を使う")
+    parser.add_argument("--dry-run", action="store_true", help="split CSV を書き出さずに内訳だけ表示する")
     args = parser.parse_args()
 
     summary = pd.read_csv(args.data_dir / "data_summary.csv")
-    splits = build(summary)
+    image_dir = args.data_dir / "images"
+    # image_blank は PNG から判定するので、展開を split の組み立てより先に行う。
+    if not args.skip_images:
+        written = extract_images(args.data_dir / "dataset.zip", image_dir, encode(summary))
+        print(f"PNG 書き出し: {written:,} 枚（既存分は省略）")
+
+    splits = build(summary, image_dir)
     _print_breakdown(splits)
     if args.dry_run:
         return
-
-    if not args.skip_images:
-        written = extract_images(args.data_dir / "dataset.zip", args.data_dir / "images", encode(summary))
-        print(f"PNG 書き出し: {written:,} 枚（既存分は省略）")
 
     output_dir = args.data_dir / "splits"
     output_dir.mkdir(parents=True, exist_ok=True)
