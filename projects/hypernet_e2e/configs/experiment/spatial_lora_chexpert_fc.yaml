@@ -8,5 +8,5 @@ defaults:
 experiment_name: spatial-lora-chexpert-fc
 model:
   net:
-    # 分類ヘッドだけを condition で変調する。stage3/4 の Bottleneck は素の ResNet のまま残る。
+    # 分類ヘッドだけを condition で変調する。backbone の Bottleneck は素の ResNet のまま残る。
     modulation_stages: [fc]

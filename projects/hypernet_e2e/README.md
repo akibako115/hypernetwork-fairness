@@ -15,15 +15,16 @@ models/
 ├── resnet/                 # ResNetBackbone と通常の ResNet
 ├── spatial_hypernet/
 │   ├── metadata_encoder.py # 属性辞書を condition embedding に変換
-│   ├── blocks.py           # 3x3 conv2 への sample-wise Spatial LoRA
+│   ├── blocks.py           # Bottleneck の conv1/conv2/conv3 への sample-wise Spatial LoRA
 │   ├── modulation.py       # FC 用 HyperLinear LoRA
-│   └── network.py          # stage3 / stage4 / fc を束ねる SpatialLoRAResNet
+│   └── network.py          # stage1〜4 / fc を束ねる SpatialLoRAResNet
 └── utils.py                # checkpoint 部分ロードと embedding 分散推定
 ```
 
-`SpatialLoRAResNet` は `attributes` から metadata encoder が作る condition を使い、`stage3`、
-`stage4`、`fc` の任意の部分集合を変調します。Spatial LoRA は Bottleneck の `conv2` にだけ
-低ランク差分を加え、初期状態では元の ResNet と同じ出力になります。
+`SpatialLoRAResNet` は `attributes` から metadata encoder が作る condition を使い、
+`modulation_stages`（`stage1`〜`stage4`、`fc` の任意の部分集合）を変調します。Spatial LoRA は
+各 Bottleneck の `adapted_convs`（`conv1` / `conv2` / `conv3` の部分集合、全 stage 共通。既定は
+`[conv2]`）に低ランク差分を加え、初期状態では元の ResNet と同じ出力になります。
 
 属性辞書は以下の key を持ちます。
 

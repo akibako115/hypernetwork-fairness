@@ -13,6 +13,7 @@ net:
   rank: 4
   lora_alpha: 1.0
   modulation_stages: [stage3, stage4, fc]
+  adapted_convs: [conv2]
   classifier_rank: 4
   classifier_lora_alpha: 1.0
   backbone:

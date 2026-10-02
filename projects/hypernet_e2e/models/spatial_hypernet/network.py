@@ -13,27 +13,31 @@ import torch.nn as nn
 
 from ..resnet.network import ResNetBackbone
 from ..utils import compute_embedding_variance, load_compatible_state_dict
-from .blocks import SpatialLoRABottleneckAdapter
+from .blocks import SpatialLoRABottleneckAdapter, validate_adapted_convs
 from .metadata_encoder import MetadataEncoder
 from .modulation import HyperLinearLayer
 
 log = logging.getLogger(__name__)
 
-_ALLOWED_MODULATION_STAGES = {"stage3", "stage4", "fc"}
+# Spatial LoRA を挿せる stage と、それに対応する backbone の layer 名。順序は forward の順。
+_STAGE_LAYERS = {"stage1": "layer1", "stage2": "layer2", "stage3": "layer3", "stage4": "layer4"}
+_ALLOWED_MODULATION_STAGES = {*_STAGE_LAYERS, "fc"}
 
 
 class SpatialLoRAResNet(nn.Module):
-    """stage3/4 Spatial LoRA と HyperLinear を任意に有効化できる ResNet。
+    """stage1〜4 の Spatial LoRA と HyperLinear を任意に有効化できる ResNet。
 
     Args:
         num_classes: 分類クラス数。
         backbone: 特徴抽出器として使う `ResNetBackbone`。
         metadata_encoder: attributes から metadata embedding（condition）を生成する `MetadataEncoder`。
-        rank: stage3/4 の `SpatialLoRAConv2` 生成器の低ランク次元。
-        lora_alpha: stage3/4 の Spatial LoRA のスケール係数（`scale = lora_alpha / rank`）。
-        modulation_stages: 変調を適用する箇所。`"stage3"` / `"stage4"` / `"fc"` の部分集合
-            指定形式は `[]` / `["fc"]` / `["stage4"]` / `["stage3", "stage4"]` など。
+        rank: stage の `SpatialLoRAConv` 生成器の低ランク次元。
+        lora_alpha: stage の Spatial LoRA のスケール係数（`scale = lora_alpha / rank`）。
+        modulation_stages: 変調を適用する箇所。`"stage1"`〜`"stage4"` / `"fc"` の部分集合。
+            指定形式は `[]` / `["fc"]` / `["stage4"]` / `["stage1", "stage2", "fc"]` など。
             `"fc"` を含む場合、分類ヘッドは通常の `nn.Linear` ではなく `HyperLinearLayer` になる。
+        adapted_convs: 変調する stage の各 Bottleneck で Spatial LoRA を挿す conv。
+            `"conv1"` / `"conv2"` / `"conv3"` の空でない部分集合で、全 stage に共通。
         classifier_rank: `"fc"` 変調時の `HyperLinearLayer` の低ランク次元。
         classifier_lora_alpha: `"fc"` 変調時の `HyperLinearLayer` のスケール係数。
     """
@@ -48,6 +52,7 @@ class SpatialLoRAResNet(nn.Module):
         modulation_stages: Sequence[str] = ("stage4",),
         classifier_rank: int = 4,
         classifier_lora_alpha: float = 1.0,
+        adapted_convs: Sequence[str] = ("conv2",),
     ):
         """backbone、metadata encoder、Spatial LoRA adapter と分類器を初期化する。"""
         super().__init__()
@@ -56,17 +61,19 @@ class SpatialLoRAResNet(nn.Module):
             raise ValueError(f"Unknown modulation stages: {sorted(unknown_stages)}")
         if len(set(modulation_stages)) != len(modulation_stages):
             raise ValueError(f"modulation_stages must not contain duplicates: {list(modulation_stages)}")
+        # 変調する stage が無い設定でも、設定ミスは早めに検出する。
+        validate_adapted_convs(adapted_convs)
 
         self.backbone = backbone
         self.metadata_encoder = metadata_encoder
         self.rank = rank
         self.lora_alpha = lora_alpha
         self.modulation_stages = list(modulation_stages)
+        self.adapted_convs = list(adapted_convs)
         self.spatial_adapters = nn.ModuleDict()
-        if "stage3" in self.modulation_stages:
-            self.spatial_adapters["stage3"] = self._make_spatial_adapters(backbone.layer3)
-        if "stage4" in self.modulation_stages:
-            self.spatial_adapters["stage4"] = self._make_spatial_adapters(backbone.layer4)
+        for stage_name, layer_name in _STAGE_LAYERS.items():
+            if stage_name in self.modulation_stages:
+                self.spatial_adapters[stage_name] = self._make_spatial_adapters(getattr(backbone, layer_name))
         if "fc" in self.modulation_stages:
             self.fc: nn.Module = HyperLinearLayer(
                 metadata_encoder.output_dim,
@@ -194,16 +201,14 @@ class SpatialLoRAResNet(nn.Module):
         """選択された Spatial LoRA を適用した backbone 出力を flatten して返す。"""
         x = self.backbone.relu(self.backbone.bn1(self.backbone.conv1(x)))
         x = self.backbone.maxpool(x)
-        x = self.backbone.layer1(x)
-        x = self.backbone.layer2(x)
-        x = self._forward_stage("stage3", self.backbone.layer3, x, condition)
-        x = self._forward_stage("stage4", self.backbone.layer4, x, condition)
+        for stage_name, layer_name in _STAGE_LAYERS.items():
+            x = self._forward_stage(stage_name, getattr(self.backbone, layer_name), x, condition)
         x = self.backbone.avgpool(x)
         return torch.flatten(x, 1)
 
     def _make_spatial_adapters(self, stage: nn.Sequential) -> nn.ModuleList:
         """stage 内の各 Bottleneck に独立した Spatial LoRA adapter を割り当てる。"""
-        return nn.ModuleList([SpatialLoRABottleneckAdapter(self.metadata_encoder.output_dim, block, self.rank, self.lora_alpha) for block in stage])
+        return nn.ModuleList([SpatialLoRABottleneckAdapter(self.metadata_encoder.output_dim, block, self.rank, self.lora_alpha, self.adapted_convs) for block in stage])
 
     def _forward_stage(
         self,

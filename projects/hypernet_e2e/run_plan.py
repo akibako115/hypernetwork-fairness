@@ -37,6 +37,7 @@ _SECTIONS: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = (
         (
             ("net", "model.net._target_"),
             ("modulation_stages", "model.net.modulation_stages"),
+            ("adapted_convs", "model.net.adapted_convs"),
             ("backbone_checkpoint", "model.backbone_checkpoint_path"),
             ("freeze_backbone", "model.freeze_backbone"),
             ("optimizer", "model.optimizer._target_"),

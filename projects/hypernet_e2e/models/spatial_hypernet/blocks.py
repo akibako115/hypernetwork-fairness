@@ -1,10 +1,12 @@
-"""metadata condition から 3x3 convolution の低ランク差分を生成する Spatial LoRA。
+"""metadata condition から convolution の低ランク差分を生成する Spatial LoRA。
 
-`SpatialLoRAConv2` は base convolution の重みを所有せず、sample ごとの差分 ΔW=A@B だけを
-生成する。`SpatialLoRABottleneckAdapter` はそれを既存 Bottleneck の conv2 にだけ挿す。
+`SpatialLoRAConv` は base convolution の重みを所有せず、sample ごとの差分 ΔW=A@B だけを
+生成する。`SpatialLoRABottleneckAdapter` はそれを既存 Bottleneck の conv1/conv2/conv3 の
+うち指定したものに挿す。
 """
 
 import math
+from collections.abc import Sequence
 
 import torch
 import torch.nn as nn
@@ -12,15 +14,40 @@ import torch.nn.functional as F
 
 from ..resnet.blocks import Bottleneck
 
+_ALLOWED_ADAPTED_CONVS = ("conv1", "conv2", "conv3")
+
+
+def validate_adapted_convs(adapted_convs: Sequence[str]) -> None:
+    """adapted_convs が conv1/conv2/conv3 の重複なしの空でない部分集合か検証する。
+
+    Args:
+        adapted_convs: Spatial LoRA を挿す Bottleneck 内の conv 名
+
+    Returns:
+        None
+
+    Raises:
+        ValueError: 空・未知の conv 名・重複のいずれかを含む場合
+    """
+    if not adapted_convs:
+        raise ValueError("adapted_convs must not be empty")
+    unknown_convs = set(adapted_convs) - set(_ALLOWED_ADAPTED_CONVS)
+    if unknown_convs:
+        raise ValueError(f"Unknown adapted convs: {sorted(unknown_convs)}")
+    if len(set(adapted_convs)) != len(adapted_convs):
+        raise ValueError(f"adapted_convs must not contain duplicates: {list(adapted_convs)}")
+
 
 # ----- blockの実装 -----
-# resenetの bottleneck block の conv2 に Spatial LoRA を適用するアダプタ。
-class SpatialLoRAConv2(nn.Module):
-    """metadata 条件付きの低ランク差分を 3x3 convolution に加える層。
+# resenetの bottleneck block の conv に Spatial LoRA を適用するアダプタ。
+class SpatialLoRAConv(nn.Module):
+    """metadata 条件付きの低ランク差分を convolution に加える層。
+
+    Bottleneck の 3x3 conv2 と 1x1 conv1/conv3 のどちらにも使える。
 
     Args:
         condition_dim: metadata embedding（condition）の次元。
-        conv: 差分を加える対象の 3x3 convolution（groups=1 限定）。重みの所有権は保持せず参照のみ。
+        conv: 差分を加える対象の convolution（groups=1 限定）。重みの所有権は保持せず参照のみ。
         rank: 低ランク差分 ΔW=A@B のランク r。
         lora_alpha: スケール係数（`scale = lora_alpha / rank`）。
     """
@@ -35,13 +62,12 @@ class SpatialLoRAConv2(nn.Module):
         if lora_alpha <= 0:
             raise ValueError(f"lora_alpha must be positive, got {lora_alpha}")
         if conv.groups != 1:
-            raise ValueError(f"SpatialLoRAConv2 requires groups=1, got {conv.groups}")
-        if conv.kernel_size != (3, 3):
-            raise ValueError(f"SpatialLoRAConv2 requires a 3x3 convolution, got {conv.kernel_size}")
+            raise ValueError(f"SpatialLoRAConv requires groups=1, got {conv.groups}")
 
         self.condition_dim = condition_dim
         self.in_channels = conv.in_channels
         self.out_channels = conv.out_channels
+        self.kernel_size = conv.kernel_size
         self.rank = rank
         self.lora_alpha = lora_alpha
         self.scale = lora_alpha / rank
@@ -51,7 +77,7 @@ class SpatialLoRAConv2(nn.Module):
         # 重みの正式な所有者は backbone 側に保ち、state_dict の二重登録を避ける。
         object.__setattr__(self, "_base_conv", conv)
         self.a_generator = nn.Linear(condition_dim, self.out_channels * rank)
-        self.b_generator = nn.Linear(condition_dim, rank * self.in_channels * 3 * 3)
+        self.b_generator = nn.Linear(condition_dim, rank * self._kernel_fan_in)
 
         # A 側をゼロ初期化して、初期状態を元の convolution と完全に一致させる。
         nn.init.zeros_(self.a_generator.weight)
@@ -62,11 +88,11 @@ class SpatialLoRAConv2(nn.Module):
         nn.init.zeros_(self.b_generator.bias)
 
     def initialize_from_variance(self, var_input: float) -> None:
-        """生成先 3x3 convolution の fan_in に合わせて B 生成器を初期化する。
+        """生成先 convolution の fan_in に合わせて B 生成器を初期化する。
 
         既定の `nn.Linear` 初期化は入力次元（condition_dim）だけを見るため、生成される
-        3x3 カーネルの大きさが base convolution の Kaiming 初期値と無関係に決まる。
-        "Principled Weight Initialization for Hypernetworks" の規則を fan_in=Cin*3*3 で
+        カーネルの大きさが base convolution の Kaiming 初期値と無関係に決まる。
+        "Principled Weight Initialization for Hypernetworks" の規則を fan_in=Cin*kh*kw で
         適用し、条件 c の各成分の分散が var_input のとき std(B)=1/sqrt(fan_in) となるようにする。
 
         Args:
@@ -78,37 +104,42 @@ class SpatialLoRAConv2(nn.Module):
         if var_input <= 0:
             var_input = 1.0
 
-        fan_in = self.in_channels * 3 * 3
+        fan_in = self._kernel_fan_in
         var_w = 2.0 / (2.0 * fan_in * self.condition_dim * var_input)
         bound = math.sqrt(3.0 * var_w)
         nn.init.uniform_(self.b_generator.weight, -bound, bound)
         # bias は condition に依らない定数カーネルなので、初期化後もゼロを保つ。
         nn.init.zeros_(self.b_generator.bias)
 
+    @property
+    def _kernel_fan_in(self) -> int:
+        """生成するカーネル1枚あたりの入力要素数 Cin*kh*kw。"""
+        return self.in_channels * self.kernel_size[0] * self.kernel_size[1]
+
     def _factors(self, condition: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        """各サンプルの A, B 因子をそれぞれ (B, Cout, r), (B, r, Cin, 3, 3) で返す。"""
+        """各サンプルの A, B 因子をそれぞれ (B, Cout, r), (B, r, Cin, kh, kw) で返す。"""
         batch_size = condition.size(0)
         a = self.a_generator(condition).reshape(batch_size, self.out_channels, self.rank)
-        b = self.b_generator(condition).reshape(batch_size, self.rank, self.in_channels, 3, 3)
+        b = self.b_generator(condition).reshape(batch_size, self.rank, self.in_channels, *self.kernel_size)
         return a, b
 
     def weight_delta(self, condition: torch.Tensor) -> torch.Tensor:
-        """各サンプルの ΔW=(A @ B) を (B, Cout, Cin, 3, 3) で返す。
+        """各サンプルの ΔW=(A @ B) を (B, Cout, Cin, kh, kw) で返す。
 
         診断・テスト用であり、forward からは呼ばない。forward は差分を実体化せず、
-        B の動的 3x3 convolution と A の動的 1x1 projection に分けて適用する。
+        B の動的 kh x kw convolution と A の動的 1x1 projection に分けて適用する。
 
         Args:
             condition: `[B, condition_dim]` の metadata embedding
 
         Returns:
-            torch.Tensor: `[B, Cout, Cin, 3, 3]` のスケール済み低ランク差分
+            torch.Tensor: `[B, Cout, Cin, kh, kw]` のスケール済み低ランク差分
         """
         a, b = self._factors(condition)
         return self.scale * torch.einsum("bor,brihw->boihw", a, b)
 
     def forward(self, x: torch.Tensor, condition: torch.Tensor) -> torch.Tensor:
-        """(B, Cin, H, W) に sample-wise の有効 3x3 convolution を適用する。
+        """(B, Cin, H, W) に sample-wise の有効 convolution を適用する。
 
         Args:
             x: `[B, Cin, H, W]` の入力特徴量
@@ -132,10 +163,10 @@ class SpatialLoRAConv2(nn.Module):
         batch_size = x.size(0)
         a, b = self._factors(condition)
 
-        # ΔW=A@B を full kernel として展開しない。先に B の動的 3x3 convolution を
+        # ΔW=A@B を full kernel として展開しない。先に B の動的 kh x kw convolution を
         # 適用し、続けて A の動的 1x1 projection をかけることで同じ低ランク差分を得る。
         grouped_x = x.reshape(1, batch_size * self.in_channels, x.size(2), x.size(3))
-        b_weight = b.reshape(batch_size * self.rank, self.in_channels, 3, 3)
+        b_weight = b.reshape(batch_size * self.rank, self.in_channels, *self.kernel_size)
         low_rank_features = F.conv2d(
             grouped_x,
             b_weight,
@@ -156,26 +187,34 @@ class SpatialLoRAConv2(nn.Module):
 
 
 # ----- layerの実装 -----
-# resenet layer4 の bottleneck に Spatial LoRA を適用するアダプタ。
+# resenet の bottleneck に Spatial LoRA を適用するアダプタ。
 class SpatialLoRABottleneckAdapter(nn.Module):
-    """既存 Bottleneck の conv2 にだけ Spatial LoRA を適用するアダプタ。
+    """既存 Bottleneck の指定した conv に Spatial LoRA を適用するアダプタ。
+
+    adapter は `<conv名>_adapter`（例: `conv2_adapter`）という名前で登録する。conv2 だけを
+    変調していた頃の checkpoint と state_dict のキーが一致する。
 
     Args:
         condition_dim: metadata embedding（condition）の次元。
-        block: 変調対象の `Bottleneck`。所有権は backbone.layer4 に残し、実行時にのみ参照する。
-        rank: `SpatialLoRAConv2` の低ランク差分のランク r。
-        lora_alpha: `SpatialLoRAConv2` のスケール係数。
+        block: 変調対象の `Bottleneck`。所有権は backbone 側に残し、実行時にのみ参照する。
+        rank: `SpatialLoRAConv` の低ランク差分のランク r。
+        lora_alpha: `SpatialLoRAConv` のスケール係数。
+        adapted_convs: 変調する conv。`"conv1"` / `"conv2"` / `"conv3"` の空でない部分集合。
     """
 
-    def __init__(self, condition_dim: int, block: Bottleneck, rank: int, lora_alpha: float = 1.0):
-        """Bottleneck の conv2 を変調する Spatial LoRA adapter を初期化する。"""
+    def __init__(self, condition_dim: int, block: Bottleneck, rank: int, lora_alpha: float = 1.0, adapted_convs: Sequence[str] = ("conv2",)):
+        """Bottleneck の指定した conv を変調する Spatial LoRA adapter を初期化する。"""
         super().__init__()
-        # block の正式な所有者は backbone.layer4。adapter は実行時にだけ参照する。
+        validate_adapted_convs(adapted_convs)
+
+        # block の正式な所有者は backbone。adapter は実行時にだけ参照する。
         object.__setattr__(self, "_block", block)
-        self.conv2_adapter = SpatialLoRAConv2(condition_dim, block.conv2, rank, lora_alpha)
+        self.adapted_convs = list(adapted_convs)
+        for conv_name in self.adapted_convs:
+            self.add_module(f"{conv_name}_adapter", SpatialLoRAConv(condition_dim, getattr(block, conv_name), rank, lora_alpha))
 
     def initialize_from_variance(self, var_input: float) -> None:
-        """内部の SpatialLoRAConv2 へ初期化を委譲する。
+        """内部の SpatialLoRAConv すべてへ初期化を委譲する。
 
         Args:
             var_input: condition の各成分の分散 Var(c)
@@ -183,10 +222,24 @@ class SpatialLoRABottleneckAdapter(nn.Module):
         Returns:
             None
         """
-        self.conv2_adapter.initialize_from_variance(var_input)
+        for conv_name in self.adapted_convs:
+            self._conv_adapter(conv_name).initialize_from_variance(var_input)
+
+    def _conv_adapter(self, conv_name: str) -> SpatialLoRAConv:
+        """conv 名に対応する登録済み adapter を返す。"""
+        adapter = getattr(self, f"{conv_name}_adapter")
+        if not isinstance(adapter, SpatialLoRAConv):
+            raise TypeError(f"{conv_name}_adapter must be SpatialLoRAConv")
+        return adapter
+
+    def _conv(self, conv_name: str, x: torch.Tensor, condition: torch.Tensor) -> torch.Tensor:
+        """指定 conv を、変調対象なら adapter 経由で、そうでなければ元の conv で実行する。"""
+        if conv_name in self.adapted_convs:
+            return self._conv_adapter(conv_name)(x, condition)
+        return getattr(self._block, conv_name)(x)
 
     def forward(self, x: torch.Tensor, condition: torch.Tensor) -> torch.Tensor:
-        """Bottleneck residual branch の conv2 だけを metadata 条件付きに置き換える。
+        """Bottleneck residual branch の指定した conv を metadata 条件付きに置き換える。
 
         Args:
             x: `[B, Cin, H, W]` の入力特徴量
@@ -197,9 +250,9 @@ class SpatialLoRABottleneckAdapter(nn.Module):
         """
         block = self._block
         identity = x
-        out = block.relu(block.bn1(block.conv1(x)))
-        out = block.relu(block.bn2(self.conv2_adapter(out, condition)))
-        out = block.bn3(block.conv3(out))
+        out = block.relu(block.bn1(self._conv("conv1", x, condition)))
+        out = block.relu(block.bn2(self._conv("conv2", out, condition)))
+        out = block.bn3(self._conv("conv3", out, condition))
         if block.downsample is not None:
             identity = block.downsample(x)
         return block.relu(out + identity)
