@@ -1,0 +1,37 @@
+_target_: projects.hypernet_e2e.data.datamodule.ImageDataModule
+# npz の slo_fundus を data_pipeline.fairvlmed_splits が PNG へ展開したもの。
+data_dir: ${paths.data_dir}/fairvlmed/images
+# 配布元の use 列（7,000 / 1,000 / 2,000）をそのまま使う。FairCLIP などの先行研究と同じ split。
+cv_splits_dir: ${paths.data_dir}/fairvlmed/splits
+num_classes: 2
+batch_size: 128
+num_workers: 8
+pin_memory: true
+persistent_workers: true
+prefetch_factor: 2
+train_sampling: uniform
+standardize_continuous: true
+
+attribute_names:
+  categorical: [gender, race, ethnicity, language, maritalstatus]
+  continuous: [age]
+
+# gender(2), race(3), ethnicity(2), language(3), maritalstatus(5)
+attribute_spec:
+  categorical_cardinalities: [2, 3, 2, 3, 5]
+  continuous_dim: 1
+
+# FairCLIP が評価する 4 軸に、CheXpert / ISIC と揃えた age_group_65 を加える。
+# maritalstatus は保護属性として扱われていないので、モデル入力にだけ使う。
+fairness_attribute_names:
+  categorical: [race, gender, ethnicity, language, age_group_65]
+
+fairness_age_groups:
+  age_group_65:
+    source: age
+    boundaries: [65]
+
+train_transform:
+  _target_: projects.hypernet_e2e.data.transform_utils.train_transforms_fairvlmed
+val_transform:
+  _target_: projects.hypernet_e2e.data.transform_utils.val_transforms_fairvlmed

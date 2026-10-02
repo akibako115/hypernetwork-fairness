@@ -1,0 +1,19 @@
+# @package _global_
+defaults:
+  - /data: fairvlmed
+  # model group より後に置く。group 系の目的関数が model config の loss_fn を上書きする。
+  - /training_strategy: erm
+  - _self_
+
+dataset: fairvlmed
+# glaucoma の陽性率は train で 50.5% とほぼ均衡しているので class weight は掛けない。
+weighting: none
+
+trainer:
+  max_epochs: 30
+
+data:
+  num_workers: 8
+  pin_memory: true
+  persistent_workers: true
+  prefetch_factor: 2

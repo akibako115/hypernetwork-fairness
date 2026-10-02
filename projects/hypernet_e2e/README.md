@@ -52,6 +52,11 @@ model・data・callbacks・trainer を作成し、1 回の `fit` を実行しま
 - `experiment=spatial_lora_chexpert_from_attribute_invariant`（上記からの第2段）
 - 各モデルの `group_dro` / `inverse_weighted_sampling`
 
+FairVLMed（SLO 眼底・glaucoma 2 クラス）は `experiment=resnet_fairvlmed` /
+`experiment=spatial_lora_fairvlmed` で起動します。split と画像は `data_pipeline.fairvlmed_splits` が
+作り、配布元の split をそのまま使います（`data_pipeline/README.md`）。陽性率がほぼ半々なので
+`weighting: none` です。
+
 `experiment` に既定はありません。渡し忘れた起動が「たまたま既定だった条件」で完走しないよう、
 Hydra が未指定を拒否します。
 

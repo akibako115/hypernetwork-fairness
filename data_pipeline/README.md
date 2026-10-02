@@ -20,6 +20,7 @@
 
 - CheXpert: 欠損 categorical は `0`。`race` なら `White`、`ap_pa` なら `AP` と同じ値になる
 - ISIC 2019: 欠損 categorical は `-1`
+- FairVLMed: 欠損 categorical は `-1`（配布 CSV の `unknown`）
 
 値そのものを見て欠損を判定すると、CheXpert では欠損が最大群へ静かに混ざる。消費側（`MetadataEncoder`、
 属性 adversary、公平性指標、group DataModule）はいずれもフラグとペアで読む実装になっている。
@@ -71,6 +72,37 @@ CheXpert が患者単位で分ける理由と同じ。比率 80/10/10 は
 （MSK には BCC・AK・DF・VASC・SCC が 1 枚も無い）ため、群間 gap が色かぶりのショートカットではなく
 有病率差を測ってしまう。ITA で肌色を推定する際に、色かぶりとの切り分けに使う想定で列だけ残す。
 MSK のうち 2,074 枚は ISIC archive のダンプに isic_id が無く、`attribution_missing` が立つ。
+
+## FairVLMed
+
+[Harvard-FairVLMed](https://huggingface.co/datasets/harvardairobotics/FairVLMed)（FairCLIP, CVPR 2024）。
+SLO 眼底画像 10,000 枚の glaucoma 2 クラス分類で、ライセンスは CC BY-NC-ND 4.0（非商用研究のみ）。
+
+| 項目 | 内容 |
+| --- | --- |
+| 分割単位 | 患者。ただし 1 患者 1 枚なので、画像単位と同じ |
+| 比率 | **配布元の `use` 列をそのまま使う**（train 7,000 / val 1,000 / test 2,000） |
+| 生成 | `uv run python -m data_pipeline.fairvlmed_splits` |
+| 場所 | `data/fairvlmed/splits/{train,val,test}.csv`、画像は `data/fairvlmed/images/*.png` |
+| CV | 行わない |
+
+配布 split を再分割しないのは、FairCLIP をはじめ先行研究の数値がすべてこの split 上のものだからである。
+入力は `data/fairvlmed/` に置いた HF の `Dataset/dataset.zip` と `ReadMe/data_summary.csv`。
+npz の `slo_fundus` を PNG へ展開し（`ImageDataset` は PIL で開くため）、その際に npz 内の
+`glaucoma` / 属性の整数符号が CSV の符号化と一致することを全件で確かめる。
+
+**npz の `language` は 2（Other）と -1（Unknown）が入れ替わっている。** CSV は other 76 件・unknown
+498 件で、論文の「0.8% が other、5.0% が unknown」と一致するので CSV を正とする。npz を直接読む
+FairCLIP 公式実装は `language == -1` を unknown として評価から外すが、実際に外れているのは other の
+76 件で、unknown の 498 件が Others 群として評価されている。先行研究の language 軸の数値と
+比べるときはこの差に注意する。
+
+属性は gender / race（Asian・Black・White）/ ethnicity / language / maritalstatus と age で、
+欠損は age 以外にあり `unknown` で表される。fairness の評価軸は FairCLIP の 4 軸（race / gender /
+ethnicity / language）に `age_group_65` を加えたもので、maritalstatus はモデル入力にだけ使う。
+
+test の language は other が 11 枚（陰性 5 / 陽性 6）、spanish が 31 枚（陰性 9 / 陽性 22）しかない。
+後述の最小セル枚数 20 により、other は全セル、spanish は陰性側（TNR / FPR）のセルが評価から外れる。
 
 ## CV 戦略
 

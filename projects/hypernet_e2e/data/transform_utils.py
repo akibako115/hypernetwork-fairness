@@ -1,4 +1,4 @@
-"""CheXpert と ISIC 2019 の画像前処理を定義する。
+"""CheXpert・ISIC 2019・FairVLMed の画像前処理を定義する。
 
 各 factory は PIL Image を受け取り、ImageNet 正規化済みの
 `torch.float32` tensor を返す transform を構築する。
@@ -133,6 +133,57 @@ def val_transforms_isic2019() -> transforms.Compose:
     return transforms.Compose(
         [
             transforms.Resize(256),
+            transforms.CenterCrop(224),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
+        ]
+    )
+
+
+# 3. FairVLMed（SLO 眼底）
+def train_transforms_fairvlmed() -> transforms.Compose:
+    """FairVLMed 学習用 transform。
+
+    評価側は FairCLIP と同じ「短辺 224 → CenterCrop(224)」で、学習側はその切り出し位置と向きを
+    揺らす。画像は 512x664 の縦長で視神経乳頭がほぼ中央にあるので、縦方向の切り出しで乳頭は落ちない。
+
+    `_pad_to_square` は使わない。背景がほぼ黒（画素の約 4 割が 10 未満）の画像に
+    `IMAGENET_FILL` の灰色を足すと、実画像に無い明るい帯を作ってしまう。同じ理由で回転の余白は
+    黒（0）で埋める。左右反転は右眼・左眼の入れ替えに相当し、どちらも実在する見え方なので入れる。
+
+    Args:
+        なし
+
+    Returns:
+        transforms.Compose: PIL Image を `[3, 224, 224]` の `torch.float32` へ変換する transform
+    """
+    return transforms.Compose(
+        [
+            transforms.Resize(224, interpolation=transforms.InterpolationMode.BICUBIC),
+            transforms.RandomHorizontalFlip(),
+            transforms.RandomRotation(10, fill=0),
+            transforms.RandomCrop(224),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
+        ]
+    )
+
+
+def val_transforms_fairvlmed() -> transforms.Compose:
+    """FairVLMed 検証・テスト用 transform。
+
+    FairCLIP が使う CLIP の前処理（bicubic で短辺 224 → CenterCrop(224)）と同じ切り出しにして、
+    先行研究との比較可能性を保つ。正規化は他データセットと揃えて ImageNet の値を使う。
+
+    Args:
+        なし
+
+    Returns:
+        transforms.Compose: PIL Image を `[3, 224, 224]` の `torch.float32` へ変換する transform
+    """
+    return transforms.Compose(
+        [
+            transforms.Resize(224, interpolation=transforms.InterpolationMode.BICUBIC),
             transforms.CenterCrop(224),
             transforms.ToTensor(),
             transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
