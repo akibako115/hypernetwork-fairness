@@ -94,6 +94,43 @@ CheXpert の model 入力は `sex`、`race`、`ethnicity`、連続 `age` と撮�
 
 ## 2 段学習
 
+### race-known 比較の標準設定
+
+今回の5条件には、既存名に `_race_known` を付けた専用presetを使います。既存presetは変更していません。
+全条件で `splits_race_known`、seed 42、batch size 128、30 epoch、AdamW（lr `1e-4`、
+weight decay `1e-2`）、global inverse class weight、uniform samplingを使用します。
+GroupDROのstep sizeは `0.01`、群は `<65 / ≥65` × `White / Asian / Black / Others` の8群です。
+encoder入力のraceは元の6カテゴリを保持します。
+
+公平性ログはsex・race_group・ethnicity・age_group_65に加え、
+`val/age_race_group/*` と `test/age_race_group/*` に8群のEopp0/Eopp1/Eodds、
+AUROC・balanced accuracyのgapとworst-group指標を記録します。
+群IDは `4 * age_group_65 + race_group` です。
+
+最初の4条件はそれぞれ独立したrunとして起動します（W&Bは有効のままです）。
+
+```bash
+uv run python -m projects.hypernet_e2e.run experiment=resnet_chexpert_race_known study=two_stage_vs_e2e_age_race_group_dro
+uv run python -m projects.hypernet_e2e.run experiment=resnet_chexpert_age_race_group_dro_race_known study=two_stage_vs_e2e_age_race_group_dro
+uv run python -m projects.hypernet_e2e.run experiment=spatial_lora_chexpert_race_known study=two_stage_vs_e2e_age_race_group_dro
+uv run python -m projects.hypernet_e2e.run experiment=spatial_lora_chexpert_age_race_group_dro_race_known study=two_stage_vs_e2e_age_race_group_dro
+```
+
+5条件目は、今回の `resnet_chexpert_race_known` が出力したbest `val/auroc` checkpointを指定します。
+過去の元splitで学習したcheckpointは使用しません。backboneと元classifierは凍結します。
+
+```bash
+uv run python -m projects.hypernet_e2e.run \
+  experiment=spatial_lora_chexpert_from_resnet_age_race_group_dro_race_known \
+  study=two_stage_vs_e2e_age_race_group_dro \
+  model.backbone_checkpoint_path=projects/hypernet_e2e/runs/<今回のResNet-ERM-run>/checkpoints/<best>.ckpt
+```
+
+各コマンドに `dry_run=true` を追加すると学習・run作成なしで起動条件を確認できます。
+two-stageのdry-runはcheckpointなしでも設定確認できますが、実学習は未指定を拒否します。
+
+### 従来のsplitを使う2段学習
+
 ResNet を 1 段目、backbone と classifier を凍結した Spatial LoRA を 2 段目とする学習は、
 `run.py` を 2 回起動して構成します。1 段目の run は通常の単段 run です。
 

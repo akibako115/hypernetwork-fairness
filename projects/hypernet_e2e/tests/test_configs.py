@@ -20,6 +20,11 @@ EXPERIMENT_DIR = CONFIG_DIR / "experiment"
 # 逸脱する preset だけがこの表で違う値を持つ。preset を足したらこの表にも足す。足し忘れは
 # test_every_chexpert_preset_is_registered_in_the_table が落とす。
 CHEXPERT_PRESETS: dict[str, tuple[str, str, str]] = {
+    "resnet_chexpert_race_known": ("inverse", "uniform", "erm"),
+    "resnet_chexpert_age_race_group_dro_race_known": ("inverse", "uniform", "group_dro_global"),
+    "spatial_lora_chexpert_race_known": ("inverse", "uniform", "erm"),
+    "spatial_lora_chexpert_age_race_group_dro_race_known": ("inverse", "uniform", "group_dro_global"),
+    "spatial_lora_chexpert_from_resnet_age_race_group_dro_race_known": ("inverse", "uniform", "group_dro_global"),
     "resnet_chexpert": ("inverse", "uniform", "erm"),
     "resnet_chexpert_attribute_invariant": ("inverse", "uniform", "erm"),
     "resnet_chexpert_attribute_invariant_dann": ("inverse", "uniform", "erm"),

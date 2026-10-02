@@ -20,7 +20,8 @@ project: hypernet_e2e
 # `analysis/<study>/runs.md` が持つ。ここが決めるのは生成の理由だけとする。
 study: ???
 task_name: train
-seed: 12345
+# experiment の標準seedを使い、未指定の既存presetは従来の値を維持する。CLI seed= は優先する。
+seed: ${oc.select:experiment_seed,12345}
 # tags は人が付ける印にだけ使う。dataset・model・目的関数のような、解決済み設定と run 名から
 # 読める条件を写さない（CLI override で古くなり、W&B 上で嘘になる）。必要なときに
 # `tags=[...]` で渡す。

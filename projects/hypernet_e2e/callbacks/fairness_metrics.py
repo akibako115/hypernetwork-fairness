@@ -1,5 +1,7 @@
 """属性別の公平性指標を epoch 単位で記録する callback。"""
 
+from collections.abc import Mapping, Sequence
+
 import lightning as L
 import torch
 
@@ -12,10 +14,33 @@ class FairnessMetricsCallback(L.Callback):
     step output は `logits`、`target`、`attributes` を持つ dict とする。`attributes` に
     `evaluation_categorical` があればそれを優先し、なければ `categorical` を使う。二値分類では
     Eopp0 / Eopp1 / Eodds と group 性能由来の gap・worst-group 指標をログする。
+    `intersectional_groups` は評価属性を指定順の mixed-radix ID にまとめる。
+    学習用group IDを必要とせず、構成属性が欠損した行は交差群の評価から除外する。
     """
 
-    def __init__(self) -> None:
-        """検証用・テスト用の batch 出力バッファを初期化する。"""
+    def __init__(self, intersectional_groups: Mapping[str, Mapping[str, Sequence]] | None = None) -> None:
+        """検証・テストの出力バッファと評価専用の交差群を設定する。
+
+        Args:
+            intersectional_groups: 群名から attributes（評価属性名の順序）と
+                cardinalities（各属性のカテゴリ数）への対応。省略時は属性別のみ。
+
+        Returns:
+            None
+
+        Raises:
+            ValueError: 属性名や cardinality の定義が不正な場合。
+        """
+        super().__init__()
+        self.intersectional_groups = {}
+        for name, definition in (intersectional_groups or {}).items():
+            names = list(definition["attributes"])
+            cardinalities = list(definition["cardinalities"])
+            if not names or len(set(names)) != len(names) or len(names) != len(cardinalities):
+                raise ValueError(f"Invalid intersectional attributes: {name}")
+            if any(not isinstance(size, int) or isinstance(size, bool) or size < 1 for size in cardinalities):
+                raise ValueError(f"Invalid intersectional cardinalities: {name}")
+            self.intersectional_groups[name] = (names, cardinalities)
         self._val_buffer: list[dict] = []
         self._test_buffer: list[dict] = []
 
@@ -116,6 +141,30 @@ class FairnessMetricsCallback(L.Callback):
         else:
             attr_names = None if pl_module.attribute_names is None else pl_module.attribute_names.get("categorical")
         eval_attributes, eval_attribute_names = build_eval_attributes(categorical, attr_names, categorical_missing)
+        self._append_intersectional_groups(eval_attributes, eval_attribute_names)
         for attribute_name, metrics in compute_fairness_metrics(logits, targets, eval_attributes, eval_attribute_names).items():
             for metric_name, value in metrics.items():
                 pl_module.log(f"{prefix}/{attribute_name}/{metric_name}", value)
+
+    def _append_intersectional_groups(self, attributes: dict, attribute_names: dict) -> None:
+        values = attributes["categorical"]
+        missing = attributes.get("categorical_missing", values < 0)
+        names = attribute_names["categorical"]
+        columns, masks = [values], [missing]
+        for group_name, (components, cardinalities) in self.intersectional_groups.items():
+            if group_name in names or any(name not in names for name in components):
+                raise ValueError(f"Invalid intersectional evaluation attributes: {group_name}")
+            group_id = torch.zeros(values.size(0), dtype=torch.long, device=values.device)
+            group_missing = torch.zeros(values.size(0), dtype=torch.bool, device=values.device)
+            for name, size in zip(components, cardinalities, strict=True):
+                index = names.index(name)
+                column, mask = values[:, index], missing[:, index]
+                if ((~mask) & ((column < 0) | (column >= size))).any():
+                    raise ValueError(f"Evaluation attribute out of range: {name}")
+                group_id = group_id * size + column.masked_fill(mask, 0)
+                group_missing |= mask
+            columns.append(group_id[:, None])
+            masks.append(group_missing[:, None])
+        attributes["categorical"] = torch.cat(columns, dim=1)
+        attributes["categorical_missing"] = torch.cat(masks, dim=1)
+        attribute_names["categorical"] = names + list(self.intersectional_groups)

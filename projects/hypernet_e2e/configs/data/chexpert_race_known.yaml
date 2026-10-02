@@ -1,0 +1,7 @@
+defaults:
+  - chexpert
+  - _self_
+
+cv_splits_dir: ${paths.data_dir}/chexpert/splits_race_known
+fairness_attribute_names:
+  categorical: [sex, race_group, ethnicity, age_group_65]
