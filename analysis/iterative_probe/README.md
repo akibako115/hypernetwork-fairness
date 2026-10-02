@@ -17,9 +17,10 @@
 
 ## 対象 run
 
-変調範囲 × GroupDRO step size の 2×2（seed 42）と、global 指標の比較対象にする通常 ResNet
-（ERM、30 epoch）を読む。5 本とも `runs/` に取り込み済みである。run-id と条件、選択 checkpoint の
-epoch は [runs.md](runs.md) を正本とする。
+変調範囲 × GroupDRO step size の 2×2（seed 42）について、ImageNet 初期化からbackboneを更新する
+1-stage E2Eの既存4本と、ERM ResNetの選択checkpointから開始してbase backboneと共有classifierを固定する
+2-stage adaptationの4本を比較する。global 指標の比較対象として通常 ResNet（ERM、30 epoch）も読む。run-idと
+条件、選択 checkpoint の epoch は [runs.md](runs.md) を正本とする。
 
 baseline は [initial_resnet_vs_invariant](../initial_resnet_vs_invariant/) が invariant 化の対照に
 使っている run と同じである。split の sha256・optimizer・batch size・class weight・seed が iterative 側と
@@ -34,6 +35,7 @@ baseline は [initial_resnet_vs_invariant](../initial_resnet_vs_invariant/) が 
 | `q` と cohort ごとの性能推移、属性群の worst / gap / Eopp の推移 | `stages/*/metrics/metrics.csv`、baseline は W&B transaction log | [`subgroup_training_curves.ipynb`](subgroup_training_curves.ipynb) / [report](reports/subgroup_training_curves.md) |
 | cohort の属性・撮影方向の構成、cohort × class の class weight、`q` の上位・下位 cohort の構成 | `artifacts/cohorts/`、`stages/*/config.yaml`、train split CSV | [`cohort_composition.ipynb`](cohort_composition.ipynb) / [report](reports/cohort_composition.md) |
 | cohort ごとの切片のずれと pooled AUROC の低下、test の属性群の worst AUROC と動作点での TPR・FPR の群間差 | 予測 cache（`cache/<run-id>_{val,test}.npz`）、`artifacts/cohorts/cohort02/`、`stages/stage02/config.yaml` | [`cohort_logit_correction.ipynb`](cohort_logit_correction.ipynb) / [report](reports/cohort_logit_correction.md) |
+| 2-stage adaptation / 1-stage E2E の global・hidden cohort・属性群の推移と、test 属性・交差群の公平性 | `stages/*/metrics/metrics.csv`、予測 cache（`cache/<run-id>_{val,test}.npz`） | [`backbone_freeze_comparison.ipynb`](backbone_freeze_comparison.ipynb) / [report](reports/backbone_freeze_comparison.md) |
 | test の交差群の worst / best / gap | 予測 cache（`cache/<run-id>_test.npz`） | 未着手 |
 | 特徴量 | checkpoint から取る表現 | 未着手 |
 

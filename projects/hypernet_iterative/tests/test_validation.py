@@ -12,7 +12,7 @@ def _config(**overrides: object):
         "data": {"group_assignment_path": "assignments.parquet"},
         "trainer": {"devices": 1, "num_nodes": 1},
         "model": {"warm_start_checkpoint_path": None},
-        "training_strategy": {"name": "group_dro", "uses_cohort_group_id": True, "supports_warm_start": True},
+        "training_strategy": {"name": "group_dro_subgroup", "uses_cohort_group_id": True, "supports_warm_start": True, "class_weight_scope": "subgroup"},
         "callbacks": {"cohort_validity": {}, "hidden_cohort_logger": {}},
         "checkpoint_selection": {"name": "global_auroc_bacc"},
     }
@@ -37,6 +37,22 @@ def test_validation_rejects_warm_start_for_unsupported_strategy(tmp_path) -> Non
 
     with pytest.raises(ValueError, match="supports_warm_start"):
         validate_training_config(config)
+
+
+def test_validation_requires_an_existing_backbone_checkpoint_when_freezing(tmp_path) -> None:
+    config = _config(model={"warm_start_checkpoint_path": None, "freeze_backbone": True, "backbone_checkpoint_path": None})
+
+    with pytest.raises(ValueError, match="backbone_checkpoint_path"):
+        validate_training_config(config)
+
+    config.model.backbone_checkpoint_path = str(tmp_path / "missing.ckpt")
+    with pytest.raises(FileNotFoundError, match="backbone checkpoint"):
+        validate_training_config(config)
+
+    checkpoint = tmp_path / "erm-resnet.ckpt"
+    checkpoint.touch()
+    config.model.backbone_checkpoint_path = str(checkpoint)
+    validate_training_config(config)
 
 
 def test_validation_rejects_a_group_class_weight_solved_for_another_cohort() -> None:
@@ -69,7 +85,7 @@ def test_validation_rejects_a_class_weight_shared_by_every_group_on_a_cohort_sta
         validate_training_config(config)
 
 
-@pytest.mark.parametrize("class_weight", [None, [[1.0, 2.0], [1.0, 2.0], [1.0, 2.0]]])
+@pytest.mark.parametrize("class_weight", [[[1.0, 2.0], [1.0, 2.0], [1.0, 2.0]]])
 def test_validation_accepts_every_supported_class_weight_shape(class_weight) -> None:
     config = _config(model={"warm_start_checkpoint_path": None, "loss_fn": {"class_weight": class_weight}})
 

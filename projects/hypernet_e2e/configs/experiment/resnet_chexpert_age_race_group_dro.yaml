@@ -3,7 +3,7 @@
 defaults:
   - resnet_chexpert
   - override /data: chexpert_age_race_groups
-  - override /training_strategy: group_dro
+  - override /training_strategy: group_dro_subgroup
   - _self_
 
 experiment_name: resnet-chexpert-age-race-group-dro

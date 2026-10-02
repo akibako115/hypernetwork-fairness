@@ -7,9 +7,9 @@
 from .objectives import (
     AlternatingAttributeInvariantTaskLoss,
     AttributeInvariantTaskLoss,
-    ClassBalancedGroupDROTaskLoss,
-    GroupDROTaskLoss,
+    GlobalClassWeightedGroupDROTaskLoss,
     ObjectiveInput,
+    SubgroupClassWeightedGroupDROTaskLoss,
     TaskLoss,
     UniformGroupTaskLoss,
 )
@@ -17,8 +17,8 @@ from .objectives import (
 __all__ = [
     "AlternatingAttributeInvariantTaskLoss",
     "AttributeInvariantTaskLoss",
-    "ClassBalancedGroupDROTaskLoss",
-    "GroupDROTaskLoss",
+    "GlobalClassWeightedGroupDROTaskLoss",
+    "SubgroupClassWeightedGroupDROTaskLoss",
     "ObjectiveInput",
     "TaskLoss",
     "UniformGroupTaskLoss",

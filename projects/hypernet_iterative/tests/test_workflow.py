@@ -156,7 +156,7 @@ def test_data_manifest_records_all_splits_and_input_identity(tmp_path: Path) -> 
 
 def test_cohort_stage_config_supports_the_declared_strategy_and_selection(tmp_path: Path) -> None:
     config = _config(tmp_path)
-    config.iteration.cohort_training_strategy = "group_dro"
+    config.iteration.cohort_training_strategy = "group_dro_subgroup"
     config.iteration.cohort_checkpoint_selection = "hidden_min_auroc"
 
     stage = workflow.cohort_stage_config(
@@ -166,7 +166,7 @@ def test_cohort_stage_config_supports_the_declared_strategy_and_selection(tmp_pa
         reference_id="warmup",
     )
 
-    assert stage.model.loss_fn._target_.endswith("GroupDROTaskLoss")
+    assert stage.model.loss_fn._target_.endswith("SubgroupClassWeightedGroupDROTaskLoss")
     assert stage.model.loss_fn.step_size == config.iteration.group_dro_step_size
     assert stage.checkpoint_selection.name == "hidden_min_auroc"
     assert stage.callbacks.hidden_min_auroc_checkpoint.monitor == "val/hidden_min_auroc"

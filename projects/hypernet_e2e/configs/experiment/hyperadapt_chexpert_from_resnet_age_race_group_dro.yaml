@@ -1,0 +1,11 @@
+# @package _global_
+# 1 段目の ResNet checkpoint から開始し、第2段目だけ age_group_65 × race の
+# intersectional Group DRO を HyperAdapt 系の trainable parameters へ適用する。
+defaults:
+  - hyperadapt_chexpert_from_resnet
+  - override /data: chexpert_age_race_groups
+  - override /training_strategy: group_dro_subgroup
+  - _self_
+
+experiment_name: hyperadapt-chexpert-from-resnet-age-race-group-dro
+tags: [two_stage, hyperadapt, intersectional_demographic_fairness]

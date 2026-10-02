@@ -3,7 +3,7 @@ defaults:
   - /data: chexpert_cohort
   - /model: spatial_lora_resnet50
   - /cohort_definition: metadata_kmeans
-  - /training_strategy: group_dro
+  - /training_strategy: group_dro_subgroup
   - /checkpoint_selection: global_auroc_bacc
   - /callbacks/hidden_cohort@callbacks
   - _self_

@@ -69,15 +69,14 @@ group を使う条件は、`data` と `training_strategy` の組で決まりま�
 | `data=chexpert_demographic_groups` | `sex` × `age_group_65` の 4 群を `attributes["group_id"]` に供給する |
 | `training_strategy=erm` | 通常の cross-entropy。group ID を読まない |
 | `training_strategy=uniform_group` | 観測された group ごとの平均 loss を等重みで最適化する |
-| `training_strategy=group_dro` | group loss の exponentiated gradient で adversarial weight を更新する |
-| `training_strategy=group_dro_balanced` | group loss を (group, class) セルのクラス平均に置き換えた Group DRO |
+| `training_strategy=group_dro_global` | global class weight の group loss で adversarial weight を更新する |
+| `training_strategy=group_dro_subgroup` | subgroup-wise class weight の group loss で adversarial weight を更新する |
 
 `_group_dro` 系の experiment はこの 2 つを組にした preset です。目的関数だけを差し替えるときは
 `training_strategy=` を重ねます。
 
 ```bash
 uv run python -m projects.hypernet_e2e.run \
-  experiment=spatial_lora_chexpert_group_dro training_strategy=group_dro_balanced
 ```
 
 `num_groups` は `group_cardinalities` の積として data config に明示します。Hydra が乗算できない

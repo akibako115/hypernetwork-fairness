@@ -1,0 +1,12 @@
+# @package _global_
+# 2段学習の2段目。ERM ResNet の best val AUROC checkpoint を渡し、共有画像モデルを固定した
+# Spatial LoRA adaptation を行う。path を渡さない場合は validation が fit 前に止める。
+defaults:
+  - spatial_lora_chexpert
+  - _self_
+
+experiment_name: spatial-lora-iterative-chexpert-from-resnet
+model:
+  # ImageNet 重みをここで打ち消す。checkpoint の指定は起動ごとに明示する。
+  backbone_checkpoint_path: null
+  freeze_backbone: true

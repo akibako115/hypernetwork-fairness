@@ -35,7 +35,7 @@ def _class_weight_tensor(
     return weight
 
 
-def _group_class_weight_tensor(
+def _subgroup_class_weight_tensor(
     class_weight: Sequence[Sequence[float]] | None,
     *,
     num_groups: int,
@@ -67,13 +67,13 @@ def _group_class_weight_tensor(
             含む場合。
     """
     if class_weight is None:
-        return None
+        raise ValueError("subgroup-wise Group DRO には [num_groups, num_classes] の class_weight が必要")
 
     rows = list(class_weight)
     if not rows:
         raise ValueError(f"class_weight must not be empty, got {rows}")
     if not isinstance(rows[0], Sequence) or isinstance(rows[0], (str, bytes)):
-        raise ValueError(f"group 目的関数の class_weight は [num_groups, num_classes] である必要があるが、{rows} が指定された")
+        raise ValueError(f"subgroup-wise Group DRO の class_weight は [num_groups, num_classes] である必要があるが、{rows} が指定された")
 
     values = [list(row) for row in rows]
     if len(values) != num_groups:
@@ -89,6 +89,17 @@ def _group_class_weight_tensor(
     if (weight <= 0).any():
         raise ValueError(f"class_weight must contain only positive values, got {values}")
     return weight
+
+
+def _optional_subgroup_class_weight_tensor(
+    class_weight: Sequence[Sequence[float]] | None,
+    *,
+    num_groups: int,
+) -> torch.Tensor | None:
+    """Uniform Group 用に optional な subgroup class weight を検証する。"""
+    if class_weight is None:
+        return None
+    return _subgroup_class_weight_tensor(class_weight, num_groups=num_groups)
 
 
 class TaskLoss(nn.Module):
@@ -155,7 +166,7 @@ def _per_sample_loss(
     losses = F.cross_entropy(logits, target, reduction="none")
     if weight is None:
         return losses
-    return losses * weight[group_ids, target.long()]
+    return losses * (weight[target.long()] if weight.ndim == 1 else weight[group_ids, target.long()])
 
 
 def _group_losses(
@@ -190,7 +201,7 @@ def _group_losses(
 class UniformGroupTaskLoss(nn.Module):
     """観測されたgroupごとの平均cross-entropyを等重みで最適化する。
 
-    `class_weight` の解釈は `GroupDROTaskLoss` と同じで、`None` か group ごとの
+    `class_weight` は `None` か group ごとの
     `[num_groups, num_classes]` だけを受け取る。
     """
 
@@ -219,7 +230,7 @@ class UniformGroupTaskLoss(nn.Module):
             raise ValueError(f"num_groups must be at least 2, got {num_groups}")
         if not group_key:
             raise ValueError("group_key must not be empty")
-        self.register_buffer("_class_weight", _group_class_weight_tensor(class_weight, num_groups=num_groups), persistent=False)
+        self.register_buffer("_class_weight", _optional_subgroup_class_weight_tensor(class_weight, num_groups=num_groups), persistent=False)
         self.num_groups = num_groups
         self.group_key = group_key
 
@@ -242,20 +253,78 @@ class UniformGroupTaskLoss(nn.Module):
         return group_losses[observed].mean()
 
 
-class GroupDROTaskLoss(nn.Module):
-    """固定hidden cohortに対するonline Group DROの学習目的を計算する。
+class GlobalClassWeightedGroupDROTaskLoss(nn.Module):
+    """global class weight を必須とする固定 hidden cohort 向け online Group DRO。"""
+
+    def __init__(
+        self,
+        num_groups: int,
+        class_weight: Sequence[float] | None = None,
+        step_size: float = 0.01,
+        group_key: str = "group_id",
+    ):
+        """global `[num_classes]` class weight を必須として初期化する。
+
+        Args:
+            num_groups: 固定 cohort の group 数。2 以上。
+            class_weight: 全 group 共通の正の有限な `[num_classes]` 重み。必須。
+            step_size: adversarial weight の指数勾配ステップ幅。
+            group_key: ObjectiveInput.attributes 内の group ID のキー。
+
+        Returns:
+            None
+        """
+        super().__init__()
+        if num_groups < 2:
+            raise ValueError(f"num_groups must be at least 2, got {num_groups}")
+        if not math.isfinite(step_size) or step_size <= 0:
+            raise ValueError(f"step_size must be finite and positive, got {step_size}")
+        if not group_key:
+            raise ValueError("group_key must not be empty")
+        if class_weight is not None and list(class_weight) and isinstance(list(class_weight)[0], Sequence):
+            raise ValueError("global Group DRO の class_weight は [num_classes] である必要がある")
+        weight = _class_weight_tensor(class_weight)
+        if weight is None:
+            raise ValueError("global Group DRO には [num_classes] の class_weight が必要")
+        self.register_buffer("adv_probs", torch.full((num_groups,), 1.0 / num_groups))
+        self.register_buffer("_class_weight", weight, persistent=False)
+        self.num_groups = num_groups
+        self.step_size = float(step_size)
+        self.group_key = group_key
+
+    def forward(self, inputs: ObjectiveInput) -> torch.Tensor:
+        """global class weight を掛けた group loss で adversarial weight を更新する。
+
+        Args:
+            inputs: logits・target・group ID を含む属性を持つ1バッチ分の入力。
+
+        Returns:
+            torch.Tensor: 更新後の adversarial weight と group loss の内積。
+        """
+        group_ids = inputs.attributes[self.group_key].long()
+        group_losses, _ = _group_losses(
+            _per_sample_loss(inputs.logits, inputs.target, group_ids, self._class_weight),
+            group_ids,
+            num_groups=self.num_groups,
+            group_key=self.group_key,
+        )
+        with torch.no_grad():
+            shifted = group_losses.detach()
+            updated = self.adv_probs * torch.exp(self.step_size * (shifted - shifted.max()))
+            self.adv_probs.copy_(updated / updated.sum())
+        return torch.dot(self.adv_probs, group_losses)
+
+
+class SubgroupClassWeightedGroupDROTaskLoss(nn.Module):
+    """subgroup ごとの class weight を必須とする固定 hidden cohort 向け online Group DRO。
 
     group loss は group ごとの重み付き平均 cross-entropy で、`class_weight` が
     その意味を決める。
 
     | class_weight | group loss | adversarial weight の寄り方 |
     | --- | --- | --- |
-    | `None` | 素の平均 CE | group の陽性率とほぼ単調に対応するため、「識別が難しい group」ではなく「陽性が多い group」へ寄る |
-    | `[num_groups, num_classes]` | `w[g,c] = 1 / (C * f_{g,c})` なら期待値が群内クラス平均 | 陽性率依存が消える |
-
-    全 group 共通の `[num_classes]` は受け取らない。それでは陽性率依存が group 間に
-    残るためで、重みを掛けるなら group ごとに掛ける。group ごとの重みは cohort の構成から
-    決まるので、cohort を作り直すたびに解き直す。制約は `_group_class_weight_tensor` を参照する。
+    `class_weight` は `w[g,c] = 1 / (C * f_{g,c})` の `[num_groups, num_classes]` を必須とする。
+    cohort の構成から決まるため、cohort を作り直すたびに解き直す。
     """
 
     def __init__(
@@ -290,7 +359,7 @@ class GroupDROTaskLoss(nn.Module):
         if not group_key:
             raise ValueError("group_key must not be empty")
         self.register_buffer("adv_probs", torch.full((num_groups,), 1.0 / num_groups))
-        self.register_buffer("_class_weight", _group_class_weight_tensor(class_weight, num_groups=num_groups), persistent=False)
+        self.register_buffer("_class_weight", _subgroup_class_weight_tensor(class_weight, num_groups=num_groups), persistent=False)
         self.num_groups = num_groups
         self.step_size = float(step_size)
         self.group_key = group_key

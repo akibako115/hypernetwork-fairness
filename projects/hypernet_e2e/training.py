@@ -49,6 +49,7 @@ def run_fit(config: DictConfig) -> Path:
     normalize_runtime_paths(config)
     _validate_study(config)
     _validate_attribute_invariance(config)
+    _validate_group_dro_weighting(config)
     _resolve_inverse_class_weights(config)
     recorder = RunRecorder.prepare_fit(config)
     try:
@@ -100,6 +101,7 @@ def run_plan(config: DictConfig) -> str:
     normalize_runtime_paths(config)
     _validate_study(config)
     _validate_attribute_invariance(config)
+    _validate_group_dro_weighting(config)
     _resolve_inverse_class_weights(config)
     return format_run_plan(config, class_weight_path(config))
 
@@ -156,6 +158,13 @@ def _validate_attribute_invariance(config: DictConfig) -> None:
         raise ValueError("attribute_invariance は training_strategy=erm でのみ利用できる")
 
 
+def _validate_group_dro_weighting(config: DictConfig) -> None:
+    """class weight 必須の Group DRO を `weighting=inverse` に限定する。"""
+    strategy = config.get("training_strategy")
+    if strategy is not None and str(strategy.get("name", "")).startswith("group_dro_") and config.get("weighting", "none") != "inverse":
+        raise ValueError("Group DRO は weighting=inverse でのみ利用できる")
+
+
 def _resolve_inverse_class_weights(config: DictConfig) -> None:
     """inverse weighting 時に train split から class weight を設定する。"""
     if config.get("weighting", "none") != "inverse":
@@ -163,7 +172,7 @@ def _resolve_inverse_class_weights(config: DictConfig) -> None:
     frame = pd.read_csv(Path(str(config.data.cv_splits_dir)) / "train.csv")
     num_classes = int(config.data.num_classes)
     strategy = config.get("training_strategy")
-    if strategy is not None and strategy.get("uses_group_id", False):
+    if strategy is not None and strategy.get("class_weight_scope") == "subgroup":
         frame = add_age_groups(frame, config.data.get("fairness_age_groups"))
         group_ids = demographic_group_ids(
             frame,

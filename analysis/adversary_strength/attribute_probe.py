@@ -35,6 +35,11 @@ RUNS = [
     ("attribute-invariant λ=1", 43, "20260922T111111Z-resnet-chexpert-attribute-invariant-s43-f5cb"),
     ("attribute-invariant λ=3", 43, "20260922T133206Z-resnet-chexpert-attribute-invariant-s43-2d1b"),
     ("attribute-invariant λ=10", 43, "20260922T155241Z-resnet-chexpert-attribute-invariant-s43-78d1"),
+    # DANN schedule。λ は最終的な値（max_scale）で、GRL の scale は学習の進捗に応じて 0 から上がる（runs.md）。
+    ("attribute-invariant DANN λ=0.1", 43, "20260924T112045Z-resnet-chexpert-attribute-invariant-dann-s43-6f67"),
+    ("attribute-invariant DANN λ=1", 43, "20260924T112044Z-resnet-chexpert-attribute-invariant-dann-s43-eeeb"),
+    ("attribute-invariant DANN λ=3", 43, "20260924T112044Z-resnet-chexpert-attribute-invariant-dann-s43-3ae9"),
+    ("attribute-invariant DANN λ=10", 43, "20260924T112038Z-resnet-chexpert-attribute-invariant-dann-s43-3550"),
 ]
 MLP_HIDDEN_DIM = 256
 MAX_EPOCHS, PATIENCE, BATCH_SIZE = 12, 3, 8192

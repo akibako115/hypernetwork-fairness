@@ -10,7 +10,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
-from projects.hypernet_iterative.loss import GroupDROTaskLoss, ObjectiveInput, TaskLoss
+from projects.hypernet_iterative.loss import ObjectiveInput, SubgroupClassWeightedGroupDROTaskLoss, TaskLoss
 from projects.hypernet_iterative.module import LitModule
 
 
@@ -127,11 +127,11 @@ def _save_net_checkpoint(path, net: nn.Module) -> None:
     torch.save({"state_dict": {f"net.{key}": value.detach().clone() for key, value in net.state_dict().items()}}, path)
 
 
-def test_warm_start_loads_only_net_state_and_leaves_group_dro_state_new(tmp_path) -> None:
+def test_warm_start_loads_only_net_state_and_leaves_group_dro_subgroup_state_new(tmp_path) -> None:
     source = _Net()
     path = tmp_path / "source.ckpt"
     _save_net_checkpoint(path, source)
-    objective = GroupDROTaskLoss(num_groups=2)
+    objective = SubgroupClassWeightedGroupDROTaskLoss(num_groups=2, class_weight=[[1.0, 1.0], [1.0, 1.0]])
     initial_q = objective.adv_probs.clone()
     module = _module(net=_Net(), loss_fn=objective)
 

@@ -36,11 +36,20 @@ def add_hidden_summaries(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def read_condition(run_dir: Path) -> dict[str, Any]:
-    """run の config から変調範囲と GroupDRO step size を読む。"""
+    """run の config から、比較に使うモデル条件を読む。"""
     config = read_config(run_dir / "config.yaml")
     modulation = "+".join(config["model"]["net"]["modulation_stages"])
     step_size = float(config["iteration"]["group_dro_step_size"])
-    return {"modulation": modulation, "step_size": step_size, "condition": f"{modulation} / {step_size:g}"}
+    backbone_frozen = bool(config["model"].get("freeze_backbone", False))
+    backbone_checkpoint = config["model"].get("backbone_checkpoint_path")
+    return {
+        "modulation": modulation,
+        "step_size": step_size,
+        "backbone_frozen": backbone_frozen,
+        "backbone_checkpoint": str(backbone_checkpoint) if backbone_checkpoint is not None else None,
+        "backbone": "frozen" if backbone_frozen else "unfrozen",
+        "condition": f"{modulation} / {step_size:g}",
+    }
 
 
 def collect_epoch_rows(run_dir: Path) -> list[dict[str, Any]]:

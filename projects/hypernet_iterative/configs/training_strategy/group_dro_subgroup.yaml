@@ -1,0 +1,13 @@
+# @package _global_
+training_strategy:
+  name: group_dro_subgroup
+  uses_cohort_group_id: true
+  supports_warm_start: true
+  class_weight_scope: subgroup
+model:
+  loss_fn:
+    _target_: projects.hypernet_iterative.loss.SubgroupClassWeightedGroupDROTaskLoss
+    num_groups: ${cohort.num_groups}
+    class_weight: null
+    step_size: ${iteration.group_dro_step_size}
+    group_key: ${cohort.group_key}

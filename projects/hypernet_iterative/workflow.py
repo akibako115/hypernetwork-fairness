@@ -293,9 +293,10 @@ def cohort_stage_config(
         {"name": "metadata_kmeans", "reference_id": reference_id, "num_groups": clusters, "group_key": group_key},
         merge=False,
     )
-    strategy_name = str(result.iteration.get("cohort_training_strategy", "group_dro"))
+    strategy_name = str(result.iteration.get("cohort_training_strategy", "group_dro_subgroup"))
     strategy_target = {
-        "group_dro": "projects.hypernet_iterative.loss.GroupDROTaskLoss",
+        "group_dro_global": "projects.hypernet_iterative.loss.GlobalClassWeightedGroupDROTaskLoss",
+        "group_dro_subgroup": "projects.hypernet_iterative.loss.SubgroupClassWeightedGroupDROTaskLoss",
         "uniform_group": "projects.hypernet_iterative.loss.UniformGroupTaskLoss",
         "uniform_group_iterative": "projects.hypernet_iterative.loss.UniformGroupTaskLoss",
     }.get(strategy_name)
@@ -304,7 +305,7 @@ def cohort_stage_config(
     # `uniform_group` と `uniform_group_iterative` は同じ目的関数で、warm-start の可否だけが違う。
     # 反復条件で前者を選ぶと各 stage が ImageNet 初期化からやり直しになり、GroupDRO 条件と
     # 比較できる対照でなくなるため、名前を分けて warm-start の許可を明示する。
-    supports_warm_start = strategy_name in {"group_dro", "uniform_group_iterative"}
+    supports_warm_start = strategy_name in {"group_dro_global", "group_dro_subgroup", "uniform_group_iterative"}
     # 群内クラス均衡は目的関数ではなく class weight で表す。`weighting=inverse` が cohort
     # ごとに解いた `[clusters, num_classes]` を渡すと group loss が群内クラス平均になる。
     loss_config: dict[str, Any] = {
@@ -313,12 +314,17 @@ def cohort_stage_config(
         "class_weight": class_weight,
         "group_key": group_key,
     }
-    if strategy_name == "group_dro":
+    if strategy_name.startswith("group_dro_"):
         loss_config["step_size"] = float(result.iteration.group_dro_step_size)
     OmegaConf.update(
         result,
         "training_strategy",
-        {"name": strategy_name, "uses_cohort_group_id": True, "supports_warm_start": supports_warm_start},
+        {
+            "name": strategy_name,
+            "uses_cohort_group_id": True,
+            "supports_warm_start": supports_warm_start,
+            "class_weight_scope": ("global" if strategy_name == "group_dro_global" else "subgroup" if strategy_name == "group_dro_subgroup" else None),
+        },
         merge=False,
     )
     OmegaConf.update(
@@ -594,7 +600,11 @@ def run_iterative(config: DictConfig) -> Path:
                     assignment_path=assignment_path,
                     checkpoint_path=checkpoint_path,
                     reference_id=cohort_name,
-                    class_weight=_group_class_weight_for_stage(warmup, assignment_path),
+                    class_weight=(
+                        OmegaConf.to_container(warmup.model.loss_fn.class_weight, resolve=True)
+                        if str(warmup.iteration.get("cohort_training_strategy", "group_dro_subgroup")) == "group_dro_global"
+                        else _group_class_weight_for_stage(warmup, assignment_path)
+                    ),
                 )
                 result = run_stage(stage_config, run_dir / "stages" / stage_name)
                 record["stages"][stage_name] = result

@@ -22,4 +22,15 @@ train split では全群が非空で、最小セルは106件。
 
 `projects/hypernet_e2e/runs/20260921T103036Z-resnet-chexpert-s42-5538/checkpoints/best_val_auroc_009.ckpt`
 
-学習完了後に2本の run ID と test split の intersectional 指標を `runs.md` と reports に追記する。
+比較は次の5条件で行う（run-id は [runs.md](runs.md)）。GroupDRO の効果をアーキテクチャの差と
+分けるため、E2E の GroupDRO 条件には同じアーキテクチャの ERM を対照に置く。
+
+| 条件 | アーキテクチャ | 目的関数 | 初期値 |
+|---|---|---|---|
+| ResNet (ERM) | ResNet-50 | CE | ImageNet |
+| ResNet + GroupDRO | ResNet-50 | age × race GroupDRO | ImageNet |
+| E2E Spatial LoRA (ERM) | Spatial LoRA | CE | ImageNet |
+| E2E Spatial LoRA + GroupDRO | Spatial LoRA | age × race GroupDRO | ImageNet |
+| 2-stage Spatial LoRA + GroupDRO | Spatial LoRA（第2段のみ学習） | age × race GroupDRO | ResNet (ERM) の checkpoint |
+
+test split の比較は [reports/test_comparison.md](reports/test_comparison.md)。

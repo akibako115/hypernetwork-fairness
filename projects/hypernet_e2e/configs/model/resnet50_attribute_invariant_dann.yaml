@@ -27,6 +27,7 @@ loss_fn:
   categorical_cardinalities: ${data.attribute_spec.categorical_cardinalities}
   num_continuous: ${data.attribute_spec.continuous_dim}
   hidden_dim: 256
+  shared_trunk: true
   gradient_scale: 1.0
   attribute_adversary_weight: 1.0
   gradient_schedule:

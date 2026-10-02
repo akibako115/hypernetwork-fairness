@@ -15,7 +15,7 @@ uv run python analysis/common/studies.py iterative_probe
 この表が恒久的な正本**になる（baseline のように、別の study のために回した run も引用する）。
 生成された表は補助として読む。ここに人が書くのは「なぜこの条件なのか」のほうとする。
 
-## 本実験（2×2、seed 42）
+## 1-stage E2E（2×2、seed 42）
 
 warmup 2 epoch → stage01 5 epoch → stage02 5 epoch、cohort 10 クラスタ、`weighting=inverse`、
 ResNet-50 ImageNet 初期化。ws11 で 4 本を並列実行し、4 本とも `succeeded`。
@@ -32,10 +32,28 @@ cohort が無いので持たない）。属性ごとの群については、wors
 
 ws11 側は `.git` を除外して同期しているため、`run.json` の `git_commit` は `null` である。
 
+### 2-stage adaptation（2×2、seed 42）
+
+1-stage E2Eの4条件に対する二段学習条件である。親は ERM ResNet `20260921T103036Z-resnet-chexpert-s42-5538` の
+`best_val_auroc_009.ckpt`（epoch 9）とし、これを `model.backbone_checkpoint_path` で読み込む。base backboneと
+共有classifierを warmup から stage02まで固定し、Spatial LoRA adapter・metadata encoderだけを学習する。変調範囲・step size・split・seed・epoch予算・
+cohort数・class weight・checkpoint選択はE2E条件と揃える。ImageNetから開始するE2EとERM checkpointから開始する
+adaptationは、比較の定義として意図的に異なる。
+
+| run-id | project | run path | W&B | 変調範囲 | step size | 所要 |
+|---|---|---|---|---|---|---|
+| `20260929T080251Z-spatial-lora-iterative-chexpert-from-resnet-fc-s42-e582` | `hypernet_iterative` | `analysis/iterative_probe/runs/20260929T080251Z-spatial-lora-iterative-chexpert-from-resnet-fc-s42-e582` | [run](https://wandb.ai/kohki-akiba-kyushu-university/fairness_hypernet/runs/okeqi2ak) | fc | 1e-3 | 37 分 |
+| `20260929T080253Z-spatial-lora-iterative-chexpert-from-resnet-fc-s42-c58c` | `hypernet_iterative` | `analysis/iterative_probe/runs/20260929T080253Z-spatial-lora-iterative-chexpert-from-resnet-fc-s42-c58c` | [run](https://wandb.ai/kohki-akiba-kyushu-university/fairness_hypernet/runs/mq02up8f) | fc | 1e-2 | 38 分 |
+| `20260929T080255Z-spatial-lora-iterative-chexpert-from-resnet-stage4-fc-s42-dbfd` | `hypernet_iterative` | `analysis/iterative_probe/runs/20260929T080255Z-spatial-lora-iterative-chexpert-from-resnet-stage4-fc-s42-dbfd` | [run](https://wandb.ai/kohki-akiba-kyushu-university/fairness_hypernet/runs/746hf32a) | stage4, fc | 1e-3 | 42 分 |
+| `20260929T080248Z-spatial-lora-iterative-chexpert-from-resnet-stage4-fc-s42-746f` | `hypernet_iterative` | `analysis/iterative_probe/runs/20260929T080248Z-spatial-lora-iterative-chexpert-from-resnet-stage4-fc-s42-746f` | [run](https://wandb.ai/kohki-akiba-kyushu-university/fairness_hypernet/runs/9huuv2si) | stage4, fc | 1e-2 | 42 分 |
+
+ws11 で 4 本を並列実行し（2026-09-29）、4 本とも `succeeded`。preset は `spatial_lora_chexpert_from_resnet_fc` /
+`spatial_lora_chexpert_from_resnet_stage4_fc`。E2E 同様、`run.json` の `git_commit` は `null` である。
+
 ### 選択 checkpoint
 
 分析に使うのは、各 run の `selected_checkpoint`（stage02 の中で val AUROC が最大の epoch）である。
-12 epoch を通した best ではない。4 本とも、val AUROC の最大値は warmup の最終 epoch にある。
+12 epoch を通した best ではない。E2E・2-stage の 8 本とも、val AUROC の最大値は warmup の最終 epoch にある。
 epoch は 0 始まりで、checkpoint 内の `epoch` / `global_step` と照合した。通し epoch は warmup 0–1、stage01 2–6、
 stage02 7–11 と数える。
 
@@ -45,12 +63,17 @@ stage02 7–11 と数える。
 | `…-fc-s42-4602` | 2 | 9 | 0.8539 |
 | `…-stage4-fc-s42-1caa` | 3 | 10 | 0.8482 |
 | `…-stage4-fc-s42-c755` | 0 | 7 | 0.8495 |
+| `…-from-resnet-fc-s42-e582` | 1 | 8 | 0.8506 |
+| `…-from-resnet-fc-s42-c58c` | 1 | 8 | 0.8497 |
+| `…-from-resnet-stage4-fc-s42-dbfd` | 0 | 7 | 0.8581 |
+| `…-from-resnet-stage4-fc-s42-746f` | 0 | 7 | 0.8561 |
 
 baseline は `best_val_auroc_009.ckpt`（epoch 9、全 30）。
 
 **`run.json` の score はこの表と一致しない。** `selected_checkpoint.score` と
 `stages.*.checkpoints["val/auroc"].score` には、best の値ではなく各 stage の最終 epoch の値が入っている
 （例: `4602` は best 0.8539 に対して記録は 0.8349。`b81a` は best が最終 epoch なので一致する）。
+2-stage の 4 本も同じで、`746f` は best 0.8561 に対して記録は 0.8471。
 原因は `projects/hypernet_iterative/stage.py` が、score を `checkpoint.best_model_score` ではなく fit 後の `trainer.callback_metrics` から取っていること。
 checkpoint の path は正しく、分析は score を読まないので、予測 cache には影響しない。
 run 記録は不変なので書き換えていない。best の score は checkpoint 内の `ModelCheckpoint` の状態か、
