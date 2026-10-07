@@ -5,3 +5,8 @@ defaults:
   - override /training_strategy: equalized_odds_rate
   - _self_
 experiment_name: spatial-lora-chexpert-stage1-4-age-equalized-odds-rate-race-known
+# 1 stage は未学習から始まるので、一様な lambda だと proxy が全予測を片側へ寄せる自明解に落ちる
+# （2026-10-08 の ws11 run で epoch 0 から TPR=TNR が [0,0]/[1,1]）。task 側へ寄せて始める。
+model:
+  loss_fn:
+    initial_task_weight: 0.9

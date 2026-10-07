@@ -14,3 +14,4 @@ model:
     epsilon_pos: 0.1
     epsilon_neg: 0.1
     tau: 1.0
+    initial_task_weight: null

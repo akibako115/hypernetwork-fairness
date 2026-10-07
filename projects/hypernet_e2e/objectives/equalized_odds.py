@@ -1,6 +1,5 @@
 """Cotter et al. (JMLR 2019) Algorithm 3 の proxy-Lagrangian EO。"""
 
-import math
 from collections.abc import Sequence
 
 import torch
@@ -40,6 +39,7 @@ class EqualizedOddsRateTaskLoss(ConditionalObjective):
         epsilon_pos: float = 0.1,
         epsilon_neg: float = 0.1,
         tau: float = 1.0,
+        initial_task_weight: float | None = None,
     ) -> None:
         """制約定義と swap-regret 状態を設定する。
 
@@ -52,6 +52,9 @@ class EqualizedOddsRateTaskLoss(ConditionalObjective):
             epsilon_pos: TPR 差の許容値。
             epsilon_neg: FPR 差の許容値。
             tau: proxy の幅。
+            initial_task_weight: lambda の初期 task 重み。None なら M を一様に置き、全座標が 1/(m+1)。
+                未学習から始める 1 stage では、一様だと proxy が損失の大半を占め、全予測を片側へ
+                寄せる自明解（制約は満たされ双対の圧力も消える）に落ちるので、task 側へ寄せて始める。
 
         Returns:
             None
@@ -64,7 +67,15 @@ class EqualizedOddsRateTaskLoss(ConditionalObjective):
         self.constraints = [(c, g, h) for c in (1, 0) for g in range(num_groups) for h in range(num_groups) if g != h]
         self.register_buffer("epsilon", torch.tensor([epsilon_pos if c else epsilon_neg for c, _, _ in self.constraints]))
         dimension = len(self.constraints) + 1
-        self.register_buffer("log_M", torch.full((dimension, dimension), -math.log(dimension), dtype=torch.float64))
+        if initial_task_weight is None:
+            initial = torch.full((dimension,), 1 / dimension, dtype=torch.float64)
+        else:
+            if not 0 < initial_task_weight < 1:
+                raise ValueError("initial_task_weight は (0,1) が必要")
+            initial = torch.full((dimension,), (1 - initial_task_weight) / (dimension - 1), dtype=torch.float64)
+            initial[0] = initial_task_weight
+        # 全列を同じ分布にすると、その分布が M の定常分布（初期 lambda）になる。
+        self.register_buffer("log_M", initial.log()[:, None].expand(dimension, dimension).clone())
 
     def _stationary(self) -> tuple[torch.Tensor, torch.Tensor]:
         matrix = self.log_M.exp()

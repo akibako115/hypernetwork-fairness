@@ -347,3 +347,14 @@ def test_fair_dro_uses_eo_selection_and_reports_last_epoch():
     result = select_candidate(candidates, parent, "fair_dro")
     assert result["selected"]["epoch"] == 1 and result["last_epoch"]["epoch"] == 2
     assert "last_epoch" not in select_candidate(candidates, parent, "equalized_odds_rate")
+
+
+def test_eo_initial_task_weight_sets_the_initial_lambda():
+    obj = EqualizedOddsRateTaskLoss(2, COUNTS, initial_task_weight=0.9)
+    distribution, _ = obj._stationary()
+    assert torch.allclose(distribution, torch.tensor([0.9, 0.025, 0.025, 0.025, 0.025], dtype=torch.float64))
+    assert torch.allclose(obj.log_M.exp().sum(dim=0), torch.ones(5, dtype=torch.float64))
+    uniform, _ = EqualizedOddsRateTaskLoss(2, COUNTS)._stationary()
+    assert torch.allclose(uniform, torch.full((5,), 0.2, dtype=torch.float64))
+    with pytest.raises(ValueError):
+        EqualizedOddsRateTaskLoss(2, COUNTS, initial_task_weight=1.0)
