@@ -1,0 +1,8 @@
+# @package _global_
+defaults:
+  - _age_fairness_continuation
+  - override /data: chexpert_age_known_cells
+  - override /training_strategy: population_auc
+  - _self_
+experiment_name: resnet-chexpert-from-resnet-age-population-auc-race-known
+weighting: none

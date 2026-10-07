@@ -117,7 +117,26 @@ class _ClassWeightedGroupDROTaskLoss(nn.Module):
             detached = group_losses.detach()
             updated = self.adv_probs * torch.exp(self.step_size * (detached - detached.max()))
             self.adv_probs.copy_(updated / updated.sum())
+            counts = torch.bincount(group_ids, minlength=self.num_groups)
+            # 最適化で使ったlossをそのまま渡し、loggerで再計算・q再更新をしない。
+            self._batch_diagnostics = {
+                "q": self.adv_probs.detach().clone(),
+                "loss_sum": group_losses.detach().double() * counts,
+                "count": counts.detach(),
+            }
         return torch.dot(self.adv_probs, group_losses)
+
+    def batch_diagnostics(self) -> dict[str, torch.Tensor]:
+        """直近のtrain forwardで更新したqと、群別loss合計・件数を返す。
+
+        Args:
+            なし
+
+        Returns:
+            dict[str, Tensor]: qは更新後の値。lossはclass weight適用後の標本平均用合計。
+                欠損群のloss合計と件数は0。checkpointには記録しない一時的な診断値。
+        """
+        return self._batch_diagnostics
 
 
 class GlobalClassWeightedGroupDROTaskLoss(_ClassWeightedGroupDROTaskLoss):

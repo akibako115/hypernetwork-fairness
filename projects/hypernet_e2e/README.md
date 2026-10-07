@@ -102,7 +102,14 @@ CheXpert の model 入力は `sex`、`race`、`ethnicity`、連続 `age` と撮�
 
 ### race-known 比較の標準設定
 
-今回の5条件には、既存名に `_race_known` を付けた専用presetを使います。既存presetは変更していません。
+2026-10-02の比較計画は[実験計画](../../docs/20261002_experiment.md)を参照してください。
+主比較13条件のpresetと、local / ws11 GPU 2〜8への割り当てを掲載しています。
+HyperAdaptのrace-known条件と、Group DROの`_subgroup_race_known`条件を追加しています。
+subgroup版はtrain splitから8群×2クラスの重みを計算し、それ以外の標準条件はglobal版と共通です。
+2-stageはbackboneと元classifierを凍結し、第2段階はGroup DROのみとします。
+
+以下は当初のglobal class weightを使う5条件の起動例です。
+既存名に `_race_known` を付けた専用presetを使います。既存presetは変更していません。
 全条件で `splits_race_known`、seed 42、batch size 128、30 epoch、AdamW（lr `1e-4`、
 weight decay `1e-2`）、global inverse class weight、uniform samplingを使用します。
 GroupDROのstep sizeは `0.01`、群は `<65 / ≥65` × `White / Asian / Black / Others` の8群です。
@@ -206,6 +213,11 @@ uv run python -m projects.hypernet_e2e.run \
 ```
 
 ## 学習起動
+
+2026-10-02の主比較は、各GPUでseed 42 → 43 → 44の固定ループを使います。
+1-stageを先に実行し、2-stageは後日のユーザー依頼後に起動します。
+`overnight.py`による自動割り当ては停止済みで、再起動しません。
+割り当て・操作・履歴は[実験計画](../../docs/20261002_experiment.md)を参照してください。
 
 `run.py` は `fit` を一度だけ実行し、Hydra 自身の `outputs/` を作りません。run の入力と出力は
 `projects/hypernet_e2e/runs/<run-id>/` に集約されます。例えば CPU で 1 epoch だけ確認するには、

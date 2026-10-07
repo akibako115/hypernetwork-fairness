@@ -241,7 +241,7 @@ class ImageDataModule(LightningDataModule):
             prefetch_factor=self.hparams.prefetch_factor,
         )
 
-    def evaluation_dataloader(self, split: Split) -> DataLoader[Any]:
+    def evaluation_dataloader(self, split: Split, persistent_workers: bool | None = None) -> DataLoader[Any]:
         """指定 split を評価 transform・固定順で返す。
 
         `setup` が構築した Dataset ではなく split を読み直すので、train sampling や
@@ -249,6 +249,7 @@ class ImageDataModule(LightningDataModule):
 
         Args:
             split: 評価する split 名
+            persistent_workers: None なら設定値。epoch ごとに作り直す loader では False にする
 
         Returns:
             DataLoader[Any]: 評価 transform を適用し CSV 順で返す DataLoader
@@ -261,6 +262,6 @@ class ImageDataModule(LightningDataModule):
             num_workers=self.hparams.num_workers,
             pin_memory=self.hparams.pin_memory,
             shuffle=False,
-            persistent_workers=self.hparams.persistent_workers,
+            persistent_workers=self.hparams.persistent_workers if persistent_workers is None else persistent_workers,
             prefetch_factor=self.hparams.prefetch_factor,
         )

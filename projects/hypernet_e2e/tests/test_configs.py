@@ -20,6 +20,28 @@ EXPERIMENT_DIR = CONFIG_DIR / "experiment"
 # 逸脱する preset だけがこの表で違う値を持つ。preset を足したらこの表にも足す。足し忘れは
 # test_every_chexpert_preset_is_registered_in_the_table が落とす。
 CHEXPERT_PRESETS: dict[str, tuple[str, str, str]] = {
+    "resnet_chexpert_from_resnet_age_erm_race_known": ("inverse", "uniform", "erm"),
+    "resnet_chexpert_from_resnet_age_group_dro_race_known": ("inverse", "uniform", "group_dro_global"),
+    "resnet_chexpert_from_resnet_age_sampling_corrected_erm_race_known": ("inverse", "group_class_balanced", "sampling_corrected_erm"),
+    "resnet_chexpert_from_resnet_age_sampling_corrected_group_dro_race_known": ("inverse", "group_class_balanced", "sampling_corrected_group_dro"),
+    "resnet_chexpert_from_resnet_age_sampling_corrected_uniform_group_race_known": ("inverse", "group_class_balanced", "sampling_corrected_uniform_group"),
+    "resnet_chexpert_from_resnet_age_population_auc_race_known": ("none", "group_class_balanced", "population_auc"),
+    "resnet_chexpert_from_resnet_age_minimax_auc_race_known": ("none", "group_class_balanced", "minimax_auc"),
+    "resnet_chexpert_from_resnet_age_equalized_odds_rate_race_known": ("inverse", "group_class_balanced", "equalized_odds_rate"),
+    "resnet_chexpert_from_resnet_age_fair_dro_race_known": ("none", "group_class_balanced", "fair_dro"),
+    "spatial_lora_chexpert_stage1_4_race_known": ("inverse", "uniform", "erm"),
+    "spatial_lora_chexpert_stage1_4_age_race_group_dro_race_known": ("inverse", "uniform", "group_dro_global"),
+    "spatial_lora_chexpert_stage1_4_age_race_group_dro_subgroup_race_known": ("inverse", "uniform", "group_dro_subgroup"),
+    "spatial_lora_chexpert_stage1_4_from_resnet_age_race_group_dro_race_known": ("inverse", "uniform", "group_dro_global"),
+    "spatial_lora_chexpert_stage1_4_from_resnet_age_race_group_dro_subgroup_race_known": ("inverse", "uniform", "group_dro_subgroup"),
+    "hyperadapt_chexpert_race_known": ("inverse", "uniform", "erm"),
+    "hyperadapt_chexpert_age_race_group_dro_race_known": ("inverse", "uniform", "group_dro_global"),
+    "hyperadapt_chexpert_from_resnet_age_race_group_dro_race_known": ("inverse", "uniform", "group_dro_global"),
+    "resnet_chexpert_age_race_group_dro_subgroup_race_known": ("inverse", "uniform", "group_dro_subgroup"),
+    "spatial_lora_chexpert_age_race_group_dro_subgroup_race_known": ("inverse", "uniform", "group_dro_subgroup"),
+    "spatial_lora_chexpert_from_resnet_age_race_group_dro_subgroup_race_known": ("inverse", "uniform", "group_dro_subgroup"),
+    "hyperadapt_chexpert_age_race_group_dro_subgroup_race_known": ("inverse", "uniform", "group_dro_subgroup"),
+    "hyperadapt_chexpert_from_resnet_age_race_group_dro_subgroup_race_known": ("inverse", "uniform", "group_dro_subgroup"),
     "resnet_chexpert_race_known": ("inverse", "uniform", "erm"),
     "resnet_chexpert_age_race_group_dro_race_known": ("inverse", "uniform", "group_dro_global"),
     "spatial_lora_chexpert_race_known": ("inverse", "uniform", "erm"),
@@ -126,7 +148,7 @@ def test_modulation_range_presets_change_only_the_modulated_stages(experiment: s
 def test_default_callbacks_include_metrics_and_fairness_without_text_progress() -> None:
     cfg = _compose("experiment=spatial_lora_chexpert")
 
-    assert set(cfg.callbacks) == {"model_checkpoint", "model_summary", "metrics_logger", "fairness_metrics"}
+    assert set(cfg.callbacks) == {"model_checkpoint", "model_summary", "metrics_logger", "fairness_metrics", "group_dro_diagnostics"}
     assert cfg.callbacks.model_checkpoint.dirpath is None
     assert cfg.callbacks.model_checkpoint._target_ == "projects.hypernet_e2e.callbacks.checkpoint.LastEpochModelCheckpoint"
 

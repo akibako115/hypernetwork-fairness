@@ -1,0 +1,9 @@
+# @package _global_
+defaults:
+  - hyperadapt_chexpert_age_race_group_dro
+  - _race_known_standard
+  - override /data: chexpert_age_race_known_groups
+  - override /training_strategy: group_dro_global
+  - _self_
+
+experiment_name: hyperadapt-chexpert-age-race-group-dro-race-known

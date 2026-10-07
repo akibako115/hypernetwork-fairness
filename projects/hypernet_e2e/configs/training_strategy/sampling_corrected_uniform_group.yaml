@@ -1,0 +1,13 @@
+# @package _global_
+training_strategy:
+  name: sampling_corrected_uniform_group
+  uses_group_id: true
+  class_weight_scope: global
+model:
+  loss_fn:
+    _target_: projects.hypernet_e2e.objectives.sampling_corrected.SamplingCorrectedGroupTaskLoss
+    num_groups: ${data.num_groups}
+    group_key: ${data.group_key}
+    population_cell_counts: null
+    class_weight: null
+    mode: uniform

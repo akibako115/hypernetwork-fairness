@@ -51,6 +51,8 @@ def run_fit(config: DictConfig) -> Path:
     _validate_attribute_invariance(config)
     _validate_group_dro_weighting(config)
     _resolve_inverse_class_weights(config)
+    _resolve_conditional_population(config)
+    _prepare_age_continuation(config)
     recorder = RunRecorder.prepare_fit(config)
     try:
         with text_log(recorder.run_dir / "logs"), experiment_loggers(config) as loggers:
@@ -103,7 +105,63 @@ def run_plan(config: DictConfig) -> str:
     _validate_attribute_invariance(config)
     _validate_group_dro_weighting(config)
     _resolve_inverse_class_weights(config)
+    _resolve_conditional_population(config)
+    _prepare_age_continuation(config, dry_run=True)
     return format_run_plan(config, class_weight_path(config))
+
+
+def _prepare_age_continuation(config: DictConfig, *, dry_run: bool = False) -> None:
+    if not OmegaConf.select(config, "continuation.require_parent", default=False):
+        return
+    if config.model.get("freeze_backbone") or config.model.get("use_attributes"):
+        raise ValueError("年齢公平性の初回比較は全層学習・属性入力なし")
+    if int(config.trainer.devices) != 1 or int(config.trainer.accumulate_grad_batches) != 1:
+        raise ValueError("年齢公平性の初回比較は single device / accumulation=1")
+    if str(config.trainer.precision) not in {"bf16-mixed", "32-true", "32"}:
+        raise ValueError("双対更新は optimizer skip のない bf16/float32 で検証する")
+    checkpoint = config.model.get("backbone_checkpoint_path")
+    if not checkpoint and not dry_run:
+        raise ValueError("年齢公平性の継続学習には同じ seed の親 ERM checkpoint が必要")
+    if checkpoint:
+        path = Path(str(checkpoint))
+        if not path.is_file():
+            raise ValueError(f"親 ERM checkpoint が見つからない: {path}")
+        parent_config = path.parent.parent / "config.yaml"
+        if not parent_config.is_file():
+            raise ValueError(f"親の seed・ERM 条件を確認する config.yaml が必要: {parent_config}")
+        parent = OmegaConf.load(parent_config)
+        if parent.get("seed") is None or int(parent.seed) != int(config.seed):
+            raise ValueError("継続学習の親 ERM と seed が一致しない")
+        if OmegaConf.select(parent, "training_strategy.name") != "erm":
+            raise ValueError("年齢公平性の初回比較には親 ERM checkpoint が必要")
+    wandb = OmegaConf.select(config, "logger.wandb")
+    if wandb is not None and not wandb.get("group"):
+        loss = config.model.loss_fn
+        if "radius" in loss:
+            settings = f"rho{float(loss.radius):g}"
+        else:
+            eta = float(loss.get("dual_step_size", loss.get("step_size", 0)))
+            tau = float(loss.get("tau", 0))
+            settings = f"eta{eta:g}_tau{tau:g}"
+        OmegaConf.update(config, "logger.wandb.group", f"maeo_age_{config.training_strategy.name}_{settings}")
+
+
+def _resolve_conditional_population(config: DictConfig) -> None:
+    loss = config.model.loss_fn
+    if "population_cell_counts" not in loss:
+        return
+    if int(config.trainer.get("devices", 1)) != 1 or int(config.trainer.get("accumulate_grad_batches", 1)) != 1:
+        raise ValueError("条件付き objective は single device / accumulation=1 が必要")
+    if not str(config.data._target_).endswith("GroupClassImageDataModule"):
+        raise ValueError("条件付き objective にはセル均等抽出 DataModule が必要")
+    frame = add_age_groups(pd.read_csv(Path(str(config.data.cv_splits_dir)) / "train.csv"), config.data.get("fairness_age_groups"))
+    groups = demographic_group_ids(frame, config.data.group_attribute_names, config.data.group_cardinalities, group_key=config.data.group_key, missing_values=config.data.get("group_missing_values"))
+    counts = [[int(((groups == g) & (frame.target == c)).sum()) for c in range(2)] for g in range(int(config.data.num_groups))]
+    if any(min(row) == 0 for row in counts):
+        raise ValueError(f"train に空の群・クラスセル: {counts}")
+    OmegaConf.update(config, "model.loss_fn.population_cell_counts", counts, merge=False)
+    if config.get("weighting") == "none" and "class_weight" in loss:
+        OmegaConf.update(config, "model.loss_fn.class_weight", None, merge=False)
 
 
 def _validate_study(config: DictConfig) -> None:

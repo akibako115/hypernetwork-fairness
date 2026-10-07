@@ -1,0 +1,10 @@
+# @package _global_
+defaults:
+  - spatial_lora_chexpert_age_race_group_dro_race_known
+  - _self_
+
+experiment_name: spatial-lora-chexpert-stage1-4-age-race-group-dro-race-known
+
+model:
+  net:
+    modulation_stages: [stage1, stage2, stage3, stage4, fc]

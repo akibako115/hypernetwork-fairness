@@ -145,6 +145,8 @@ checkpoints/*.pth
 # Lightning-Hydra-Template
 /projects/*/configs/local/default.yaml
 /data/
+/data
+/checkpoints
 /logs/
 /logs_*/
 /remote_logs/

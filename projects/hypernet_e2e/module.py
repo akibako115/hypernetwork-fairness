@@ -2,17 +2,21 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import Callable, Mapping, Sequence
+from pathlib import Path
 from typing import Any
 
 import lightning as L
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from lightning.pytorch.trainer.states import TrainerFn
 
 from projects.hypernet_e2e.loss import ObjectiveInput
 from projects.hypernet_e2e.models.utils import load_compatible_state_dict
+from projects.hypernet_e2e.objectives.conditional import ConditionalObjective
 
 log = logging.getLogger(__name__)
 
@@ -191,6 +195,9 @@ class LitModule(L.LightningModule):
         """
         if stage != "fit":
             return
+        if hasattr(self.training_objective, "commit_update"):
+            if self.trainer.world_size != 1 or self.trainer.accumulate_grad_batches != 1:
+                raise ValueError("条件付き公平性 objective は single device / accumulation=1 が必要")
         if self.hparams.backbone_checkpoint_path is not None:
             result = self.load_backbone_checkpoint(self.hparams.backbone_checkpoint_path)
             self._require_loaded_backbone(result, self.hparams.backbone_checkpoint_path)
@@ -200,6 +207,18 @@ class LitModule(L.LightningModule):
             self.net.initialize_with_attributes(self.trainer.datamodule.train_attributes())
         if self.hparams.compile:
             self.net = torch.compile(self.net)
+
+    def on_load_checkpoint(self, checkpoint: dict[str, Any]) -> None:
+        """条件付き公平性のfit再開を、状態を復元する前に拒否する。
+
+        Args:
+            checkpoint: Lightningが復元しようとするcheckpoint。
+
+        Returns:
+            None
+        """
+        if self._trainer is not None and self.trainer.state.fn == TrainerFn.FITTING and isinstance(self.training_objective, ConditionalObjective):
+            raise ValueError("条件付き公平性 objective の途中再開は未対応")
 
     def on_train_epoch_start(self) -> None:
         """凍結した backbone の BatchNorm 等を eval 状態に保つ。
@@ -212,8 +231,76 @@ class LitModule(L.LightningModule):
         Returns:
             None
         """
+        sampler = getattr(getattr(self._trainer, "datamodule", None), "group_class_sampler", None)
+        if sampler is not None:
+            sampler.set_epoch(self.current_epoch)
         if self.hparams.freeze_backbone and (backbone := getattr(self.net, "backbone", None)) is not None:
             backbone.eval()
+
+    def optimizer_step(self, *args, **kwargs) -> None:
+        """モデル更新が完了した後に保留された双対更新を適用する。
+
+        Args:
+            *args: Lightning の optimizer step 引数。
+            **kwargs: Lightning の optimizer step 引数。
+
+        Returns:
+            None
+        """
+        super().optimizer_step(*args, **kwargs)
+        if hasattr(self.training_objective, "commit_update"):
+            self.training_objective.commit_update()
+
+    def on_train_epoch_end(self) -> None:
+        """epoch 単位で双対を更新する objective に train 全件の 0-1 誤り率を渡す。
+
+        FairDRO の Alg. 1 l.10。評価 transform・sampler なしの train を eval モードで推論する。
+
+        Args:
+            なし
+
+        Returns:
+            None
+        """
+        objective = self.training_objective
+        if not hasattr(objective, "update_from_errors"):
+            return
+        errors, counts = self._train_split_errors(objective.group_key, objective.num_groups)
+        update = objective.update_from_errors(errors)
+        for c in range(2):
+            for g in range(objective.num_groups):
+                self.log(f"train/fair_dro/q/y{c}_g{g}", update["q"][c, g].float())
+                self.log(f"train/fair_dro/error/g{g}_y{c}", errors[g, c].float())
+        row = {"epoch": self.current_epoch, "update": int(objective.update_count), "eta": float(update["eta"])}
+        row.update({key: update[key].tolist() for key in ("q_star", "q")}, error=errors.tolist(), count=counts.tolist())
+        path = Path(self.trainer.default_root_dir) / "metrics" / "fair_dro_q.jsonl"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a") as stream:
+            stream.write(json.dumps(row) + "\n")
+
+    @torch.no_grad()
+    def _train_split_errors(self, group_key: str, num_groups: int) -> tuple[torch.Tensor, torch.Tensor]:
+        loader = self.trainer.datamodule.evaluation_dataloader("train", persistent_workers=False)
+        wrong = torch.zeros((num_groups, 2), dtype=torch.float64, device=self.device)
+        counts = torch.zeros_like(wrong)
+        was_training = self.training
+        self.eval()
+        try:
+            for batch in loader:
+                image, attributes, target = self.transfer_batch_to_device(batch, self.device, 0)
+                with self.trainer.precision_plugin.forward_context():
+                    logits = self(image, attributes).float()
+                index = attributes[group_key].long() * 2 + target.long()
+                miss = ((logits[:, 1] - logits[:, 0] > 0).long() != target.long()).double()
+                wrong.view(-1).index_add_(0, index, miss)
+                counts.view(-1).index_add_(0, index, torch.ones_like(miss))
+        finally:
+            self.train(was_training)
+            if self.hparams.freeze_backbone and (backbone := getattr(self.net, "backbone", None)) is not None:
+                backbone.eval()
+        if len(loader.dataset) != int(counts.sum()) or (counts == 0).any():
+            raise ValueError(f"train 全件の誤り集計に空セルか欠損がある: {counts.tolist()}")
+        return wrong / counts, counts
 
     def load_backbone_checkpoint(self, checkpoint_path: str, load_fc: bool = True) -> dict[str, list[str]]:
         """checkpoint から backbone 相当の互換する重みだけを読み込む。
@@ -359,8 +446,9 @@ class LitModule(L.LightningModule):
             else:
                 components.pop("task", None)
             return components
-        loss = self.training_objective(inputs)
-        return {"loss": loss} if include_task else {}
+        if not include_task:
+            return {}
+        return {"loss": self.training_objective(inputs)}
 
     def _log_objective_components(self, phase: str, components: Mapping[str, torch.Tensor]) -> None:
         """分解lossをepoch集計用のscalar metricとして記録する。"""

@@ -39,6 +39,7 @@ _SECTIONS: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = (
             ("modulation_stages", "model.net.modulation_stages"),
             ("adapted_convs", "model.net.adapted_convs"),
             ("backbone_checkpoint", "model.backbone_checkpoint_path"),
+            ("parent required for fit", "continuation.require_parent"),
             ("freeze_backbone", "model.freeze_backbone"),
             ("optimizer", "model.optimizer._target_"),
             ("lr", "model.optimizer.lr"),
@@ -119,6 +120,11 @@ def _objective_rows(config: DictConfig) -> list[tuple[str, str]]:
             if key in ("_target_", "class_weight") or not isinstance(value, (int, float, str, bool)):
                 continue
             rows.append((f"loss_fn.{key}", _format(value)))
+    counts = _select(config, "model.loss_fn.population_cell_counts")
+    if counts is not _MISSING and counts is not None:
+        rows.append(("train cell counts", _format(counts)))
+        rows.append(("cell draw probability", str(1 / (2 * len(counts)))))
+        rows.append(("draws per cell/batch", str(int(config.data.batch_size) // (2 * len(counts)))))
     return rows
 
 

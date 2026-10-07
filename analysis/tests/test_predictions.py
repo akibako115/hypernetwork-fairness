@@ -236,3 +236,52 @@ def test_features_cache_file_names_do_not_collide_with_predictions(tmp_path: Pat
 
     assert features_path.name == "20260922T063725Z-resnet-chexpert-s43-efcd_val_features.npz"
     assert features_path != predictions_path
+
+
+def test_explicit_checkpoint_hash_and_split_invalidate_cache(repository: Path) -> None:
+    run_dir = _run(repository, "best_val_auroc_007.ckpt")
+    checkpoint = run_dir / "checkpoints" / "candidate_002.ckpt"
+    checkpoint.write_bytes(b"original weights")
+    split_dir = repository / "splits"
+    split_dir.mkdir()
+    split = split_dir / "val.csv"
+    split.write_text("image,target\na,0\nb,1\n")
+    (run_dir / "config.yaml").write_text(f"data:\n  cv_splits_dir: {split_dir}\n")
+    path = _cache(
+        repository / "cache" / "explicit.npz",
+        checkpoint=predictions.checkpoint_reference(run_dir, checkpoint),
+        checkpoint_sha256=predictions._sha256(checkpoint),
+        split_sha256=predictions._sha256(split),
+        split="val",
+    )
+    assert stale_reason(path, run_dir, checkpoint=checkpoint) is None
+    split.write_text("image,target\na,1\nb,0\n")
+    assert "split SHA" in stale_reason(path, run_dir, checkpoint=checkpoint)
+    checkpoint.write_bytes(b"changed weights at same path")
+    assert "checkpoint SHA" in stale_reason(path, run_dir, checkpoint=checkpoint)
+
+
+def test_sha_is_reused_within_operation_but_new_operation_detects_rewrite(tmp_path, monkeypatch):
+    import os
+
+    path = tmp_path / "checkpoint.ckpt"
+    path.write_bytes(b"original")
+    actual = predictions.hashlib.file_digest
+    calls = []
+
+    def digest(stream, algorithm):
+        calls.append(stream.name)
+        return actual(stream, algorithm)
+
+    monkeypatch.setattr(predictions.hashlib, "file_digest", digest)
+    source_hashes = {}
+    first = predictions._sha256(path, source_hashes)
+    assert predictions._sha256(path, source_hashes) == first and len(calls) == 1
+    stat = path.stat()
+    path.write_bytes(b"modified")
+    os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+    assert predictions._sha256(path) != first and len(calls) == 2
+    replacement = tmp_path / "replacement"
+    replacement.write_bytes(b"replaced")
+    replacement.replace(path)
+    assert predictions._sha256(path) != first and len(calls) == 3
