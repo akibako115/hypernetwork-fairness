@@ -155,8 +155,9 @@ def test_all_age_presets_compose_and_objectives_instantiate():
         instantiate(config.data)
 
 
+@pytest.mark.parametrize("reference", ["parent", "deferred"])
 @pytest.mark.parametrize("kind", [MinimaxAUCTaskLoss, EqualizedOddsRateTaskLoss, SamplingCorrectedTaskLoss, FairDROTaskLoss])
-def test_lightning_commits_once_per_step_and_records_candidates(tmp_path, kind):
+def test_lightning_commits_once_per_step_and_records_candidates(tmp_path, kind, reference):
     import json
 
     import lightning as L
@@ -200,7 +201,7 @@ def test_lightning_commits_once_per_step_and_records_candidates(tmp_path, kind):
     objective = kind(2, COUNTS)
     module = LitModule(net, objective, optimizer=lambda params: torch.optim.AdamW(params, lr=0.001), scheduler=None, backbone_checkpoint_path=str(parent))
     methods = {EqualizedOddsRateTaskLoss: "equalized_odds_rate", FairDROTaskLoss: "fair_dro"}
-    recorder = ConditionalFairnessRecorder(methods.get(kind, "minimax_auc"))
+    recorder = ConditionalFairnessRecorder(methods.get(kind, "minimax_auc"), reference=reference)
     trainer = L.Trainer(
         accelerator="cpu",
         max_epochs=2,
@@ -229,6 +230,13 @@ def test_lightning_commits_once_per_step_and_records_candidates(tmp_path, kind):
         q_star = torch.stack([chi_square_best_response(expected[:, c], objective.radius) for c in range(2)])
         assert torch.allclose(torch.tensor(rows[-1]["q_star"], dtype=torch.float64), q_star)
     assert recorder.parent["epoch"] == 0 and len(recorder.candidates) == 2
+    selection = json.loads((tmp_path / "metrics/fairness_selection.json").read_text())
+    if reference == "deferred":
+        # 1 stage では sanity が初期値なので選ばず、候補と初期値の記録だけを残す。
+        assert selection["status"] == "deferred" and selection["selected"] is None and selection["last_epoch"]["epoch"] == 2
+        assert (tmp_path / "metrics/fairness_initial.json").is_file() and not (tmp_path / "metrics/fairness_parent.json").exists()
+    else:
+        assert selection["status"] in {"selected", "infeasible"} and (tmp_path / "metrics/fairness_parent.json").is_file()
     assert len(json.loads((tmp_path / "metrics/fairness_candidates.json").read_text())) == 2
     candidate = torch.load(tmp_path / "checkpoints/candidate_002.ckpt", weights_only=False)
     assert "optimizer_states" not in candidate and "callbacks" not in candidate

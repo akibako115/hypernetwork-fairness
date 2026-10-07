@@ -1,0 +1,8 @@
+# @package _global_
+defaults:
+  - spatial_lora_chexpert_stage1_4_race_known
+  - _age_fairness_one_stage
+  - override /training_strategy: fair_dro
+  - _self_
+experiment_name: spatial-lora-chexpert-stage1-4-age-fair-dro-race-known
+weighting: none

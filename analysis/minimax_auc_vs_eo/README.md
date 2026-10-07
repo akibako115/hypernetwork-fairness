@@ -83,3 +83,5 @@ gapが縮んでもworst TNRや判別力が下がっていれば、性能改善�
 
 実装後の入口・検証状況は [implementation_status.md](implementation_status.md)、
 原著・著者repoとの対応と変更点は [source_alignment.md](source_alignment.md) に記録した。
+
+1 stage（ImageNet 初期化から学習）への適用は [conditional_fairness_one_stage](../conditional_fairness_one_stage/README.md) が持つ。

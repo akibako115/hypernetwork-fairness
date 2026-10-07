@@ -152,6 +152,9 @@ def _resolve_conditional_population(config: DictConfig) -> None:
         return
     if int(config.trainer.get("devices", 1)) != 1 or int(config.trainer.get("accumulate_grad_batches", 1)) != 1:
         raise ValueError("条件付き objective は single device / accumulation=1 が必要")
+    # fp16 の GradScaler は optimizer step を飛ばすことがあり、双対だけが進む。継続学習と 1 stage で共通に拒否する。
+    if str(OmegaConf.select(config, "trainer.precision", default="32-true")) not in {"bf16-mixed", "32-true", "32"}:
+        raise ValueError("条件付き objective は optimizer skip のない bf16/float32 で学習する")
     if not str(config.data._target_).endswith("GroupClassImageDataModule"):
         raise ValueError("条件付き objective にはセル均等抽出 DataModule が必要")
     frame = add_age_groups(pd.read_csv(Path(str(config.data.cv_splits_dir)) / "train.csv"), config.data.get("fairness_age_groups"))

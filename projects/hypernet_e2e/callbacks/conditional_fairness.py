@@ -74,19 +74,24 @@ class ConditionalFairnessRecorder(L.Callback):
 
     sanity は全 validation を実行し、親 checkpoint の基準を確定する。
     test を読まず、自然分布のラベル条件付き率を標本数で集約する。
+    1 stage の学習では sanity 時点のモデルが初期値で基準にならないので、`reference="deferred"`
+    で選択を分析側（同じアーキテクチャ・seed の ERM run の validation を基準）に委ねる。
     """
 
-    def __init__(self, method: str, group_key: str = "group_id") -> None:
+    def __init__(self, method: str, group_key: str = "group_id", reference: str = "parent") -> None:
         """選択方法と群キーを受け取る。
 
         Args:
             method: 学習戦略名。
             group_key: 年齢群 ID の属性キー。
+            reference: parent なら親 checkpoint 基準で選ぶ。deferred なら候補の記録だけにする。
 
         Returns:
             None
         """
-        self.method, self.group_key = method, group_key
+        if reference not in {"parent", "deferred"}:
+            raise ValueError("reference は parent/deferred")
+        self.method, self.group_key, self.reference = method, group_key, reference
         self.candidates: list[dict[str, Any]] = []
         self.parent: dict[str, Any] | None = None
 
@@ -125,6 +130,7 @@ class ConditionalFairnessRecorder(L.Callback):
                 "q": "q[y][g]: FairDRO の classwise 群重み" if hasattr(obj, "radius") else None,
                 "population_cell_counts": trainer.datamodule.data_train.df.groupby([self.group_key, "target"]).size().unstack().values.tolist(),
                 "method": self.method,
+                "reference": self.reference,
             },
         )
 
@@ -254,7 +260,7 @@ class ConditionalFairnessRecorder(L.Callback):
                 with Path(row["checkpoint"]).open("rb") as stream:
                     row["sha256"] = hashlib.file_digest(stream, "sha256").hexdigest()
             self.parent = row
-            self._write(trainer, "fairness_parent.json", row)
+            self._write(trainer, "fairness_parent.json" if self.reference == "parent" else "fairness_initial.json", row)
             return
         path = Path(trainer.default_root_dir) / "checkpoints" / f"candidate_{row['epoch']:03d}.ckpt"
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -344,5 +350,9 @@ class ConditionalFairnessRecorder(L.Callback):
             None
         """
         if self.parent is None:
-            raise RuntimeError("親 ERM の全件 validation 記録がない")
+            raise RuntimeError("sanity の全件 validation 記録がない")
+        if self.reference == "deferred":
+            last = max(self.candidates, key=lambda row: row["epoch"]) if self.candidates else None
+            self._write(trainer, "fairness_selection.json", {"status": "deferred", "selected": None, "last_epoch": last})
+            return
         self._write(trainer, "fairness_selection.json", select_candidate(self.candidates, self.parent, self.method))

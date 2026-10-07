@@ -1,0 +1,7 @@
+# @package _global_
+defaults:
+  - spatial_lora_chexpert_stage1_4_race_known
+  - _age_fairness_one_stage
+  - override /training_strategy: equalized_odds_rate
+  - _self_
+experiment_name: spatial-lora-chexpert-stage1-4-age-equalized-odds-rate-race-known

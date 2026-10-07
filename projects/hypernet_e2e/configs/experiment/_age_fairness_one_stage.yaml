@@ -1,0 +1,20 @@
+# @package _global_
+# 年齢 2 群の条件付き公平性 objective を ImageNet 初期化から 1 stage で学習する。
+# 学習率・epoch・データ split は同じアーキテクチャの race_known ERM と揃え、違いを目的関数と
+# 4 セル均等抽出だけにする。sanity 時点のモデルは初期値で選択の基準にならないので、
+# 候補の選択は分析側で同じ seed の ERM run の validation を基準に行う（reference: deferred）。
+defaults:
+  - override /data: chexpert_age_known_cells
+  - _self_
+trainer:
+  devices: 1
+  accumulate_grad_batches: 1
+  num_sanity_val_steps: -1
+callbacks:
+  group_dro_diagnostics:
+    group_labels: ["<65", "≥65"]
+  conditional_fairness:
+    _target_: projects.hypernet_e2e.callbacks.conditional_fairness.ConditionalFairnessRecorder
+    method: ${training_strategy.name}
+    group_key: ${data.group_key}
+    reference: deferred
