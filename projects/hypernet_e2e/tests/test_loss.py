@@ -413,37 +413,33 @@ def test_global_class_weighted_group_dro_restores_adversarial_state() -> None:
     assert torch.allclose(resumed.adv_probs, objective.adv_probs)
 
 
-def test_group_dro_keeps_q_of_groups_absent_from_the_batch() -> None:
-    """自然抽出で欠けた群の q を loss 0 として縮めない。全群の loss が等しければ q は一様のまま。"""
-    objective = GlobalClassWeightedGroupDROTaskLoss(num_groups=3, class_weight=[1.0, 1.0], step_size=1.0)
-    logits = torch.tensor([[1.0, 0.0], [1.0, 0.0]])
-    target = torch.tensor([0, 0])
-    for _ in range(20):
-        objective(ObjectiveInput(logits=logits, target=target, attributes={"group_id": torch.tensor([0, 1])}))
-
-    assert torch.allclose(objective.adv_probs, torch.full((3,), 1 / 3))
-
-
-def test_group_dro_matches_sagawa_update_when_every_group_is_observed() -> None:
-    objective = GlobalClassWeightedGroupDROTaskLoss(num_groups=2, class_weight=[1.0, 1.0], step_size=0.5)
-    logits = torch.tensor([[2.0, 0.0], [0.0, 0.0]])
-    target = torch.tensor([0, 0])
-    objective(ObjectiveInput(logits=logits, target=target, attributes={"group_id": torch.tensor([0, 1])}))
-
-    losses = F.cross_entropy(logits, target, reduction="none")
-    expected = 0.5 * torch.exp(0.5 * losses)
-    assert torch.allclose(objective.adv_probs, expected / expected.sum())
-
-
-def test_group_dro_moves_mass_only_among_observed_groups() -> None:
-    objective = GlobalClassWeightedGroupDROTaskLoss(num_groups=3, class_weight=[1.0, 1.0], step_size=1.0)
-    logits = torch.tensor([[2.0, 0.0], [0.0, 2.0]])
-    target = torch.tensor([0, 0])
-    objective(ObjectiveInput(logits=logits, target=target, attributes={"group_id": torch.tensor([0, 1])}))
-
-    assert torch.isclose(objective.adv_probs[2], torch.tensor(1 / 3))
-    assert objective.adv_probs[1] > objective.adv_probs[0]
-    assert torch.isclose(objective.adv_probs.sum(), torch.tensor(1.0))
+@pytest.mark.parametrize("subgroup", [False, True])
+@pytest.mark.parametrize("groups", [[0, 1], [0], [0, 1, 2]])
+def test_group_dro_matches_official_update_and_gradient(subgroup: bool, groups: list[int]) -> None:
+    objective = (
+        SubgroupClassWeightedGroupDROTaskLoss(3, class_weight=[[1.0, 2.0], [3.0, 1.0], [2.0, 4.0]], step_size=0.5)
+        if subgroup
+        else GlobalClassWeightedGroupDROTaskLoss(3, class_weight=[1.0, 2.0], step_size=0.5)
+    )
+    expected_q = torch.full((3,), 1 / 3)
+    for step in range(3):
+        group_ids = torch.tensor(groups)
+        target = torch.arange(len(groups)) % 2
+        logits = torch.tensor([[2.0 - step, 0.0], [0.0, 1.0], [1.0, 0.0]])[: len(groups)].requires_grad_()
+        reference = logits.detach().clone().requires_grad_()
+        per_sample = F.cross_entropy(reference, target, reduction="none")
+        weights = torch.tensor([[1.0, 2.0], [3.0, 1.0], [2.0, 4.0]])[group_ids, target] if subgroup else torch.tensor([1.0, 2.0])[target]
+        per_sample = per_sample * weights
+        risks = torch.stack([per_sample[group_ids == g].mean() if g in groups else reference.sum() * 0 for g in range(3)])
+        expected_q = expected_q * torch.exp(0.5 * risks.detach())
+        expected_q /= expected_q.sum()
+        expected = expected_q @ risks
+        actual = objective(ObjectiveInput(logits=logits, target=target, attributes={"group_id": group_ids}))
+        assert torch.allclose(objective.adv_probs, expected_q)
+        assert torch.allclose(actual, expected)
+        assert torch.allclose(torch.autograd.grad(actual, logits)[0], torch.autograd.grad(expected, reference)[0])
+    if 2 not in groups:
+        assert objective.adv_probs[2] < 1 / 3
 
 
 def test_adversary_trunk_uses_leaky_relu_by_default_and_keeps_relu_for_old_runs() -> None:
@@ -463,3 +459,32 @@ def test_adversary_trunk_uses_leaky_relu_by_default_and_keeps_relu_for_old_runs(
         features.grad = None
         objective.attribute_adversary(features, attributes).backward()
         assert (features.grad.abs().sum() > 0) == expect_gradient
+
+
+@pytest.mark.parametrize("objective_type", [AttributeInvariantTaskLoss, AlternatingAttributeInvariantTaskLoss])
+@pytest.mark.parametrize("training", [True, False])
+@pytest.mark.parametrize("missing", ["race", "age", "all", "none"])
+def test_adversary_handles_missing_selected_attributes(objective_type, training: bool, missing: str) -> None:
+    torch.manual_seed(7)
+    names = {"categorical": ["sex", "race"], "continuous": ["age"]}
+    objective = objective_type(TaskLoss(), feature_dim=3, input_attribute_names=names, adversarial_attribute_names=names, categorical_cardinalities=[2, 3], num_continuous=1)
+    objective.train(training)
+    inputs = _sex_race_age_inputs()
+    inputs.features.requires_grad_()
+    inputs.logits.requires_grad_()
+    if missing in {"race", "all"}:
+        inputs.attributes["categorical_missing"][:, 1] = True
+    if missing in {"age", "all"}:
+        inputs.attributes["continuous_missing"][:] = True
+    if missing == "all":
+        inputs.attributes["categorical_missing"][:] = True
+    components = objective.loss_components(inputs)
+    observed = set(names["categorical"] + names["continuous"]) - ({missing} if missing != "all" else {"sex", "race", "age"})
+    keys = {f"attribute_adversary/{name}" for name in observed}
+    assert set(components) == {"task", "attribute_adversary"} | keys
+    expected = torch.stack([components[key] for key in sorted(keys)]).mean() if keys else inputs.features.sum() * 0
+    assert torch.allclose(components["attribute_adversary"], expected)
+    components["attribute_adversary"].backward()
+    assert torch.isfinite(inputs.features.grad).all()
+    assert bool(inputs.features.grad.abs().sum() > 0) == bool(keys)
+    assert torch.isfinite(objective(inputs))

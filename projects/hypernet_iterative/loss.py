@@ -198,21 +198,14 @@ def _group_losses(
     return group_losses, observed
 
 
-def _observed_exponentiated_update(probs: torch.Tensor, group_losses: torch.Tensor, observed: torch.Tensor, step_size: float) -> torch.Tensor:
-    """バッチで観測した群だけに Group DRO の指数勾配更新をかけた q を返す。
+def _exponentiated_update(probs: torch.Tensor, group_losses: torch.Tensor, step_size: float) -> torch.Tensor:
+    """公式 GroupDRO と同じ乗算・全群正規化で q を更新する。
 
-    Sagawa et al. (ICLR 2020) の更新 q_g <- q_g exp(eta * l_g) は、各群の loss が観測される
-    群均等抽出を前提にしている。自然抽出のバッチで欠けた群を loss 0 として同じ式に通すと、
-    その群だけ exp(0)=1 倍に留まり、正規化で q が系統的に縮む（希少群ほど縮む）。
-    ここでは欠けた群の q を据え置き、観測群の q の合計を保ったまま観測群の中で更新する。
-    全群が観測されたバッチでは原典の更新と一致する。
+    欠損群の loss は 0 とし、乗算係数を 1 に保ったまま全群で正規化する。
+    自然抽出時も欠損群の確率質量を保存する独自処理は行わない。
     """
-    losses = group_losses.detach()
-    shift = torch.where(observed, losses, torch.full_like(losses, -math.inf)).max()
-    factor = torch.where(observed, torch.exp(step_size * (losses - shift)), torch.zeros_like(losses))
-    updated = probs * factor
-    observed_mass = (probs * observed).sum()
-    return torch.where(observed, updated / updated.sum() * observed_mass, probs)
+    updated = probs * torch.exp(step_size * group_losses.detach())
+    return updated / updated.sum()
 
 
 class UniformGroupTaskLoss(nn.Module):
@@ -319,7 +312,7 @@ class GlobalClassWeightedGroupDROTaskLoss(nn.Module):
             torch.Tensor: 更新後の adversarial weight と group loss の内積。
         """
         group_ids = inputs.attributes[self.group_key].long()
-        group_losses, observed = _group_losses(
+        group_losses, _ = _group_losses(
             _per_sample_loss(inputs.logits, inputs.target, group_ids, self._class_weight),
             group_ids,
             num_groups=self.num_groups,
@@ -327,7 +320,7 @@ class GlobalClassWeightedGroupDROTaskLoss(nn.Module):
         )
         # exponentiated gradientでadv_probsを更新する（勾配はここに流さない）。
         with torch.no_grad():
-            self.adv_probs.copy_(_observed_exponentiated_update(self.adv_probs, group_losses, observed, self.step_size))
+            self.adv_probs.copy_(_exponentiated_update(self.adv_probs, group_losses, self.step_size))
         return torch.dot(self.adv_probs, group_losses)
 
 
@@ -390,7 +383,7 @@ class SubgroupClassWeightedGroupDROTaskLoss(nn.Module):
             torch.Tensor: スカラーの loss
         """
         group_ids = inputs.attributes[self.group_key].long()
-        group_losses, observed = _group_losses(
+        group_losses, _ = _group_losses(
             _per_sample_loss(inputs.logits, inputs.target, group_ids, self._class_weight),
             group_ids,
             num_groups=self.num_groups,
@@ -398,5 +391,5 @@ class SubgroupClassWeightedGroupDROTaskLoss(nn.Module):
         )
         # exponentiated gradientでadv_probsを更新する（勾配はここに流さない）。
         with torch.no_grad():
-            self.adv_probs.copy_(_observed_exponentiated_update(self.adv_probs, group_losses, observed, self.step_size))
+            self.adv_probs.copy_(_exponentiated_update(self.adv_probs, group_losses, self.step_size))
         return torch.dot(self.adv_probs, group_losses)

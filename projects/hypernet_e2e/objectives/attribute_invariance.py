@@ -336,7 +336,9 @@ class AttributeInvariantTaskLoss(nn.Module):
             components["attribute_adversary"] = torch.stack(list(attribute_losses.values())).mean()
             for kind, names in self._selected_attribute_names.items():
                 for index, name in enumerate(names):
-                    components[f"attribute_adversary/{name}"] = attribute_losses[f"{kind}_{index}"]
+                    key = f"{kind}_{index}"
+                    if key in attribute_losses:
+                        components[f"attribute_adversary/{name}"] = attribute_losses[key]
         else:
             components["attribute_adversary"] = inputs.features.sum() * 0
         return components
