@@ -31,6 +31,18 @@ class SamplingCorrectedGroupTaskLoss(ConditionalObjective):
     mode=dro のみモデル更新後に双対状態を更新する。
     """
 
+    @property
+    def dual_update(self) -> str | None:
+        """mode=dro のときだけ step 単位で双対を更新する。
+
+        Args:
+            なし
+
+        Returns:
+            str | None: ``"step"`` または None。
+        """
+        return "step" if self.mode == "dro" else None
+
     def __init__(
         self,
         num_groups: int,

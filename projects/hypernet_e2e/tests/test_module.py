@@ -287,3 +287,47 @@ def test_feature_requiring_loss_rejects_a_net_without_feature_interface() -> Non
 
     with pytest.raises(TypeError, match="forward_with_features"):
         module.training_step(_batch(), 0)
+
+
+def _dann_objective(**kwargs) -> AttributeInvariantTaskLoss:
+    return AttributeInvariantTaskLoss(
+        TaskLoss(),
+        feature_dim=1,
+        input_attribute_names={"categorical": ["sex"], "continuous": []},
+        adversarial_attribute_names={"categorical": ["sex"], "continuous": []},
+        categorical_cardinalities=[2],
+        hidden_dim=3,
+        **kwargs,
+    )
+
+
+def test_dann_adversary_lr_scale_puts_the_adversary_in_its_own_param_group() -> None:
+    objective = _dann_objective(adversary_lr_scale=10.0)
+    module = _module(loss_fn=objective, optimizer=lambda params: torch.optim.AdamW(params, lr=1e-4))
+    module._trainer = SimpleNamespace(model=module)
+    main, adversary = module.configure_optimizers()["optimizer"].param_groups
+    assert main["lr"] == pytest.approx(1e-4) and adversary["lr"] == pytest.approx(1e-3)
+    assert {id(parameter) for parameter in adversary["params"]} == {id(parameter) for parameter in objective.adversary_parameters()}
+    assert {id(parameter) for parameter in module.net.parameters()} <= {id(parameter) for parameter in main["params"]}
+
+
+def test_dann_default_keeps_a_single_param_group() -> None:
+    module = _module(loss_fn=_dann_objective(), optimizer=lambda params: torch.optim.SGD(params, lr=0.1))
+    module._trainer = SimpleNamespace(model=module)
+    assert len(module.configure_optimizers()["optimizer"].param_groups) == 1
+
+
+def test_alfr_rejects_the_dann_lr_scale() -> None:
+    objective = AlternatingAttributeInvariantTaskLoss(
+        TaskLoss(),
+        feature_dim=1,
+        input_attribute_names={"categorical": ["sex"], "continuous": []},
+        adversarial_attribute_names={"categorical": ["sex"], "continuous": []},
+        categorical_cardinalities=[2],
+        hidden_dim=3,
+        adversary_lr_scale=2.0,
+    )
+    module = _module(loss_fn=objective, optimizer=lambda params: torch.optim.SGD(params, lr=0.1))
+    module._trainer = SimpleNamespace(model=module)
+    with pytest.raises(ValueError, match="adversary_optimizer"):
+        module.configure_optimizers()

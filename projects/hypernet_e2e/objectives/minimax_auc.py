@@ -16,6 +16,8 @@ class MinimaxAUCTaskLoss(ConditionalObjective):
     q 初期値は母集団の陽性群分布と陰性群分布の積。
     """
 
+    dual_update = "step"
+
     def __init__(
         self,
         num_groups: int,
@@ -91,6 +93,8 @@ class MinimaxAUCTaskLoss(ConditionalObjective):
 
 class PopulationAUCTaskLoss(MinimaxAUCTaskLoss):
     """母集団由来 q を固定した AUCMax 対照条件。"""
+
+    dual_update = None
 
     @torch.no_grad()
     def commit_update(self) -> None:

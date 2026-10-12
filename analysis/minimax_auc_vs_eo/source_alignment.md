@@ -41,9 +41,17 @@ BatchNormへの寄与が変わる。optimizerは共通比較のAdamW、初期値
 | 数値計算 | Mとpower iterationはfloat64、残差L1≤1e-8、上限1000回。未収束で停止 |
 
 Mの初期値は論文に沿う一様分布。TFCOの既定はtask寄りの初期値と最小radiusのfloorを使うが、今回は採用しない。
-代理制約は今回設計したsmoothstep上下界を使う。`H(x)=3x²-2x³` を[0,1]でclipし、
-`U(s)=H(1+s/tau)`、`D(s)=H(s/tau)` とする。全スコアで `D(s)≤I(s>0)≤U(s)` なので、
-`mean(U_g)-mean(D_h)-epsilon` はhard制約の上界。sigmoid差penaltyとは異なる。
+
+代理制約は、2026-10-13 から TFCO の既定 `HingeLoss`（margin 1）と同じ hinge 上下界を使う（`proxy: hinge`）。
+`U(s)=(1+s/tau)_+`、`D(s)=1-(1-s/tau)_+`。D は、負の係数がかかる rate を TFCO が補集合の hinge で評価する形と同じ。
+全スコアで `D(s)≤I(s>0)≤U(s)` なので、`mean(U_g)-mean(D_h)-epsilon` はhard制約の上界。
+U は閾値の正側でも勾配を持つので、率の高い群の標本を閾値の下へ押し戻せる。
+
+それ以前の run は、自前で設計した smoothstep 上下界 `U(s)=H(1+s/tau)`、`D(s)=H(s/tau)`（`H(x)=3x²-2x³` を[0,1]でclip）を使っていた。
+U は s≥0 で 1、D は s≤0 で 0 に張り付くため、代理制約は予測を閾値の反対側へ動かす勾配を持たない。
+代理制約だけを score について下げても hard rate は1件も変わらないことを、テストで確認した
+（`test_smoothstep_proxy_cannot_cross_the_threshold`）。したがって、旧 run の EO 条件で群間差が縮んだ／縮まなかった結果を、
+EO 制約の効果として読むことはできない。旧 run を再現するときは `model.loss_fn.proxy=smoothstep` を指定する。
 ResNet・AdamW・非凸proxy・有限epoch候補のvalidation選択に対し、原著の収束・実行可能性保証を主張しない。
 
 ## FairDRO
@@ -60,6 +68,13 @@ ResNet・AdamW・非凸proxy・有限epoch候補のvalidation選択に対し、�
 | 更新に使う損失 | trainの全件を評価transform・eval modeで推論したhard誤り率（`z1-z0>0`） |
 
 原著の重みは負になり得て、EGではなく平滑化したIBRで更新する。この点を保つため、simplexに射影しない。
+q* の最小成分は `(1-sqrt(rho(G-1)))/G` なので、`rho ≥ 1/(G-1)` では誤り率のわずかな差でも重みが 0 以下になる
+（G=2・rho=1 では各クラスで片方の群が 0 になり、一方の群だけを学ぶ解へ振れた）。
+2026-10-13 から、この範囲の rho を指定すると起動時に警告し、毎 epoch の `q_min` を記録する。禁止はしない。
+
+DataModule が held-out split を持つとき、q は held-out 全件の hard 誤り率で更新する（`fair_dro_q.jsonl` の `source`）。
+train 全件では少数セルの記憶で誤りが消え、q が戻ったため（conditional_fairness_one_stage）。これは原著からの変更で、
+EO・Minimax AUC の held-out と同じ扱い。held-out がなければ原著どおり train 全件を使う。
 原著からの変更点：
 - ERMからの継続学習
 - AdamW

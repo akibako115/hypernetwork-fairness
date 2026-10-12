@@ -27,12 +27,26 @@ class _GradientReverse(torch.autograd.Function):
         return -ctx.scale * gradient, None
 
 
-def _trunk(feature_dim: int, hidden_dims: Sequence[int]) -> nn.Sequential:
-    """`Linear → ReLU` を hidden_dims の幅で積んだ trunk を返す。"""
+ACTIVATIONS = ("leaky_relu", "relu")
+# LeakyReLU の負側の傾き。GAN の識別器で一般的な値で、負側でも勾配が消えないことだけが目的。
+_LEAKY_SLOPE = 0.2
+
+
+def _trunk(feature_dim: int, hidden_dims: Sequence[int], activation: str = "leaky_relu") -> nn.Sequential:
+    """`Linear → 活性化` を hidden_dims の幅で積んだ trunk を返す。
+
+    GRL で反転した勾配を受ける backbone は、ReLU の trunk なら pre-activation を全標本で負に押し込むだけで
+    head への情報と head 自身の勾配を同時に断てる。adversary_strength の回し直しでは 256 unit 中 206 が
+    val で一度も発火せず、head は事前分布（bias）だけを答えていた。LeakyReLU はこの逃げ道を塞ぐ。
+    ``"relu"`` は 2026-10-13 より前の run を再現するためにだけ残す。parameter を持たないので checkpoint の互換は保つ。
+    """
+    if activation not in ACTIVATIONS:
+        raise ValueError(f"activation は {ACTIVATIONS} のいずれか: {activation!r}")
     layers: list[nn.Module] = []
     width = feature_dim
     for hidden_dim in hidden_dims:
-        layers.extend([nn.Linear(width, hidden_dim), nn.ReLU(inplace=True)])
+        nonlinearity = nn.LeakyReLU(_LEAKY_SLOPE, inplace=True) if activation == "leaky_relu" else nn.ReLU(inplace=True)
+        layers.extend([nn.Linear(width, hidden_dim), nonlinearity])
         width = hidden_dim
     return nn.Sequential(*layers)
 
@@ -53,6 +67,7 @@ class _AttributeAdversary(nn.Module):
         hidden_dims: Sequence[int],
         gradient_scale: float,
         shared_trunk: bool = True,
+        activation: str = "leaky_relu",
     ) -> None:
         """属性の型・次元に合わせた予測ヘッドを構築する。"""
         super().__init__()
@@ -68,14 +83,14 @@ class _AttributeAdversary(nn.Module):
             raise ValueError("gradient_scale は 0 以上である必要がある")
         self.gradient_scale = gradient_scale
         if shared_trunk:
-            self.trunk = _trunk(feature_dim, hidden_dims)
+            self.trunk = _trunk(feature_dim, hidden_dims, activation)
             self.categorical_trunks = self.continuous_trunks = None
         else:
             # 共有 trunk では 3 属性の勾配が同じ unit を取り合い、止めた特徴量の上でも sex の学習が遅く
             # 死ぬ unit も多かった（analysis/adversary_strength/adversary_head_state.ipynb）。
             self.trunk = None
-            self.categorical_trunks = nn.ModuleList([_trunk(feature_dim, hidden_dims) for _ in categorical_cardinalities])
-            self.continuous_trunks = nn.ModuleList([_trunk(feature_dim, hidden_dims) for _ in range(num_continuous)])
+            self.categorical_trunks = nn.ModuleList([_trunk(feature_dim, hidden_dims, activation) for _ in categorical_cardinalities])
+            self.continuous_trunks = nn.ModuleList([_trunk(feature_dim, hidden_dims, activation) for _ in range(num_continuous)])
         width = hidden_dims[-1]
         self.categorical_heads = nn.ModuleList([nn.Linear(width, cardinality) for cardinality in categorical_cardinalities])
         # 属性ごとの trunk でも出力層は 1 つにまとめ、連続属性 j は trunk j の出力に対する j 列目だけを使う。
@@ -148,6 +163,8 @@ class AttributeInvariantTaskLoss(nn.Module):
         attribute_adversary_weight: float = 1.0,
         gradient_schedule: Mapping[str, float] | None = None,
         shared_trunk: bool = True,
+        activation: str = "leaky_relu",
+        adversary_lr_scale: float = 1.0,
     ) -> None:
         """task loss、full attribute spec、および選択済み属性予測器を構築する。
 
@@ -165,6 +182,10 @@ class AttributeInvariantTaskLoss(nn.Module):
             gradient_schedule: GRL scale の schedule。``{"name": "dann", "gamma": 10.0,
                 "max_scale": 1.0}`` を指定すると DANN schedule を使う。None は固定 scale。
             shared_trunk: True なら全属性で trunk を共有し、False なら属性列ごとに別の trunk を持つ。
+            activation: trunk の活性化。``"leaky_relu"``（既定）か、既存 run 再現用の ``"relu"``。
+            adversary_lr_scale: adversary の学習率を optimizer の基準値の何倍にするか。正の有限値。
+                事前学習済み backbone の fine-tuning 用の学習率では、ゼロから学ぶ head が backbone の変化に
+                追いつけないときに上げる。GRL による同時更新（DANN）の形は変えない。
 
         Returns:
             None
@@ -175,6 +196,9 @@ class AttributeInvariantTaskLoss(nn.Module):
         super().__init__()
         if attribute_adversary_weight < 0:
             raise ValueError("attribute_adversary_weight は 0 以上である必要がある")
+        if not math.isfinite(adversary_lr_scale) or adversary_lr_scale <= 0:
+            raise ValueError("adversary_lr_scale は正の有限値である必要がある")
+        self.adversary_lr_scale = float(adversary_lr_scale)
         full_categorical = attribute_columns(input_attribute_names, "categorical")
         full_continuous = attribute_columns(input_attribute_names, "continuous")
         cardinalities = list(categorical_cardinalities)
@@ -216,6 +240,7 @@ class AttributeInvariantTaskLoss(nn.Module):
             hidden_dims,
             gradient_scale,
             shared_trunk,
+            activation,
         )
         self.attribute_adversary_weight = attribute_adversary_weight
         schedule = dict(gradient_schedule or {})
@@ -233,6 +258,17 @@ class AttributeInvariantTaskLoss(nn.Module):
         if self._gradient_schedule_gamma <= 0 or self._gradient_schedule_max_scale < 0:
             raise ValueError("gradient_schedule.gamma は正、max_scale は非負である必要がある")
         self._active_gradient_scale = float(gradient_scale)
+
+    def adversary_parameters(self) -> list[nn.Parameter]:
+        """adversary（属性予測器）の parameter を返す。
+
+        Args:
+            なし
+
+        Returns:
+            list[nn.Parameter]: optimizer で別の学習率・別の optimizer に割り当てる parameter。
+        """
+        return list(self.attribute_adversary.parameters())
 
     def set_training_progress(self, progress: float) -> None:
         """学習進捗に応じて GRL scale を更新する。
@@ -347,7 +383,3 @@ class AlternatingAttributeInvariantTaskLoss(AttributeInvariantTaskLoss):
         selected = self._select_attributes(inputs.attributes)
         losses = self.attribute_adversary.component_losses(inputs.features.detach(), selected, gradient_scale=0.0)
         return torch.stack(list(losses.values())).mean() if losses else inputs.features.sum() * 0
-
-    def adversary_parameters(self) -> list[nn.Parameter]:
-        """交互更新で adversary optimizer が所有する parameter を返す。"""
-        return list(self.attribute_adversary.parameters())

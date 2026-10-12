@@ -11,8 +11,8 @@ from torch.nn import functional as F
 
 from projects.hypernet_e2e.callbacks.conditional_fairness import select_candidate
 from projects.hypernet_e2e.data.group_class_sampler import GroupClassBatchSampler
-from projects.hypernet_e2e.objectives.equalized_odds import EqualizedOddsRateTaskLoss, smooth_step
-from projects.hypernet_e2e.objectives.fair_dro import FairDROTaskLoss, chi_square_best_response
+from projects.hypernet_e2e.objectives.equalized_odds import EqualizedOddsRateTaskLoss, proxy_bounds, smooth_step
+from projects.hypernet_e2e.objectives.fair_dro import FairDROTaskLoss, chi_square_best_response, nonnegative_radius_limit
 from projects.hypernet_e2e.objectives.input import ObjectiveInput
 from projects.hypernet_e2e.objectives.minimax_auc import MinimaxAUCTaskLoss, PopulationAUCTaskLoss
 from projects.hypernet_e2e.objectives.sampling_corrected import SamplingCorrectedGroupTaskLoss, SamplingCorrectedTaskLoss
@@ -68,14 +68,46 @@ def test_eo_four_directed_constraints_and_column_swap_update():
     assert torch.allclose(obj.log_M.exp() @ distribution, distribution, atol=1e-8)
 
 
-def test_proxy_bounds_including_strict_zero_tie():
-    score = torch.cat([torch.linspace(-100, 100, 10001), torch.tensor([0.0])]).requires_grad_()
-    upper = smooth_step(1 + score)
-    lower = smooth_step(score)
+@pytest.mark.parametrize("proxy", ["hinge", "smoothstep"])
+def test_proxy_bounds_including_strict_zero_tie(proxy):
+    score = torch.cat([torch.linspace(-100, 100, 10001), torch.tensor([0.0])])
+    upper, lower = proxy_bounds(score, 1.0, proxy)
     hard = (score > 0).float()
     assert (upper >= hard).all() and (lower <= hard).all()
-    (upper + lower).sum().backward()
-    assert score.grad[-1] == 0
+
+
+def test_smoothstep_bounds_keep_the_legacy_formula():
+    score = torch.linspace(-3, 3, 61)
+    upper, lower = proxy_bounds(score, 0.5, "smoothstep")
+    assert torch.equal(upper, smooth_step(1 + score / 0.5)) and torch.equal(lower, smooth_step(score / 0.5))
+
+
+def _rate_gap_after_minimizing_proxy(proxy: str) -> tuple[float, float]:
+    """代理制約だけを score について下げ、陽性セルの TPR 差の前後を返す。"""
+    generator = torch.Generator().manual_seed(0)
+    score_g = (torch.randn(32, generator=generator) + 0.8).requires_grad_()
+    score_h = (torch.randn(32, generator=generator) - 0.5).requires_grad_()
+    before = float((score_g > 0).float().mean() - (score_h > 0).float().mean())
+    optimizer = torch.optim.SGD([score_g, score_h], lr=0.5)
+    for _ in range(500):
+        upper, _ = proxy_bounds(score_g, 1.0, proxy)
+        _, lower = proxy_bounds(score_h, 1.0, proxy)
+        optimizer.zero_grad()
+        (upper.mean() - lower.mean()).backward()
+        optimizer.step()
+    after = float((score_g > 0).float().mean() - (score_h > 0).float().mean())
+    return before, after
+
+
+def test_hinge_proxy_can_flip_predictions_to_close_the_rate_gap():
+    before, after = _rate_gap_after_minimizing_proxy("hinge")
+    assert before > 0.3 and after < 0.05
+
+
+def test_smoothstep_proxy_cannot_cross_the_threshold():
+    """旧 proxy は U が s>=0 で、D が s<=0 で平坦なので、hard rate を一切動かせない。"""
+    before, after = _rate_gap_after_minimizing_proxy("smoothstep")
+    assert after == before
 
 
 @pytest.mark.parametrize("kind", [MinimaxAUCTaskLoss, EqualizedOddsRateTaskLoss, PopulationAUCTaskLoss, FairDROTaskLoss])
@@ -358,3 +390,195 @@ def test_eo_initial_task_weight_sets_the_initial_lambda():
     assert torch.allclose(uniform, torch.full((5,), 0.2, dtype=torch.float64))
     with pytest.raises(ValueError):
         EqualizedOddsRateTaskLoss(2, COUNTS, initial_task_weight=1.0)
+
+
+def test_lightning_updates_duals_from_held_out_batches(tmp_path):
+    """held-out を持つ DataModule では、双対の更新に学習バッチではなく held-out の順位損失を使う。
+
+    モデルの学習率を 0 にしてスコアを固定し、q の推移が held-out のリスクだけから決まることを確かめる。
+    """
+    import lightning as L
+    from torch.utils.data import DataLoader, TensorDataset
+
+    from projects.hypernet_e2e.module import LitModule
+
+    class Data(TensorDataset):
+        def __getitem__(self, index):
+            x, group, target = super().__getitem__(index)
+            return x, {"group_id": group}, int(target)
+
+    groups, targets = torch.tensor([0, 0, 1, 1] * 2), torch.tensor([0, 1, 0, 1] * 2)
+    train = Data(torch.tensor([[0.0, 1.0], [1.0, 1.0]] * 4), groups, targets)
+    # held-out では群 1 の陽性のスコアを陰性より低くし、学習バッチと違うペアが最悪になるようにする。
+    held = Data(torch.tensor([[0.0, 1.0], [1.0, 1.0], [1.0, 1.0], [0.0, 1.0]] * 2), groups, targets)
+    held_batch = next(iter(DataLoader(held, batch_size=8)))
+
+    class DM(L.LightningDataModule):
+        def __init__(self):
+            super().__init__()
+            self.data_holdout = held
+
+        def train_dataloader(self):
+            return DataLoader(train, batch_size=8)
+
+        def held_out_batches(self):
+            while True:
+                yield held_batch
+
+    net = torch.nn.Linear(2, 2)
+    objective = MinimaxAUCTaskLoss(2, COUNTS)
+    start = objective.log_q.clone()
+    module = LitModule(net, objective, optimizer=lambda params: torch.optim.SGD(params, lr=0.0), scheduler=None, backbone_checkpoint_path=None)
+    trainer = L.Trainer(
+        accelerator="cpu", max_epochs=3, logger=False, enable_checkpointing=False, enable_model_summary=False, enable_progress_bar=False, limit_val_batches=0, default_root_dir=tmp_path
+    )
+    trainer.fit(module, datamodule=DM())
+
+    with torch.no_grad():
+        x, attributes, target = held_batch
+        expected_risk = MinimaxAUCTaskLoss(2, COUNTS).train()
+        expected_risk(ObjectiveInput(net(x), target, attributes))
+        risk = expected_risk.batch_diagnostics()["risk"]
+    expected = start
+    for _ in range(3):
+        expected = torch.log_softmax(expected + objective.dual_step_size * risk, dim=0)
+    assert objective.update_count == 3
+    assert torch.allclose(objective.log_q, expected, atol=1e-6)
+
+
+@pytest.mark.parametrize("num_groups", [2, 4, 8])
+def test_fair_dro_radius_limit_is_where_the_closed_form_first_hits_zero(num_groups):
+    limit = nonnegative_radius_limit(num_groups)
+    # 1 群だけが他と逆向きに外れる偏差が、q* の最小成分を最も下げる。
+    losses = torch.zeros(num_groups, dtype=torch.float64)
+    losses[0] = 1.0
+    assert torch.isclose(chi_square_best_response(-losses, limit).min(), torch.tensor(0.0, dtype=torch.float64), atol=1e-12)
+    assert chi_square_best_response(-losses, 0.9 * limit).min() > 0
+    counts = [[10, 10]] * num_groups
+    with pytest.warns(UserWarning, match="radius"):
+        FairDROTaskLoss(num_groups, counts, radius=limit)
+
+
+def test_fair_dro_update_reports_minimum_weight():
+    obj = FairDROTaskLoss(4, [[10, 10]] * 4, radius=1.0, max_epochs=2)
+    update = obj.update_from_errors(torch.tensor([[0.4, 0.9], [0.4, 0.9], [0.4, 0.9], [0.1, 0.2]], dtype=torch.float64))
+    assert update["q_min"] < 0 and torch.isclose(update["q_min"], obj.q.min())
+
+
+def test_lightning_fair_dro_measures_errors_on_held_out_when_available(tmp_path):
+    """held-out を持つ DataModule では、FairDRO の q を train ではなく held-out 全件の誤り率で更新する。"""
+    import json
+
+    import lightning as L
+    from torch.utils.data import DataLoader, TensorDataset
+
+    from projects.hypernet_e2e.module import LitModule
+
+    class Data(TensorDataset):
+        def __getitem__(self, index):
+            x, group, target = super().__getitem__(index)
+            return x, {"group_id": group}, int(target)
+
+    groups, targets = torch.tensor([0, 0, 1, 1] * 2), torch.tensor([0, 1, 0, 1] * 2)
+    # 恒等の線形層で score = x1 - x0。train は全件正解、held-out は群 1 の両クラスを全件誤る。
+    train = Data(torch.tensor([[1.0, 0.0], [0.0, 1.0]] * 4), groups, targets)
+    held = Data(torch.tensor([[1.0, 0.0], [0.0, 1.0], [0.0, 1.0], [1.0, 0.0]] * 2), groups, targets)
+
+    class DM(L.LightningDataModule):
+        def __init__(self):
+            super().__init__()
+            self.data_holdout = held
+
+        def train_dataloader(self):
+            return DataLoader(train, batch_size=8)
+
+        def evaluation_dataloader(self, split, persistent_workers=None):
+            return DataLoader(train, batch_size=8)
+
+        def held_out_evaluation_dataloader(self):
+            return DataLoader(held, batch_size=8)
+
+        def held_out_batches(self):
+            raise AssertionError("epoch 単位の objective に step ごとの held-out は流さない")
+
+    net = torch.nn.Linear(2, 2, bias=False)
+    with torch.no_grad():
+        net.weight.copy_(torch.eye(2))
+    objective = FairDROTaskLoss(2, COUNTS, radius=0.1, max_epochs=2)
+    module = LitModule(net, objective, optimizer=lambda params: torch.optim.SGD(params, lr=0.0), scheduler=None, backbone_checkpoint_path=None)
+    trainer = L.Trainer(
+        accelerator="cpu", max_epochs=1, logger=False, enable_checkpointing=False, enable_model_summary=False, enable_progress_bar=False, limit_val_batches=0, default_root_dir=tmp_path
+    )
+    trainer.fit(module, datamodule=DM())
+
+    (row,) = [json.loads(line) for line in (tmp_path / "metrics/fair_dro_q.jsonl").read_text().splitlines()]
+    assert row["source"] == "holdout"
+    assert row["error"] == [[0.0, 0.0], [1.0, 1.0]]
+    assert row["q_min"] == pytest.approx(min(min(q) for q in row["q"]))
+
+
+def test_objective_diagnostics_average_train_batches_and_keep_held_out_separate(tmp_path):
+    """診断値は最後の 1 batch ではなく epoch 平均で残し、held-out の統計は学習バッチと混ぜない。"""
+    import json
+
+    import lightning as L
+    from torch.utils.data import DataLoader, TensorDataset
+
+    from projects.hypernet_e2e.callbacks.objective_diagnostics import ObjectiveDiagnosticsRecorder
+    from projects.hypernet_e2e.module import LitModule
+
+    class Data(TensorDataset):
+        def __getitem__(self, index):
+            x, group, target = super().__getitem__(index)
+            return x, {"group_id": group}, int(target)
+
+    groups, targets = torch.tensor([0, 0, 1, 1] * 2), torch.tensor([0, 1, 0, 1] * 2)
+    # 2 つの train batch でスコアの並びを変え、batch ごとの risk を違う値にする。
+    train = Data(torch.tensor([[0.0, 1.0], [1.0, 1.0]] * 2 + [[0.0, 2.0], [2.0, 0.0]] * 2), groups, targets)
+    held = Data(torch.tensor([[0.0, 1.0], [1.0, 1.0], [1.0, 1.0], [0.0, 1.0]] * 2), groups, targets)
+    held_batch = next(iter(DataLoader(held, batch_size=8)))
+
+    class DM(L.LightningDataModule):
+        def __init__(self):
+            super().__init__()
+            self.data_holdout = held
+
+        def train_dataloader(self):
+            return DataLoader(train, batch_size=4)
+
+        def held_out_batches(self):
+            while True:
+                yield held_batch
+
+    net = torch.nn.Linear(2, 2)
+    objective = MinimaxAUCTaskLoss(2, COUNTS)
+    module = LitModule(net, objective, optimizer=lambda params: torch.optim.SGD(params, lr=0.0), scheduler=None, backbone_checkpoint_path=None)
+    trainer = L.Trainer(
+        accelerator="cpu",
+        max_epochs=1,
+        logger=False,
+        enable_checkpointing=False,
+        enable_model_summary=False,
+        enable_progress_bar=False,
+        limit_val_batches=0,
+        default_root_dir=tmp_path,
+        callbacks=[ObjectiveDiagnosticsRecorder()],
+    )
+    trainer.fit(module, datamodule=DM())
+
+    with torch.no_grad():
+
+        def risk(batch):
+            reference = MinimaxAUCTaskLoss(2, COUNTS).train()
+            x, attributes, target = batch
+            reference(ObjectiveInput(net(x), target, attributes))
+            return reference.batch_diagnostics()["risk"].double()
+
+        train_batches = list(DataLoader(train, batch_size=4))
+        expected_train = (risk(train_batches[0]) + risk(train_batches[1])) / 2
+        expected_held = risk(held_batch)
+    (row,) = [json.loads(line) for line in (tmp_path / "metrics/objective_diagnostics.jsonl").read_text().splitlines()]
+    assert row["batches"] == 2 and row["held_out_batches"] == 2
+    assert torch.allclose(torch.tensor(row["epoch_mean"]["risk"], dtype=torch.float64), expected_train, atol=1e-6)
+    assert torch.allclose(torch.tensor(row["held_out_epoch_mean"]["risk"], dtype=torch.float64), expected_held, atol=1e-6)
+    assert torch.allclose(torch.tensor(row["risk"], dtype=torch.float64), risk(train_batches[1]), atol=1e-6)

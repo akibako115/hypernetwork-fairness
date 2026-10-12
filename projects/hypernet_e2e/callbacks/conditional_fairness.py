@@ -12,7 +12,7 @@ import torch
 from lightning.pytorch.trainer.states import TrainerFn
 from sklearn.metrics import roc_auc_score
 
-from projects.hypernet_e2e.objectives.equalized_odds import smooth_step
+from projects.hypernet_e2e.objectives.equalized_odds import proxy_bounds
 
 # EO の hard gap 規則で選ぶ手法。FairDRO は EO を狙う先行手法として同じ規則で比べる。
 EO_SELECTION_METHODS = frozenset({"equalized_odds_rate", "fair_dro"})
@@ -211,7 +211,7 @@ class ConditionalFairnessRecorder(L.Callback):
         objective = pl_module.training_objective
         if hasattr(objective, "constraints"):
             score_tensor = torch.from_numpy(scores)
-            upper, lower = smooth_step(1 + score_tensor / objective.tau), smooth_step(score_tensor / objective.tau)
+            upper, lower = proxy_bounds(score_tensor, objective.tau, objective.proxy)
             proxy, hard = [], []
             for index, (c, source, other) in enumerate(objective.constraints):
                 epsilon = float(objective.epsilon[index])

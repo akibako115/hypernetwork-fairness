@@ -72,6 +72,23 @@ def _group_losses(per_sample_loss: torch.Tensor, group_ids: torch.Tensor, *, num
     return group_losses, observed
 
 
+def _observed_exponentiated_update(probs: torch.Tensor, group_losses: torch.Tensor, observed: torch.Tensor, step_size: float) -> torch.Tensor:
+    """バッチで観測した群だけに Group DRO の指数勾配更新をかけた q を返す。
+
+    Sagawa et al. (ICLR 2020) の更新 q_g <- q_g exp(eta * l_g) は、各群の loss が観測される
+    群均等抽出を前提にしている。自然抽出のバッチで欠けた群を loss 0 として同じ式に通すと、
+    その群だけ exp(0)=1 倍に留まり、正規化で q が系統的に縮む（希少群ほど縮む）。
+    ここでは欠けた群の q を据え置き、観測群の q の合計を保ったまま観測群の中で更新する。
+    全群が観測されたバッチでは原典の更新と一致する。
+    """
+    losses = group_losses.detach()
+    shift = torch.where(observed, losses, torch.full_like(losses, -math.inf)).max()
+    factor = torch.where(observed, torch.exp(step_size * (losses - shift)), torch.zeros_like(losses))
+    updated = probs * factor
+    observed_mass = (probs * observed).sum()
+    return torch.where(observed, updated / updated.sum() * observed_mass, probs)
+
+
 class UniformGroupTaskLoss(nn.Module):
     """観測された group ごとの平均 cross-entropy を等重みで最適化する。"""
 
@@ -112,11 +129,9 @@ class _ClassWeightedGroupDROTaskLoss(nn.Module):
 
     def forward(self, inputs: ObjectiveInput) -> torch.Tensor:
         group_ids = inputs.attributes[self.group_key].long()
-        group_losses, _ = _group_losses(_per_sample_loss(inputs.logits, inputs.target, group_ids, self._class_weight), group_ids, num_groups=self.num_groups, group_key=self.group_key)
+        group_losses, observed = _group_losses(_per_sample_loss(inputs.logits, inputs.target, group_ids, self._class_weight), group_ids, num_groups=self.num_groups, group_key=self.group_key)
         with torch.no_grad():
-            detached = group_losses.detach()
-            updated = self.adv_probs * torch.exp(self.step_size * (detached - detached.max()))
-            self.adv_probs.copy_(updated / updated.sum())
+            self.adv_probs.copy_(_observed_exponentiated_update(self.adv_probs, group_losses, observed, self.step_size))
             counts = torch.bincount(group_ids, minlength=self.num_groups)
             # 最適化で使ったlossをそのまま渡し、loggerで再計算・q再更新をしない。
             self._batch_diagnostics = {

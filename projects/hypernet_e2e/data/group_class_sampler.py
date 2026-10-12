@@ -110,11 +110,13 @@ class GroupClassImageDataModule(GroupImageDataModule):
             prefetch_factor=self.hparams.prefetch_factor,
         )
 
-    def __init__(self, sampling_seed: int = 42, **kwargs: Any) -> None:
+    def __init__(self, sampling_seed: int = 42, holdout_split: str | None = None, **kwargs: Any) -> None:
         """親のデータ設定と抽出 seed を保持する。
 
         Args:
             sampling_seed: seed+epoch に使う seed。
+            holdout_split: 群の重み（双対変数）を測るための split 名（`cv_splits_dir/<名前>.csv`）。
+                None なら held-out を使わず、従来どおり学習バッチの統計で双対を更新する。
             **kwargs: GroupImageDataModule の設定。
 
         Returns:
@@ -126,3 +128,80 @@ class GroupClassImageDataModule(GroupImageDataModule):
         super().__init__(train_sampling="uniform", **kwargs)
         self.hparams.train_sampling = requested
         self.hparams.sampling_seed = int(sampling_seed)
+        self.hparams.holdout_split = holdout_split
+        self.data_holdout = None
+
+    def setup(self, stage: str) -> None:
+        """親の Dataset に加え、fit では held-out の Dataset を評価 transform で作る。
+
+        held-out は群の成績を測るだけなので augmentation を掛けない。連続属性の標準化は train の統計を使う。
+
+        Args:
+            stage: Lightning が渡す stage 名。
+
+        Returns:
+            None
+        """
+        super().setup(stage)
+        if stage != "fit" or self.hparams.holdout_split is None:
+            return
+        (frame,) = self.standardized_dataframes(self.hparams.holdout_split)
+        self.data_holdout = self._create_dataset(frame, self.val_transform)
+        counts = self.data_holdout.group_counts(self.hparams.num_groups)
+        if (counts == 0).any():
+            raise ValueError(f"held-out には全 group が必要だが、{torch.where(counts == 0)[0].tolist()} が空である")
+
+    def held_out_batches(self) -> Iterator[tuple[Any, Any, Any]]:
+        """held-out からセル均等のバッチを尽きることなく返す。
+
+        学習 1 step ごとに 1 バッチ使う。held-out は train より小さいので、1 周したら抽出の epoch を進めて
+        次の周に入る。抽出の seed は train の抽出と重ならないようにずらす。
+
+        Args:
+            なし
+
+        Returns:
+            Iterator: `(image, attributes, target)` のバッチ。
+
+        Raises:
+            RuntimeError: held-out を設定していない、または `setup(stage="fit")` の前に呼んだ場合。
+        """
+        if self.data_holdout is None:
+            raise RuntimeError("held_out_batches() には holdout_split と setup(stage='fit') が必要")
+        frame = self.data_holdout.df
+        sampler = GroupClassBatchSampler(frame[self.hparams.group_key].to_numpy(), frame.target.to_numpy(), self.hparams.num_groups, self.batch_size_per_device, self.hparams.sampling_seed + 100_000)
+        # 学習の間ずっと回し続ける流れなので、num_workers>0 なら worker を常駐させる（0 では torch が拒否する）。
+        persistent = self.hparams.num_workers > 0
+        loader = DataLoader(self.data_holdout, batch_sampler=sampler, num_workers=self.hparams.num_workers, pin_memory=self.hparams.pin_memory, persistent_workers=persistent)
+        cycle = 0
+        while True:
+            sampler.set_epoch(cycle)
+            yield from loader
+            cycle += 1
+
+    def held_out_evaluation_dataloader(self) -> DataLoader[Any]:
+        """held-out 全件を評価 transform・CSV 順で 1 周する loader を返す。
+
+        epoch 単位で双対を更新する objective（FairDRO）が、全件の誤り率を測るために使う。
+        epoch ごとに作り直すので worker は常駐させない。
+
+        Args:
+            なし
+
+        Returns:
+            DataLoader[Any]: sampler なし・shuffle なしの held-out loader。
+
+        Raises:
+            RuntimeError: held-out を設定していない、または `setup(stage="fit")` の前に呼んだ場合。
+        """
+        if self.data_holdout is None:
+            raise RuntimeError("held_out_evaluation_dataloader() には holdout_split と setup(stage='fit') が必要")
+        return DataLoader(
+            self.data_holdout,
+            batch_size=self.batch_size_per_device,
+            num_workers=self.hparams.num_workers,
+            pin_memory=self.hparams.pin_memory,
+            shuffle=False,
+            persistent_workers=False,
+            prefetch_factor=self.hparams.prefetch_factor,
+        )

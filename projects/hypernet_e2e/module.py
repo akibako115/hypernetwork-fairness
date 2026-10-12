@@ -88,6 +88,10 @@ class LitModule(L.LightningModule):
         self.use_attributes = use_attributes
         self.attribute_names = attribute_names
         self.fairness_attribute_names = fairness_attribute_names
+        # 双対の更新に使う held-out のバッチの流れ。DataModule が held-out を持つときだけ on_train_start で作る。
+        self._held_out = None
+        # 直近の step で held-out から測った objective の診断値。held-out を使わないときは空。
+        self.held_out_diagnostics: dict[str, torch.Tensor] = {}
 
     @property
     def training_objective(self) -> nn.Module:
@@ -248,13 +252,59 @@ class LitModule(L.LightningModule):
             None
         """
         super().optimizer_step(*args, **kwargs)
-        if hasattr(self.training_objective, "commit_update"):
-            self.training_objective.commit_update()
+        objective = self.training_objective
+        if hasattr(objective, "commit_update"):
+            if self._held_out is not None and getattr(objective, "dual_update", None) == "step":
+                # held-out の forward は診断値も上書きするので、学習バッチの値と分けて残す。
+                train_diagnostics = dict(objective.batch_diagnostics())
+                self._measure_on_held_out(next(self._held_out))
+                self.held_out_diagnostics = dict(objective.batch_diagnostics())
+                objective._diagnostics = train_diagnostics
+            objective.commit_update()
+
+    def on_train_start(self) -> None:
+        """DataModule が held-out を持てば、双対の更新に使うバッチの流れを用意する。
+
+        step 単位の objective には held-out のセル均等バッチを毎 step 流す。epoch 単位の objective
+        （FairDRO）は epoch 末に held-out 全件を測るので、ここでは流れを作らない。
+
+        Args:
+            なし
+
+        Returns:
+            None
+
+        Raises:
+            ValueError: 双対を更新しない objective に held-out を設定した場合。
+        """
+        datamodule = getattr(self.trainer, "datamodule", None)
+        uses_held_out = getattr(datamodule, "data_holdout", None) is not None
+        dual_update = getattr(self.training_objective, "dual_update", None)
+        if uses_held_out and dual_update not in ("step", "epoch"):
+            raise ValueError("held-out は双対変数を更新する条件付き objective でだけ使う")
+        self._held_out = datamodule.held_out_batches() if uses_held_out and dual_update == "step" else None
+
+    @torch.no_grad()
+    def _measure_on_held_out(self, batch: tuple[Any, Mapping[str, torch.Tensor], torch.Tensor]) -> None:
+        # 群の成績を学習に使わない画像で測り直し、保留中の双対の更新をその統計で置き換える。
+        # 学習バッチで測ると、少数セルを記憶して差が消えたように見え、重みが戻る（Cotter et al. 2019 の
+        # 2 データセット方式）。BatchNorm の統計を held-out で動かさないよう、net は eval で forward する。
+        image, attributes, target = self.transfer_batch_to_device(batch, self.device, 0)
+        self.net.eval()
+        try:
+            with self.trainer.precision_plugin.forward_context():
+                logits = self(image, attributes).float()
+        finally:
+            self.net.train()
+            if self.hparams.freeze_backbone and (backbone := getattr(self.net, "backbone", None)) is not None:
+                backbone.eval()
+        self.training_objective(ObjectiveInput(logits=logits, target=target.long(), attributes=attributes))
 
     def on_train_epoch_end(self) -> None:
-        """epoch 単位で双対を更新する objective に train 全件の 0-1 誤り率を渡す。
+        """epoch 単位で双対を更新する objective に全件の 0-1 誤り率を渡す。
 
-        FairDRO の Alg. 1 l.10。評価 transform・sampler なしの train を eval モードで推論する。
+        FairDRO の Alg. 1 l.10。評価 transform・sampler なしの split を eval モードで推論する。
+        DataModule が held-out を持てば held-out 全件、持たなければ原著どおり train 全件で測る。
 
         Args:
             なし
@@ -265,13 +315,19 @@ class LitModule(L.LightningModule):
         objective = self.training_objective
         if not hasattr(objective, "update_from_errors"):
             return
-        errors, counts = self._train_split_errors(objective.group_key, objective.num_groups)
+        datamodule = self.trainer.datamodule
+        if getattr(datamodule, "data_holdout", None) is not None:
+            source, loader = "holdout", datamodule.held_out_evaluation_dataloader()
+        else:
+            source, loader = "train", datamodule.evaluation_dataloader("train", persistent_workers=False)
+        errors, counts = self._split_errors(loader, objective.group_key, objective.num_groups)
         update = objective.update_from_errors(errors)
         for c in range(2):
             for g in range(objective.num_groups):
                 self.log(f"train/fair_dro/q/y{c}_g{g}", update["q"][c, g].float())
                 self.log(f"train/fair_dro/error/g{g}_y{c}", errors[g, c].float())
-        row = {"epoch": self.current_epoch, "update": int(objective.update_count), "eta": float(update["eta"])}
+        self.log("train/fair_dro/q_min", update["q_min"].float())
+        row = {"epoch": self.current_epoch, "update": int(objective.update_count), "eta": float(update["eta"]), "source": source, "q_min": float(update["q_min"])}
         row.update({key: update[key].tolist() for key in ("q_star", "q")}, error=errors.tolist(), count=counts.tolist())
         path = Path(self.trainer.default_root_dir) / "metrics" / "fair_dro_q.jsonl"
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -279,8 +335,7 @@ class LitModule(L.LightningModule):
             stream.write(json.dumps(row) + "\n")
 
     @torch.no_grad()
-    def _train_split_errors(self, group_key: str, num_groups: int) -> tuple[torch.Tensor, torch.Tensor]:
-        loader = self.trainer.datamodule.evaluation_dataloader("train", persistent_workers=False)
+    def _split_errors(self, loader: Any, group_key: str, num_groups: int) -> tuple[torch.Tensor, torch.Tensor]:
         wrong = torch.zeros((num_groups, 2), dtype=torch.float64, device=self.device)
         counts = torch.zeros_like(wrong)
         was_training = self.training
@@ -299,7 +354,7 @@ class LitModule(L.LightningModule):
             if self.hparams.freeze_backbone and (backbone := getattr(self.net, "backbone", None)) is not None:
                 backbone.eval()
         if len(loader.dataset) != int(counts.sum()) or (counts == 0).any():
-            raise ValueError(f"train 全件の誤り集計に空セルか欠損がある: {counts.tolist()}")
+            raise ValueError(f"全件の誤り集計に空セルか欠損がある: {counts.tolist()}")
         return wrong / counts, counts
 
     def load_backbone_checkpoint(self, checkpoint_path: str, load_fc: bool = True) -> dict[str, list[str]]:
@@ -348,6 +403,8 @@ class LitModule(L.LightningModule):
                 raise ValueError("ALFR の manual optimization は scheduler をまだサポートしない")
             if not hasattr(self.loss_fn, "adversary_parameters"):
                 raise TypeError("manual optimization の loss は adversary_parameters() を実装する必要がある")
+            if float(getattr(self.loss_fn, "adversary_lr_scale", 1.0)) != 1.0:
+                raise ValueError("ALFR の adversary の学習率は adversary_optimizer で指定する（adversary_lr_scale は DANN 用）")
             adversary_parameters = list(self.loss_fn.adversary_parameters())
             adversary_ids = {id(parameter) for parameter in adversary_parameters}
             task_parameters = [parameter for parameter in self.net.parameters() if parameter.requires_grad]
@@ -361,7 +418,7 @@ class LitModule(L.LightningModule):
         parameters = [parameter for parameter in self.parameters() if parameter.requires_grad]
         if not parameters:
             raise ValueError("optimizer 構成に使う trainable parameter が見つからない")
-        optimizer = self._optimizer_factory(params=parameters)
+        optimizer = self._optimizer_factory(params=self._parameter_groups(parameters))
         if self._scheduler_factory is None:
             return {"optimizer": optimizer}
         scheduler = self._scheduler_factory(optimizer=optimizer)
@@ -369,6 +426,18 @@ class LitModule(L.LightningModule):
             "optimizer": optimizer,
             "lr_scheduler": {"scheduler": scheduler, "monitor": "val/loss", "interval": "epoch", "frequency": 1},
         }
+
+    def _parameter_groups(self, parameters: list[nn.Parameter]) -> list[nn.Parameter] | list[dict[str, Any]]:
+        # DANN の adversary だけ学習率を変えるときは、optimizer の既定 lr を基準に別の param group にする。
+        scale = float(getattr(self.loss_fn, "adversary_lr_scale", 1.0))
+        if scale == 1.0 or not hasattr(self.loss_fn, "adversary_parameters"):
+            return parameters
+        adversary_ids = {id(parameter) for parameter in self.loss_fn.adversary_parameters()}
+        base_lr = self._optimizer_factory(params=[nn.Parameter(torch.zeros(1))]).defaults["lr"]
+        return [
+            {"params": [parameter for parameter in parameters if id(parameter) not in adversary_ids]},
+            {"params": [parameter for parameter in parameters if id(parameter) in adversary_ids], "lr": base_lr * scale},
+        ]
 
     def _update_adversary_progress(self) -> None:
         """DANN objective に現在の fit 進捗を渡す。"""

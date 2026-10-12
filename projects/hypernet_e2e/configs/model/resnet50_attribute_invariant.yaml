@@ -28,6 +28,8 @@ loss_fn:
   num_continuous: ${data.attribute_spec.continuous_dim}
   hidden_dim: 256
   shared_trunk: true
+  activation: leaky_relu
+  adversary_lr_scale: 1.0
   gradient_scale: 1.0
   attribute_adversary_weight: 0.1
 

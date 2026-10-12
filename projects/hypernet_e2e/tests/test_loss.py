@@ -411,3 +411,55 @@ def test_global_class_weighted_group_dro_restores_adversarial_state() -> None:
     resumed = GlobalClassWeightedGroupDROTaskLoss(num_groups=3, class_weight=[1.0, 2.0], step_size=1.0)
     resumed.load_state_dict(objective.state_dict())
     assert torch.allclose(resumed.adv_probs, objective.adv_probs)
+
+
+def test_group_dro_keeps_q_of_groups_absent_from_the_batch() -> None:
+    """自然抽出で欠けた群の q を loss 0 として縮めない。全群の loss が等しければ q は一様のまま。"""
+    objective = GlobalClassWeightedGroupDROTaskLoss(num_groups=3, class_weight=[1.0, 1.0], step_size=1.0)
+    logits = torch.tensor([[1.0, 0.0], [1.0, 0.0]])
+    target = torch.tensor([0, 0])
+    for _ in range(20):
+        objective(ObjectiveInput(logits=logits, target=target, attributes={"group_id": torch.tensor([0, 1])}))
+
+    assert torch.allclose(objective.adv_probs, torch.full((3,), 1 / 3))
+
+
+def test_group_dro_matches_sagawa_update_when_every_group_is_observed() -> None:
+    objective = GlobalClassWeightedGroupDROTaskLoss(num_groups=2, class_weight=[1.0, 1.0], step_size=0.5)
+    logits = torch.tensor([[2.0, 0.0], [0.0, 0.0]])
+    target = torch.tensor([0, 0])
+    objective(ObjectiveInput(logits=logits, target=target, attributes={"group_id": torch.tensor([0, 1])}))
+
+    losses = F.cross_entropy(logits, target, reduction="none")
+    expected = 0.5 * torch.exp(0.5 * losses)
+    assert torch.allclose(objective.adv_probs, expected / expected.sum())
+
+
+def test_group_dro_moves_mass_only_among_observed_groups() -> None:
+    objective = GlobalClassWeightedGroupDROTaskLoss(num_groups=3, class_weight=[1.0, 1.0], step_size=1.0)
+    logits = torch.tensor([[2.0, 0.0], [0.0, 2.0]])
+    target = torch.tensor([0, 0])
+    objective(ObjectiveInput(logits=logits, target=target, attributes={"group_id": torch.tensor([0, 1])}))
+
+    assert torch.isclose(objective.adv_probs[2], torch.tensor(1 / 3))
+    assert objective.adv_probs[1] > objective.adv_probs[0]
+    assert torch.isclose(objective.adv_probs.sum(), torch.tensor(1.0))
+
+
+def test_adversary_trunk_uses_leaky_relu_by_default_and_keeps_relu_for_old_runs() -> None:
+    """ReLU の trunk は GRL 下で全 unit を負側へ押し込まれると head への勾配ごと消える。"""
+    leaky = _attribute_invariant_loss()
+    legacy = _attribute_invariant_loss(activation="relu")
+    assert isinstance(leaky.attribute_adversary.trunk[1], torch.nn.LeakyReLU)
+    assert isinstance(legacy.attribute_adversary.trunk[1], torch.nn.ReLU)
+    assert leaky.state_dict().keys() == legacy.state_dict().keys()
+
+    features = torch.full((4, 2), -5.0, requires_grad=True)
+    attributes = {"categorical": torch.tensor([[0], [1], [0], [1]]), "categorical_missing": torch.zeros(4, 1, dtype=torch.bool)}
+    for objective, expect_gradient in ((leaky, True), (legacy, False)):
+        with torch.no_grad():
+            objective.attribute_adversary.trunk[0].weight.fill_(1.0)
+            objective.attribute_adversary.trunk[0].bias.zero_()
+        features.grad = None
+        objective.attribute_adversary(features, attributes).backward()
+        assert (features.grad.abs().sum() > 0) == expect_gradient

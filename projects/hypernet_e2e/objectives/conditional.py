@@ -14,7 +14,12 @@ class ConditionalObjective(nn.Module):
     """全セルが存在する二値分類バッチの母集団補正を保持する。
 
     counts は train だけから求める [G,2]。セル均等抽出を前提とする。
+    ``dual_update`` は双対状態を更新する単位で、``"step"``（optimizer step ごとに commit_update）、
+    ``"epoch"``（epoch 末に update_from_errors）、None（更新しない対照）のいずれか。
+    module はこれを見て、held-out の統計をどこで測るかを決める。
     """
+
+    dual_update: str | None = None
 
     def __init__(self, num_groups: int, population_cell_counts: Sequence[Sequence[float]], group_key: str = "group_id", class_weight: Sequence[float] | None = None) -> None:
         """母集団確率と固定正規化定数を設定する。

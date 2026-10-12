@@ -1,6 +1,7 @@
 """Jung et al. (ICLR 2023) Algorithm 1 の classwise FairDRO。"""
 
 import math
+import warnings
 from collections.abc import Sequence
 
 import torch
@@ -29,12 +30,33 @@ def chi_square_best_response(losses: torch.Tensor, radius: float) -> torch.Tenso
     return uniform + math.sqrt(radius / size) * deviation / norm
 
 
+def nonnegative_radius_limit(num_groups: int) -> float:
+    """閉形式解 q* の全成分が正に保たれる rho の上限 1/(G-1) を返す。
+
+    偏差の単位ベクトルの最小成分は -sqrt((G-1)/G) なので、q* の最小値は (1 - sqrt(rho(G-1)))/G になる。
+    rho がこの上限以上だと、誤り率のわずかな差でも q* の成分が 0 以下になる。G=2・rho=1 では各クラスで
+    片方の群の重みが 0 になり、一方の群だけを学ぶ解へ epoch ごとに振れた（conditional_fairness_one_stage）。
+    負の重みは原著の定義域内なので禁止はしない。
+
+    Args:
+        num_groups: 群数 G（2 以上）。
+
+    Returns:
+        float: 1/(G-1)。
+    """
+    return 1 / (num_groups - 1)
+
+
 class FairDROTaskLoss(ConditionalObjective):
     """クラスごとの群重み q^y で群別 CE を重み付けする。
 
-    q は train 全件の 0-1 誤り率から epoch ごとに平滑化 IBR で更新する（式 10）。
+    q は全件の 0-1 誤り率から epoch ごとに平滑化 IBR で更新する（式 10）。原著は train 全件で測る。
+    DataModule が held-out を持つとき、module は held-out 全件の誤り率を渡す（train の記憶で少数セルの
+    誤りが消え、q が戻るのを避けるため。EO・Minimax AUC の held-out と同じ扱い）。
     バッチはセル均等抽出（Alg. 1 l.6）なので母集団補正と class weight は使わない。
     """
+
+    dual_update = "epoch"
 
     def __init__(
         self,
@@ -66,6 +88,11 @@ class FairDROTaskLoss(ConditionalObjective):
         if int(max_epochs) < 1:
             raise ValueError("max_epochs は 1 以上が必要")
         self.radius, self.max_epochs = float(radius), int(max_epochs)
+        if self.radius >= nonnegative_radius_limit(num_groups):
+            warnings.warn(
+                f"FairDRO の radius={self.radius} は G={num_groups} の上限 {nonnegative_radius_limit(num_groups):.4g} 以上で、q* の成分が 0 以下になり得る（群の重みが端点へ振り切れる）",
+                stacklevel=2,
+            )
         self.register_buffer("q", torch.full((2, num_groups), 1 / num_groups, dtype=torch.float64))
 
     def forward(self, inputs: ObjectiveInput) -> torch.Tensor:
@@ -102,13 +129,13 @@ class FairDROTaskLoss(ConditionalObjective):
 
     @torch.no_grad()
     def update_from_errors(self, errors: torch.Tensor) -> dict[str, torch.Tensor]:
-        """train 全件の群・クラス別 0-1 誤り率で q を平滑化 IBR 更新する。
+        """全件の群・クラス別 0-1 誤り率で q を平滑化 IBR 更新する。
 
         Args:
-            errors: [G,2] の誤り率。
+            errors: [G,2] の誤り率。train 全件、または held-out 全件で測ったもの。
 
         Returns:
-            dict: q_star・eta・更新後 q。
+            dict: q_star・eta・更新後 q・q の最小値 q_min（負なら成績の良いセルの CE に負の重みがかかる）。
         """
         errors = errors.to(self.q.device, torch.float64)
         if errors.shape != (self.num_groups, 2) or not torch.isfinite(errors).all():
@@ -120,4 +147,4 @@ class FairDROTaskLoss(ConditionalObjective):
         q_star = torch.stack([chi_square_best_response(errors[:, c], self.radius) for c in range(2)])
         self.q.copy_((1 - eta) * self.q + eta * q_star)
         self.update_count.add_(1)
-        return {"q_star": q_star, "eta": torch.tensor(eta, dtype=torch.float64), "q": self.q.clone()}
+        return {"q_star": q_star, "eta": torch.tensor(eta, dtype=torch.float64), "q": self.q.clone(), "q_min": self.q.min().clone()}
