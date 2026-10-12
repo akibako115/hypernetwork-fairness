@@ -1,0 +1,7 @@
+# @package _global_
+defaults:
+  - spatial_lora_chexpert_race_known
+  - _dual_holdout_chexpert
+  - override /data: chexpert_race_known_dual_holdout
+  - _self_
+experiment_name: spatial-lora-chexpert-dual-holdout-erm

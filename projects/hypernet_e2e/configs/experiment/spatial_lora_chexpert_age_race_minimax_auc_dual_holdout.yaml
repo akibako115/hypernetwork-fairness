@@ -1,0 +1,10 @@
+# @package _global_
+# 群ペアの AUC の minimax（Yang et al. AAAI 2023）。陽性群 × 陰性群の全 64 ペア。
+defaults:
+  - spatial_lora_chexpert_race_known
+  - _dual_holdout_chexpert
+  - override /data: chexpert_age_race_known_cells_dual_holdout
+  - override /training_strategy: minimax_auc
+  - _self_
+experiment_name: spatial-lora-chexpert-age-race-minimax-auc-dual-holdout
+weighting: none

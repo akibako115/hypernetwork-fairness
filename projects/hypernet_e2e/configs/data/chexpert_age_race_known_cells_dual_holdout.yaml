@@ -1,0 +1,10 @@
+# 年齢（65 歳で 2 区分）× race の 8 群をセル均等に抽出し、群の重み（双対変数）は held-out で測る。
+# split は train の患者 20% を held-out に分けたもの（data_pipeline/chexpert_dual_holdout_splits.py）。
+defaults:
+  - chexpert_age_race_known_groups
+  - _self_
+_target_: projects.hypernet_e2e.data.group_class_sampler.GroupClassImageDataModule
+cv_splits_dir: ${paths.data_dir}/chexpert/splits_race_known_dual_holdout
+sampling_seed: ${seed}
+train_sampling: group_class_balanced
+holdout_split: holdout

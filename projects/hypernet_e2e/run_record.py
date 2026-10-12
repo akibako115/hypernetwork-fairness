@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 import re
 import secrets
 import subprocess
@@ -322,7 +323,10 @@ class RunRecorder:
     @staticmethod
     def _git_commit() -> str | None:
         completed = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=False)
-        return completed.stdout.strip() if completed.returncode == 0 else None
+        if completed.returncode == 0:
+            return completed.stdout.strip()
+        # ws の container には `.git` を送らないので、起動側が同期したコードの commit を env で渡す。
+        return os.environ.get("HYPERNET_GIT_COMMIT") or None
 
     @staticmethod
     def _sha256_file(path: Path) -> str:

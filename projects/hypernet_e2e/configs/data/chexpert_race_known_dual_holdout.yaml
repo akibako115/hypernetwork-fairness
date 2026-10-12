@@ -1,0 +1,5 @@
+# ERM の対照。公平性損失の run と同じ 80% の train で学習する（held-out は使わない）。
+defaults:
+  - chexpert_race_known
+  - _self_
+cv_splits_dir: ${paths.data_dir}/chexpert/splits_race_known_dual_holdout

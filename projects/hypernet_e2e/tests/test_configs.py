@@ -35,6 +35,10 @@ CHEXPERT_PRESETS: dict[str, tuple[str, str, str]] = {
     "spatial_lora_chexpert_stage1_4_age_minimax_auc_race_known": ("none", "group_class_balanced", "minimax_auc"),
     "spatial_lora_chexpert_stage1_4_age_fair_dro_race_known": ("none", "group_class_balanced", "fair_dro"),
     "spatial_lora_chexpert_stage1_4_age_equalized_odds_rate_race_known": ("inverse", "group_class_balanced", "equalized_odds_rate"),
+    "spatial_lora_chexpert_dual_holdout_erm": ("inverse", "uniform", "erm"),
+    "spatial_lora_chexpert_age_race_eo_rate_dual_holdout": ("inverse", "group_class_balanced", "equalized_odds_rate"),
+    "spatial_lora_chexpert_age_race_minimax_auc_dual_holdout": ("none", "group_class_balanced", "minimax_auc"),
+    "resnet_chexpert_age_race_eo_rate_dual_holdout": ("inverse", "group_class_balanced", "equalized_odds_rate"),
     "spatial_lora_chexpert_stage1_4_race_known": ("inverse", "uniform", "erm"),
     "spatial_lora_chexpert_stage1_4_age_race_group_dro_race_known": ("inverse", "uniform", "group_dro_global"),
     "spatial_lora_chexpert_stage1_4_age_race_group_dro_subgroup_race_known": ("inverse", "uniform", "group_dro_subgroup"),
@@ -74,6 +78,14 @@ CHEXPERT_PRESETS: dict[str, tuple[str, str, str]] = {
     "hyperadapt_chexpert_age_race_group_dro": ("inverse", "uniform", "group_dro_subgroup"),
     "hyperadapt_chexpert_from_resnet": ("inverse", "uniform", "erm"),
     "hyperadapt_chexpert_from_resnet_age_race_group_dro": ("inverse", "uniform", "group_dro_subgroup"),
+    "spatial_lora_chexpert_fc_age_race_eo_rate_dual_holdout": ("inverse", "group_class_balanced", "equalized_odds_rate"),
+    "spatial_lora_chexpert_fc_age_race_group_dro_race_known": ("inverse", "uniform", "group_dro_global"),
+    "spatial_lora_chexpert_fc_from_resnet_age_race_eo_rate_dual_holdout": ("inverse", "group_class_balanced", "equalized_odds_rate"),
+    "spatial_lora_chexpert_fc_from_resnet_age_race_group_dro_race_known": ("inverse", "uniform", "group_dro_global"),
+    "spatial_lora_chexpert_fc_from_resnet_race_known": ("inverse", "uniform", "erm"),
+    "spatial_lora_chexpert_fc_race_known": ("inverse", "uniform", "erm"),
+    "spatial_lora_chexpert_from_resnet_age_race_eo_rate_dual_holdout": ("inverse", "group_class_balanced", "equalized_odds_rate"),
+    "spatial_lora_chexpert_from_resnet_race_known": ("inverse", "uniform", "erm"),
 }
 
 

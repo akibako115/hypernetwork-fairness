@@ -1,0 +1,10 @@
+# @package _global_
+# fc だけを変調する Spatial LoRA の GroupDRO。
+defaults:
+  - spatial_lora_chexpert_age_race_group_dro_race_known
+  - _self_
+experiment_name: spatial-lora-chexpert-fc-age-race-group-dro-race-known
+model:
+  net:
+    # 分類ヘッドだけを condition で変調する。backbone の Bottleneck は素の ResNet のまま残る。
+    modulation_stages: [fc]

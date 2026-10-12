@@ -187,3 +187,14 @@ def test_single_stage_run_records_no_parent(tmp_path: Path, monkeypatch) -> None
     recorder = RunRecorder.prepare_fit(_config(tmp_path), project_dir=tmp_path / "project")
 
     assert json.loads((recorder.run_dir / "run.json").read_text())["parent_run"] is None
+
+
+def test_git_commit_falls_back_to_the_commit_the_launcher_passes(monkeypatch) -> None:
+    def no_git(command: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(command, 128, stdout="", stderr="not a git repository")
+
+    monkeypatch.setattr(subprocess, "run", no_git)
+    monkeypatch.delenv("HYPERNET_GIT_COMMIT", raising=False)
+    assert RunRecorder._git_commit() is None
+    monkeypatch.setenv("HYPERNET_GIT_COMMIT", "abc1234")
+    assert RunRecorder._git_commit() == "abc1234"
