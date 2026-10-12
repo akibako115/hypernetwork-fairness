@@ -1,0 +1,12 @@
+# @package _global_
+# FaMI（Sadri et al., MICCAI 2025）Eq. 1–3。μ = 0.5 は論文の値。
+training_strategy:
+  name: fami
+  uses_group_id: true
+model:
+  loss_fn:
+    _target_: projects.hypernet_e2e.objectives.cohort.FaMITaskLoss
+    num_groups: ${data.num_groups}
+    mi_weight: 0.5
+    class_weight: null
+    group_key: ${data.group_key}

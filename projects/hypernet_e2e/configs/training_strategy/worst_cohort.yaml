@@ -1,0 +1,13 @@
+# @package _global_
+# LHCF（Masroor et al., MICCAI 2026）Eq. 3 の ℓ_wst：CE + λ·（バッチ内で最悪の群の平均損失）。
+training_strategy:
+  name: worst_cohort
+  uses_group_id: true
+model:
+  loss_fn:
+    _target_: projects.hypernet_e2e.objectives.cohort.WorstCohortTaskLoss
+    num_groups: ${data.num_groups}
+    # 本文に λ の値がない。CE と同じ重みにする。
+    fairness_weight: 1.0
+    class_weight: null
+    group_key: ${data.group_key}
