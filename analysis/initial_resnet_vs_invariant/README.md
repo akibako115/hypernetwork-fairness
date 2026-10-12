@@ -1,5 +1,9 @@
 # 初期探索: ResNet vs attribute-invariant ResNet
 
+> **2026-10-13 注記（公平性損失の実装修正）**：[修正記録](../../docs/reviews/20261013_fairness_objective_fixes.md)。invariant 側の adversary は旧 ReLU の trunk で、head が属性を読めていなかった可能性が高い
+> （[adversary_strength](../adversary_strength/README.md)）。結論 1 の「改善は確認できない」は、
+> adversary が効いた状態での比較ではない。trunk は LeakyReLU に替えた。
+
 通常の ResNet と attribute-invariant ResNet を **seed 43 / 44 / 45 の 3 本ずつ**で比較し、
 invariant 化による性能・公平性指標の傾向を初期探索する。
 

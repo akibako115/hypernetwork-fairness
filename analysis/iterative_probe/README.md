@@ -1,5 +1,8 @@
 # iterative_probe
 
+> **2026-10-13 注記（公平性損失の実装修正）**：[修正記録](../../docs/reviews/20261013_fairness_objective_fixes.md)。`hypernet_iterative/loss.py` の GroupDRO も、バッチに出なかった群の q を縮めていた。
+> 「q がほとんど動かない」「q が弱い群に向かない」という観察には、この偏りが混ざっている可能性がある（未検証）。
+
 `hypernet_iterative` を本格的に回す前の探り分析。反復学習の**初期方針**、つまり次にどの設定で
 実験を組むかを決めるために、最小構成で回した run を読む。結論そのものより、次に振るべき
 パラメータを絞ることが目的になる。CheXpert / Spatial LoRA / seed 42。

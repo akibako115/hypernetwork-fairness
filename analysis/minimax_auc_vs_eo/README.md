@@ -1,5 +1,8 @@
 # Minimax AUCとEO rate制約を同じ条件で検証する
 
+> **2026-10-13 注記（公平性損失の実装修正）**：[修正記録](../../docs/reviews/20261013_fairness_objective_fixes.md)。この計画の EO proxy（smoothstep 上下界）は、予測を閾値の反対側へ動かす勾配を持たなかった。
+> 既定を TFCO と同じ hinge 上下界（`proxy: hinge`）に替えた。Minimax AUC の設計は影響を受けない。
+
 2026-10-06。検証する公平性手法としてMinimax AUCとrate制約によるEqualized Odds（EO）を選んだ。
 このstudyでは、群平均CEに含まれる陽性率の影響を避け、順位性能と共通閾値でのエラー率をそれぞれ改善できるか調べる。
 現時点は実装・実験の詳細計画を作成した段階。新しい目的関数の実装・学習・結果の収集はまだ行っていない。

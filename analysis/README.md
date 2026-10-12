@@ -65,11 +65,41 @@ checkpoint 選択・予測 cache）までとする。**群の切り方・指標�
 | `common/predictions.py` | 選択済み checkpoint → split 予測 `.npz`（CLI 付き） |
 | `common/studies.py` | study に属する run の一覧と `runs.md` 用の表 |
 
-現在の package:
+## package の索引
 
-- `initial_resnet_vs_invariant/` — 通常の ResNet と attribute-invariant ResNet の初期比較
-- `iterative_probe/` — 反復学習の初期方針を決める探り分析
-- `scratch/` — まだ仮説に紐づかない run の逃げ道
+2026-10-13 時点。いまの問い（柱 A・B）との対応は [docs/README.md](../docs/README.md) の「現在地」を正本とし、
+ここでは各 package が何を扱ったかだけを書く。✱ は 2026-10-13 の公平性損失の修正
+（[修正記録](../docs/reviews/20261013_fairness_objective_fixes.md)）の影響を受ける結果を含む package で、
+README の冒頭に注記がある。
+
+条件付けのモデル構成と目的関数（柱 A）
+
+| package | 扱ったこと |
+| --- | --- |
+| `race_known_architecture_objective_comparison/` ✱ | CheXpert race-known の主比較 13 条件 × 3 seed。ResNet / Spatial LoRA / HyperAdapt × ERM / GroupDRO × class weight × 1・2 stage |
+| `two_stage_vs_e2e_age_race_group_dro/` ✱ | 元 split・14 群での 2 stage と e2e の GroupDRO 比較（旧実験）。race-known 分は上へ分離 |
+| `hyperadapt_two_stage_vs_e2e/` | HyperAdapt の 2 stage と e2e（CheXpert、seed 43） |
+| `ham10000_architecture_erm/` | 主比較の ERM 3 構成を HAM10000 で回す |
+| `fairvlmed_architecture_erm/` | 主比較の ERM 3 構成を FairVLMed で回す |
+| `dataset_gain_sources/` | 条件付けが HAM10000 でだけ全体性能を上げる理由を、3 データセットで切り分ける |
+| `conditional_fairness_one_stage/` ✱ | 年齢 2 群の FairDRO・EO rate・minimax AUC を 1 stage で回す（CheXpert、seed 42） |
+| `minimax_auc_vs_eo/` ✱ | Minimax AUC と EO rate 制約の実装・実験計画 |
+| `fairness_mechanism_probe/` | 群間差の機構診断（条件付けの伸びしろ・ラベルの意味・動作点） |
+| `iterative_probe/` ✱ | `hypernet_iterative` の初期方針を決める探り（GroupDRO の step size など） |
+| `initial_resnet_vs_invariant/` ✱ | ResNet と attribute-invariant ResNet（DANN）の初期比較 |
+| `adversary_strength/` ✱ | DANN の adversary の強さと、属性が消えるまでの水準 |
+
+潜在サブグループ（柱 B）
+
+| package | 扱ったこと |
+| --- | --- |
+| `latent_bias_hypernet/` ✱ | 1 段目を凍結して hypernetwork の補正にバイアスを溜め、潜在サブグループを発見・改善する設計。部分群の定義の比較（Q1）、公平性手法 11 種の比較、Q2 の損失比較もここにある |
+| `conditioned_subgroup_discovery/` | 属性条件付き Spatial LoRA の生成 ΔW を属性セルで読み、規則の反転を植え込んで回収できるかを見る（README なし。`attribute_rule_planting.py`・`delta_probe.py` の docstring が説明） |
+| `direction_poc/` | `latent_bias_hypernet` を受けた次の方向 5 案を、凍結特徴と既存予測で当たり付けする PoC |
+
+その他
+
+- `scratch/` — まだ仮説に紐づかない run の逃げ道。結論の根拠にしない
 
 ## 追跡境界
 

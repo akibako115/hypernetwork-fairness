@@ -1,5 +1,8 @@
 # two_stage_vs_e2e_age_race_group_dro
 
+> **2026-10-13 注記（公平性損失の実装修正）**：[修正記録](../../docs/reviews/20261013_fairness_objective_fixes.md)。GroupDRO の run は自然抽出で、バッチに出なかった群の q が系統的に縮んでいた（14 群では特に起きやすい）。
+> GroupDRO 条件の結果は、旧実装の結果として読む。
+
 既存の ResNet checkpoint から第2段だけ Spatial LoRA を age_group_65 × race の
 intersectional GroupDRO で最適化する条件と、Spatial LoRA を最初から同じ GroupDRO で
 最適化する条件を比較する。

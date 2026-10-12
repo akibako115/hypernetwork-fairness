@@ -1,5 +1,9 @@
 # conditional_fairness_one_stage
 
+> **2026-10-13 注記（公平性損失の実装修正）**：[修正記録](../../docs/reviews/20261013_fairness_objective_fixes.md)。EO rate の 4 run は旧 smoothstep 代理制約で回した。代理制約が予測を閾値の反対側へ動かせないので、
+> EO rate の結果と「読めること」の EO の項は、EO 制約の効果として読まない。
+> FairDRO ρ=0.1（G=2）と ERM の結果は影響を受けない。
+
 ## 問い
 
 年齢 2 群（<65 / ≥65）に対する 3 つの条件付き公平性 objective を、ERM からの継続学習ではなく

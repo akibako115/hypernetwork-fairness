@@ -1,5 +1,8 @@
 # adversary の強さと、属性が消えるまでの水準
 
+> **2026-10-13 注記（公平性損失の実装修正）**：[修正記録](../../docs/reviews/20261013_fairness_objective_fixes.md)。head が属性を読めない原因は、ReLU の trunk が GRL の勾配で死ぬこと（256 unit 中 206）と推定し、
+> trunk を LeakyReLU（傾き 0.2）に替えた（`activation: leaky_relu`）。ここまでの run はすべて旧 ReLU。
+
 [initial_resnet_vs_invariant](../initial_resnet_vs_invariant/) の設定
 （`attribute_adversary_weight=0.1`、`gradient_scale=1.0`）では、**adversary が属性を消せていない**。
 post-hoc probe を当てると、invariant 側でも sex は balanced accuracy 0.871、年齢は MAE 10.0 歳で読め、
