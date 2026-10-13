@@ -1,0 +1,14 @@
+# @package _global_
+# 公平性手法の比較（ResNet-50、HAM10000）。SWAD に LHCF の最悪コホート損失を足したもの（LHCF の組み込み方）。
+# 評価する重みは checkpoints/swad.ckpt。
+defaults:
+  - resnet_ham10000_fg_wst_lhcf
+  - _self_
+
+experiment_name: resnet-ham10000-fg-swadwst-lhcf
+callbacks:
+  swad:
+    _target_: projects.hypernet_e2e.callbacks.swad.SWADCallback
+    n_converge: 3
+    n_tolerance: 6
+    tolerance_ratio: 0.3

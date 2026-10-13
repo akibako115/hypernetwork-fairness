@@ -1,0 +1,9 @@
+# @package _global_
+# 規則の食い違いを強めた HAM10000（rule_planting.py --dose strong。付けやすい側 90%、付けにくい側 10%）での Spatial LoRA。
+defaults:
+  - spatial_lora_ham10000_rule_random8
+  - _self_
+
+experiment_name: spatial-lora-ham10000-rule-strong-random8
+data:
+  data_dir: ${paths.data_dir}/ham10000/images_rule_strong

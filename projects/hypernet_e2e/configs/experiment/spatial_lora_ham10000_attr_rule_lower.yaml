@@ -1,0 +1,12 @@
+# @package _global_
+# 規則の反転を「下肢」の 1 属性値だけにした切り分け用の正の対照
+# （attribute_rule_planting.py --variant lower）。モデルが確実に学べる単純な規則のときに、
+# 生成 ΔW のクラスタが反転を拾えるかを見る。
+defaults:
+  - spatial_lora_ham10000
+  - _self_
+
+experiment_name: spatial-lora-ham10000-attr-rule-lower
+tags: [conditioned_subgroup_discovery, rule_planting]
+data:
+  data_dir: ${paths.data_dir}/ham10000/images_attr_rule_lower

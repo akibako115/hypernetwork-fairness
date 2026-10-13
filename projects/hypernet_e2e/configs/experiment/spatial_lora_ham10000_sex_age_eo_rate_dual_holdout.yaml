@@ -1,0 +1,14 @@
+# @package _global_
+# EO rate 制約（Cotter et al. JMLR 2019 の proxy-Lagrangian）。4 群の全有向ペアで TPR 差・FPR 差 ≤ 0.1（24 本）。
+defaults:
+  - spatial_lora_ham10000
+  - _dual_holdout_ham10000
+  - override /data: ham10000_sex_age_cells_dual_holdout
+  - override /training_strategy: equalized_odds_rate
+  - _self_
+experiment_name: spatial-lora-ham10000-sex-age-eo-rate-dual-holdout
+model:
+  loss_fn:
+    # λ を一様に置くと task の重みが小さくなり、全予測を片側へ寄せる自明解に落ちる（CheXpert の 1 stage run）。
+    # CheXpert の Q2 と同じく task 側へ寄せて始める。
+    initial_task_weight: 0.9

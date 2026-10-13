@@ -1,0 +1,19 @@
+# @package _global_
+# 公平性手法の比較（ResNet-50、HAM10000）。EO 制約（Cotter et al. JMLR 2019 の proxy-Lagrangian）。
+defaults:
+  - resnet_ham10000
+  - _fairness_ham10000
+  - override /data: ham10000_gmm8_cells
+  - override /training_strategy: equalized_odds_rate
+  - _self_
+
+experiment_name: resnet-ham10000-fg-eo-gmm8
+
+trainer:
+  # 条件付き objective は単一 device・勾配の蓄積なしを要求する（training._resolve_conditional_population）。
+  devices: 1
+  accumulate_grad_batches: 1
+callbacks:
+  # 双対・群の重みと群別 risk を epoch ごとに残す（重みが弱い群へ寄ったかを後で確かめる）。
+  objective_diagnostics:
+    _target_: projects.hypernet_e2e.callbacks.objective_diagnostics.ObjectiveDiagnosticsRecorder

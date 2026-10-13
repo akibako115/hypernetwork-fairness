@@ -1,0 +1,11 @@
+defaults:
+  - ham10000
+  - _self_
+
+_target_: projects.hypernet_e2e.data.group_datamodule.GroupImageDataModule
+
+# sex × age_group_65 の 4 群（評価軸の交差群と同じ）。train・val に sex・age の欠損は無い。
+group_attribute_names: [sex, age_group_65]
+group_cardinalities: [2, 2]
+num_groups: 4
+group_key: group_id

@@ -1,0 +1,20 @@
+# @package _global_
+# Spatial LoRA を撮影施設（HAM の dataset、学習にない external は欠損）だけで条件付ける。潜在の振り分けの上限。
+# 条件の列は analysis/latent_bias_hypernet/latent_conditions.py が data/ham10000/splits_latent に足したもの。
+# それ以外は spatial_lora_ham10000 と同じ（評価軸は sex と age_group_65 のまま）。
+defaults:
+  - /model: spatial_lora_resnet50
+  - _base_ham10000
+  - _self_
+
+experiment_name: spatial-lora-ham10000-site
+tags: [latent_routing]
+
+data:
+  cv_splits_dir: ${paths.data_dir}/ham10000/splits_latent
+  attribute_names:
+    categorical: [site]
+    continuous: []
+  attribute_spec:
+    categorical_cardinalities: [4]
+    continuous_dim: 0

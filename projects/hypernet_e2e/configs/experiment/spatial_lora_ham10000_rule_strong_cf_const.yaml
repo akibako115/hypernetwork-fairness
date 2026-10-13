@@ -1,0 +1,12 @@
+# @package _global_
+# 規則の食い違いを強めた HAM10000 での、2 段学習の 2 段目（条件は定数）。1 段目は resnet_ham10000_rule_strong_cf_stage1。
+defaults:
+  - spatial_lora_ham10000_cf_const
+  - _self_
+
+experiment_name: spatial-lora-ham10000-rule-strong-cf-const
+tags: [latent_routing, crossfit, rule_planting]
+crossfit:
+  field: rule
+data:
+  data_dir: ${paths.data_dir}/ham10000/images_rule_strong

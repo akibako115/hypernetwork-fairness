@@ -1,0 +1,14 @@
+# @package _global_
+# HAM10000 の公平性手法の比較で共通に足す設定。全体 AUROC で選ぶ既定の checkpoint に加え、
+# val の性別 × 年齢の最悪群 AUROC で選んだ checkpoint も残す（val で属性を使えるときの選び方）。
+tags: [latent_routing, fairness_grid]
+callbacks:
+  model_checkpoint_worst:
+    _target_: lightning.pytorch.callbacks.ModelCheckpoint
+    dirpath: ${callbacks.model_checkpoint.dirpath}
+    filename: best_val_worst_sexage_{epoch:03d}
+    monitor: val/sex_age_group/worst_group_auroc
+    mode: max
+    save_top_k: 1
+    save_last: false
+    auto_insert_metric_name: false

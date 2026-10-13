@@ -1,0 +1,10 @@
+# @package _global_
+# ResNet-50 を潜在クラスタの GroupDRO で学習する（LHCF 型の E2E 版。条件付けなし）。
+defaults:
+  - resnet_ham10000
+  - override /data: ham10000_gmm8_groups
+  - override /training_strategy: group_dro_global
+  - _self_
+
+experiment_name: resnet-ham10000-gmm8-group-dro
+tags: [latent_routing]

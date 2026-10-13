@@ -1,0 +1,18 @@
+# @package _global_
+# Spatial LoRA（E2E、条件は定数）を SWAD ＋ LHCF の最悪コホート損失で学習する。評価する重みは checkpoints/swad.ckpt。
+defaults:
+  - spatial_lora_ham10000_const
+  - _fairness_ham10000
+  - override /data: ham10000_lhcf_groups
+  - override /training_strategy: worst_cohort
+  - _self_
+
+experiment_name: spatial-lora-ham10000-fg-swadwst-lhcf
+data:
+  cv_splits_dir: ${paths.data_dir}/ham10000/splits_lhcf
+callbacks:
+  swad:
+    _target_: projects.hypernet_e2e.callbacks.swad.SWADCallback
+    n_converge: 3
+    n_tolerance: 6
+    tolerance_ratio: 0.3

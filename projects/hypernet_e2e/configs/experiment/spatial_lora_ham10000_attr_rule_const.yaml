@@ -1,0 +1,10 @@
+# @package _global_
+# spatial_lora_ham10000_attr_rule の条件を全行同じ値にした対照。属性を知らないので、反転する組の規則を切り替えられない。
+defaults:
+  - spatial_lora_ham10000_const
+  - _self_
+
+experiment_name: spatial-lora-ham10000-attr-rule-const
+tags: [conditioned_subgroup_discovery, rule_planting]
+data:
+  data_dir: ${paths.data_dir}/ham10000/images_attr_rule

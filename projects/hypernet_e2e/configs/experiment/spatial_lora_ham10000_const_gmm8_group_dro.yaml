@@ -1,0 +1,10 @@
+# @package _global_
+# 条件を持たない Spatial LoRA（定数）を、潜在クラスタの GroupDRO で学習する。振り分けの有無だけを替えた対照。
+defaults:
+  - spatial_lora_ham10000_const
+  - override /data: ham10000_gmm8_groups
+  - override /training_strategy: group_dro_global
+  - _self_
+
+experiment_name: spatial-lora-ham10000-const-gmm8-group-dro
+tags: [latent_routing]

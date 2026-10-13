@@ -1,0 +1,10 @@
+# @package _global_
+# 群ペアの AUC の minimax（Yang et al. AAAI 2023）。陽性群 × 陰性群の全 16 ペア。
+defaults:
+  - spatial_lora_ham10000
+  - _dual_holdout_ham10000
+  - override /data: ham10000_sex_age_cells_dual_holdout
+  - override /training_strategy: minimax_auc
+  - _self_
+experiment_name: spatial-lora-ham10000-sex-age-minimax-auc-dual-holdout
+weighting: none

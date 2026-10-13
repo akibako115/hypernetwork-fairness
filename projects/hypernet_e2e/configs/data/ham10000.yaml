@@ -1,0 +1,38 @@
+_target_: projects.hypernet_e2e.data.datamodule.ImageDataModule
+# Dataverse の画像 zip と ISIC2018 Task3 test を data_pipeline.ham10000_splits が展開したもの。
+data_dir: ${paths.data_dir}/ham10000/images
+# 本体を lesion_id 単位で train/val に分け、test は ISIC2018 Task3 の公式 test。target は悪性 2 値。
+cv_splits_dir: ${paths.data_dir}/ham10000/splits
+num_classes: 2
+batch_size: 128
+num_workers: 8
+pin_memory: true
+persistent_workers: true
+prefetch_factor: 2
+train_sampling: uniform
+standardize_continuous: true
+
+attribute_names:
+  categorical: [sex, localization]
+  continuous: [age]
+
+# sex(2), localization(14)
+attribute_spec:
+  categorical_cardinalities: [2, 14]
+  continuous_dim: 1
+
+# localization は患者の属性ではないので、モデル入力にだけ使い評価軸には入れない。
+fairness_attribute_names:
+  categorical: [sex, age_group_65]
+
+fairness_age_groups:
+  age_group_65:
+    source: age
+    boundaries: [65]
+
+# 色恒常性を掛けていない dermoscopy なので、ISIC 2019 と同じ色を触らない recipe を使う。
+# HAM10000 は黒縁の除去をしていないが、Resize(256) → Crop(224) で縁の大半は落ちる。
+train_transform:
+  _target_: projects.hypernet_e2e.data.transform_utils.train_transforms_isic2019
+val_transform:
+  _target_: projects.hypernet_e2e.data.transform_utils.val_transforms_isic2019

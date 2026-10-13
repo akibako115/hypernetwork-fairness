@@ -1,0 +1,10 @@
+# @package _global_
+# 公平性手法の比較（ResNet-50、HAM10000）。LHCF の最悪コホート損失（ℓ_wst、λ = 1）、群：LHCF の隠れコホート。
+defaults:
+  - resnet_ham10000
+  - _fairness_ham10000
+  - override /data: ham10000_lhcf_groups
+  - override /training_strategy: worst_cohort
+  - _self_
+
+experiment_name: resnet-ham10000-fg-wst-lhcf

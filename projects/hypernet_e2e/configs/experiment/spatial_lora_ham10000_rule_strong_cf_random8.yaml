@@ -1,0 +1,14 @@
+# @package _global_
+# 規則の食い違いを強めた HAM10000 での、2 段学習の 2 段目。条件は random8（gmm8 は規則が反転する境界を含む区分、random8 は対照）。
+defaults:
+  - spatial_lora_ham10000_rule_strong_cf_const
+  - _self_
+
+experiment_name: spatial-lora-ham10000-rule-strong-cf-random8
+data:
+  attribute_names:
+    categorical: [random8]
+    continuous: []
+  attribute_spec:
+    categorical_cardinalities: [8]
+    continuous_dim: 0

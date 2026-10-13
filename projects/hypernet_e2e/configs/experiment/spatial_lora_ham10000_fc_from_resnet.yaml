@@ -1,0 +1,9 @@
+# @package _global_
+# 2 段目の fc だけの Spatial LoRA を ERM で学習する。
+defaults:
+  - spatial_lora_ham10000_from_resnet
+  - _self_
+experiment_name: spatial-lora-ham10000-fc-from-resnet
+model:
+  net:
+    modulation_stages: [fc]

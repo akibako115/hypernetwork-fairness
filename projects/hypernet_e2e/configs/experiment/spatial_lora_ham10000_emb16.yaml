@@ -1,0 +1,20 @@
+# @package _global_
+# Spatial LoRA を、DINOv2 埋め込みの PCA 16 成分だけで条件付ける（段階 2）。
+# 列は analysis/latent_bias_hypernet/latent_conditions.py が data/ham10000/splits_latent に足したもの。
+# 学習前に固定した画像埋め込みを、属性の代わりに連続入力として MetadataEncoder に入れる（サンプルごとの連続な振り分け）。
+defaults:
+  - /model: spatial_lora_resnet50
+  - _base_ham10000
+  - _self_
+
+experiment_name: spatial-lora-ham10000-emb16
+tags: [latent_routing]
+
+data:
+  cv_splits_dir: ${paths.data_dir}/ham10000/splits_latent
+  attribute_names:
+    categorical: []
+    continuous: [e0, e1, e2, e3, e4, e5, e6, e7, e8, e9, e10, e11, e12, e13, e14, e15]
+  attribute_spec:
+    categorical_cardinalities: []
+    continuous_dim: 16

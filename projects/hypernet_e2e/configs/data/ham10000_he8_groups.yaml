@@ -1,0 +1,14 @@
+defaults:
+  - ham10000
+  - _self_
+
+_target_: projects.hypernet_e2e.data.group_datamodule.GroupImageDataModule
+
+# 発見側の切り方を群にする：同じ seed の ERM の特徴と DINOv2 を並べた [h; e] の k-means 8（ラベル不使用）。
+# 列は analysis/latent_bias_hypernet/discovery_groups.py が data/ham10000/splits_discovery に足したもの。
+cv_splits_dir: ${paths.data_dir}/ham10000/splits_discovery
+group_attribute_names:
+  - "he8_s${seed}"
+group_cardinalities: [8]
+num_groups: 8
+group_key: group_id

@@ -1,0 +1,16 @@
+# @package _global_
+# Q2 の HAM10000 版：1 段（ImageNet から E2E）の ResNet-50 と属性条件付き Spatial LoRA に公平性損失をかけ、
+# 性別 × 年齢 4 群の差が縮むかを見る。CheXpert の _dual_holdout_chexpert と同じく、epoch の選び方は分析側で
+# 決める（全体 AUROC と、損失自身の狙い）ので、全 epoch の重みを残す。
+tags: [q2_fairness_loss, dual_holdout]
+trainer:
+  # 条件付き objective は単一 device・勾配の蓄積なしを要求する（training._resolve_conditional_population）。
+  devices: 1
+  accumulate_grad_batches: 1
+callbacks:
+  model_checkpoint:
+    save_top_k: -1
+    save_weights_only: true
+  # 双対・群の重みと held-out の群別の率・risk を epoch ごとに残す（重みが悪い群へ寄ったかを後で確かめる）。
+  objective_diagnostics:
+    _target_: projects.hypernet_e2e.callbacks.objective_diagnostics.ObjectiveDiagnosticsRecorder

@@ -1,0 +1,12 @@
+# @package _global_
+# 属性（sex・age・localization）で分類ヘッドだけを変調する。backbone は素の ResNet のまま。
+# 属性条件の利得が、特徴抽出の条件付けから来るのか、頭での属性の事前確率（情報）から来るのかを分ける対照。
+defaults:
+  - spatial_lora_ham10000
+  - _self_
+
+experiment_name: spatial-lora-ham10000-fc
+tags: [latent_routing]
+model:
+  net:
+    modulation_stages: [fc]

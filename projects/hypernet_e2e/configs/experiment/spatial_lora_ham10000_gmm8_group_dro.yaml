@@ -1,0 +1,11 @@
+# @package _global_
+# 潜在クラスタで条件付けた Spatial LoRA を、同じクラスタの GroupDRO で学習する（振り分け＋群を意識した目的関数）。
+# class weight は train 全体の inverse（クラスタによって陽性が 1% 程度しかないため、群ごとの class weight は使わない）。
+defaults:
+  - spatial_lora_ham10000_gmm8
+  - override /data: ham10000_gmm8_groups
+  - override /training_strategy: group_dro_global
+  - _self_
+
+experiment_name: spatial-lora-ham10000-gmm8-group-dro
+tags: [latent_routing]

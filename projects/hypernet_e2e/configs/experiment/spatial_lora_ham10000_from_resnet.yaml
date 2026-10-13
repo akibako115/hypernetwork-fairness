@@ -1,0 +1,7 @@
+# @package _global_
+# 2 段目の Spatial LoRA を ERM で学習する。親は同じ seed の resnet_ham10000。
+defaults:
+  - spatial_lora_ham10000
+  - _two_stage_frozen
+  - _self_
+experiment_name: spatial-lora-ham10000-from-resnet

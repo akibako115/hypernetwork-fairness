@@ -1,0 +1,11 @@
+# @package _global_
+# ResNet-50 を sex × age_group_65 の GroupDRO で学習する（属性を使う公平化の比較相手）。
+defaults:
+  - resnet_ham10000
+  - _sex_age_groups_ham10000
+  - override /data: ham10000_sex_age_groups
+  - override /training_strategy: group_dro_global
+  - _self_
+
+experiment_name: resnet-ham10000-sex-age-group-dro
+tags: [latent_routing]

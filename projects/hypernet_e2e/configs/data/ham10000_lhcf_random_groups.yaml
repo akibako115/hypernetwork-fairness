@@ -1,0 +1,6 @@
+defaults:
+  - ham10000_lhcf_groups
+  - _self_
+
+# LHCF のコホートの対照：split ごとに lhcf を並べ替えた列（コホートの大きさだけ同じで、中身はランダム）。
+group_attribute_names: [lhcf_random]

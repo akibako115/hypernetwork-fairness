@@ -1,0 +1,14 @@
+# @package _global_
+# 公平性手法の比較（ResNet-50、HAM10000）。GroupDRO（q の学習率 0.1）。
+defaults:
+  - resnet_ham10000
+  - _fairness_ham10000
+  - override /data: ham10000_sex_age_groups
+  - override /training_strategy: group_dro_global
+  - _self_
+
+experiment_name: resnet-ham10000-fg-gdro-sex-age
+model:
+  loss_fn:
+    # 既定の 0.01 では q がほぼ一様のまま終わった（8 群で最大 0.32）。Sagawa et al. の探索範囲の上側を使う。
+    step_size: 0.1

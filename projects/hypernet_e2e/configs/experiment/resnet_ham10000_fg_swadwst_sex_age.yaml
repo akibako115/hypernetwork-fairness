@@ -1,0 +1,9 @@
+# @package _global_
+# 公平性手法の比較（ResNet-50、HAM10000）。SWAD ＋ 最悪コホート損失の群の対照。群：性別 × 年齢。
+# 評価する重みは checkpoints/swad.ckpt。
+defaults:
+  - resnet_ham10000_fg_swadwst_lhcf
+  - override /data: ham10000_sex_age_groups
+  - _self_
+
+experiment_name: resnet-ham10000-fg-swadwst-sex-age
