@@ -1,0 +1,14 @@
+# @package _global_
+# spatial_lora_ham10000_fc_sex_age_eo_rate_dual_holdout の制約を Cotter et al. の Communities の形に替える。各群の FPR を全体の FPR と比べる片側の制約
+# FPR_g − FPR_全体 ≤ 0.05 を群の数だけかけ、TPR には制約をかけない。λ は原著どおり一様から始める。
+# 出力は分析側で選ぶ（holdout で制約を満たす epoch のうち目的関数が最もよいもの）。全 epoch の checkpoint を残す。
+defaults:
+  - spatial_lora_ham10000_fc_sex_age_eo_rate_dual_holdout
+  - _self_
+experiment_name: spatial-lora-ham10000-fc-sex-age-eo-fpr-overall-dual-holdout
+model:
+  loss_fn:
+    constraint_form: overall
+    rates: [fpr]
+    epsilon_neg: 0.05
+    initial_task_weight: null

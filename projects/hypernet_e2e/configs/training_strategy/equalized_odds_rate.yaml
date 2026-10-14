@@ -16,3 +16,5 @@ model:
     tau: 1.0
     proxy: hinge
     initial_task_weight: null
+    constraint_form: pairwise
+    rates: [tpr, fpr]

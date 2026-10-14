@@ -68,6 +68,48 @@ def test_eo_four_directed_constraints_and_column_swap_update():
     assert torch.allclose(obj.log_M.exp() @ distribution, distribution, atol=1e-8)
 
 
+def test_eo_overall_constraints_compare_each_group_with_the_population_rate():
+    """各群 vs 全体の片側制約。全体の率は train の群構成で重み付けし、セル均等のバッチの単純平均にしない。"""
+    obj = EqualizedOddsRateTaskLoss(2, COUNTS, constraint_form="overall")
+    obj(inputs())
+    # 群 0 は TPR 1・FPR 0、群 1 は TPR 0・FPR 1。全体の TPR は 1/6、FPR は 0.25（COUNTS の構成）。
+    hard = torch.tensor([1 / 6 - 1, 1 / 6 - 0, 0 - 0.25, 1 - 0.25]) - 0.1
+    assert torch.allclose(obj.batch_diagnostics()["hard_g"], hard)
+    assert (obj.batch_diagnostics()["proxy_g"] >= hard - 1e-6).all()
+    assert torch.allclose(obj.batch_diagnostics()["lambda"], torch.full((5,), 0.2))
+    assert "overall_coefficients" not in EqualizedOddsRateTaskLoss(2, COUNTS).state_dict()
+    with pytest.raises(ValueError, match="constraint_form"):
+        EqualizedOddsRateTaskLoss(2, COUNTS, constraint_form="two_sided")
+
+
+def test_eo_overall_fpr_only_keeps_the_communities_form():
+    """Cotter et al. の Communities と同じく FPR だけにかける。λ は task ＋ G 本。"""
+    obj = EqualizedOddsRateTaskLoss(2, COUNTS, constraint_form="overall", rates=["fpr"])
+    obj(inputs())
+    assert torch.allclose(obj.batch_diagnostics()["hard_g"], torch.tensor([0 - 0.25, 1 - 0.25]) - 0.1)
+    assert torch.allclose(obj.batch_diagnostics()["lambda"], torch.full((3,), 1 / 3))
+    pairwise = EqualizedOddsRateTaskLoss(2, COUNTS, rates=["fpr"])
+    pairwise(inputs())
+    assert torch.allclose(pairwise.batch_diagnostics()["hard_g"], torch.tensor([-1.1, 0.9]))
+    for rates in ([], ["fpr", "fpr"], ["tnr"]):
+        with pytest.raises(ValueError, match="rates"):
+            EqualizedOddsRateTaskLoss(2, COUNTS, rates=rates)
+
+
+def test_eo_overall_proxy_bounds_the_hard_constraints_on_random_batches():
+    generator = torch.Generator().manual_seed(0)
+    counts = [[50, 5], [20, 9], [70, 30]]
+    obj = EqualizedOddsRateTaskLoss(3, counts, constraint_form="overall", epsilon_pos=0.05, epsilon_neg=0.05)
+    group, target = torch.arange(3).repeat_interleave(8), torch.tensor([0, 1]).repeat_interleave(4).repeat(3)
+    for _ in range(50):
+        score = torch.randn(24, generator=generator) * 3
+        batch = ObjectiveInput(torch.stack([torch.zeros_like(score), score], dim=1), target, {"group_id": group})
+        obj(batch)
+        diagnostics = obj.batch_diagnostics()
+        assert len(diagnostics["hard_g"]) == 6
+        assert (diagnostics["proxy_g"] >= diagnostics["hard_g"] - 1e-6).all()
+
+
 @pytest.mark.parametrize("proxy", ["hinge", "smoothstep"])
 def test_proxy_bounds_including_strict_zero_tie(proxy):
     score = torch.cat([torch.linspace(-100, 100, 10001), torch.tensor([0.0])])

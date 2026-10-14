@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from hydra.core.hydra_config import HydraConfig
@@ -116,8 +116,9 @@ def _objective_rows(config: DictConfig) -> list[tuple[str, str]]:
     loss_fn = _select(config, "model.loss_fn")
     if isinstance(loss_fn, Mapping):
         for key, value in loss_fn.items():
-            # class weight は別の節が持ち、dict や list は表の 1 行に収まらない。
-            if key in ("_target_", "class_weight") or not isinstance(value, (int, float, str, bool)):
+            # class weight と群別件数は別の行が持ち、dict は表の 1 行に収まらない。null と scalar の list
+            # （EO の rates など）は条件そのものなので出す。null を落とすと既定値と見分けられない。
+            if key in ("_target_", "class_weight", "population_cell_counts") or not _is_plain(value):
                 continue
             rows.append((f"loss_fn.{key}", _format(value)))
     counts = _select(config, "model.loss_fn.population_cell_counts")
@@ -126,6 +127,12 @@ def _objective_rows(config: DictConfig) -> list[tuple[str, str]]:
         rows.append(("cell draw probability", str(1 / (2 * len(counts)))))
         rows.append(("draws per cell/batch", str(int(config.data.batch_size) // (2 * len(counts)))))
     return rows
+
+
+def _is_plain(value: Any) -> bool:
+    if value is None or isinstance(value, (int, float, str, bool)):
+        return True
+    return isinstance(value, Sequence) and all(isinstance(item, (int, float, str, bool)) for item in value)
 
 
 def _override_rows() -> list[tuple[str, str]]:

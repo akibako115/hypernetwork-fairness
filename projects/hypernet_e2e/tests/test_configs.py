@@ -9,7 +9,7 @@ import yaml
 from hydra import compose, initialize_config_dir
 from hydra.errors import ConfigCompositionException
 from hydra.utils import instantiate
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 
 from projects.hypernet_e2e.training import _validate_attribute_invariance
 
@@ -85,6 +85,11 @@ CHEXPERT_PRESETS: dict[str, tuple[str, str, str]] = {
     "spatial_lora_chexpert_fc_from_resnet_race_known": ("inverse", "uniform", "erm"),
     "spatial_lora_chexpert_fc_race_known": ("inverse", "uniform", "erm"),
     "spatial_lora_chexpert_from_resnet_age_race_eo_rate_dual_holdout": ("inverse", "group_class_balanced", "equalized_odds_rate"),
+    "resnet_chexpert_age_race_eo_fpr_overall_dual_holdout": ("inverse", "group_class_balanced", "equalized_odds_rate"),
+    "spatial_lora_chexpert_age_race_eo_fpr_overall_dual_holdout": ("inverse", "group_class_balanced", "equalized_odds_rate"),
+    "spatial_lora_chexpert_fc_age_race_eo_fpr_overall_dual_holdout": ("inverse", "group_class_balanced", "equalized_odds_rate"),
+    "spatial_lora_chexpert_from_resnet_age_race_eo_fpr_overall_dual_holdout": ("inverse", "group_class_balanced", "equalized_odds_rate"),
+    "spatial_lora_chexpert_fc_from_resnet_age_race_eo_fpr_overall_dual_holdout": ("inverse", "group_class_balanced", "equalized_odds_rate"),
     "spatial_lora_chexpert_from_resnet_race_known": ("inverse", "uniform", "erm"),
 }
 
@@ -341,3 +346,32 @@ def test_plain_chexpert_preset_keeps_cross_entropy_and_no_group_id() -> None:
     assert cfg.model.loss_fn._target_.endswith("TaskLoss")
     assert cfg.data._target_ == "projects.hypernet_e2e.data.datamodule.ImageDataModule"
     assert "num_groups" not in cfg.data
+
+
+# 柱 A の EO rate を Cotter et al. の Communities の形（各群の FPR を全体と比べる）に替えた版。
+# 全ペアの版との差は制約と λ の初期値だけ。HAM10000 の 5 本もここで見る。
+EO_FPR_OVERALL = [
+    f"{model}_{dataset}{variant}_{groups}_eo_fpr_overall_dual_holdout"
+    for dataset, groups in (("chexpert", "age_race"), ("ham10000", "sex_age"))
+    for model, variant in (("resnet", ""), ("spatial_lora", ""), ("spatial_lora", "_fc"), ("spatial_lora", "_from_resnet"), ("spatial_lora", "_fc_from_resnet"))
+]
+
+
+@pytest.mark.parametrize("preset", EO_FPR_OVERALL)
+def test_eo_fpr_overall_presets_change_only_the_constraint(preset: str) -> None:
+    """全ペアの版と比べ、制約の形・率・epsilon_neg・λ の初期値と run 名だけが違う。"""
+    pairwise = preset.replace("eo_fpr_overall", "eo_rate")
+    cfg, base = _compose(f"experiment={preset}"), _compose(f"experiment={pairwise}")
+
+    loss = cfg.model.loss_fn
+    assert (loss.constraint_form, list(loss.rates), loss.epsilon_neg, loss.initial_task_weight) == ("overall", ["fpr"], 0.05, None)
+    assert base.model.loss_fn.constraint_form == "pairwise"
+    assert cfg.experiment_name == base.experiment_name.replace("eo-rate", "eo-fpr-overall")
+    changed, reference = OmegaConf.to_container(cfg), OmegaConf.to_container(base)
+    for config in (changed, reference):
+        config.pop("experiment_name")
+        for key in ("constraint_form", "rates", "epsilon_neg", "initial_task_weight"):
+            config["model"]["loss_fn"].pop(key)
+    assert changed == reference
+    objective = instantiate(_compose(f"experiment={preset}").model.loss_fn, population_cell_counts=[[1, 1]] * loss.num_groups)
+    assert len(objective.constraints) == loss.num_groups

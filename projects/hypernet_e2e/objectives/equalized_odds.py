@@ -22,6 +22,9 @@ def smooth_step(x: torch.Tensor) -> torch.Tensor:
 
 
 PROXIES = ("hinge", "smoothstep")
+CONSTRAINT_FORMS = ("pairwise", "overall")
+# 率の名前と、その率を測るクラス（TPR は陽性、FPR は陰性）。並びが制約の並び。
+RATE_CLASSES = {"tpr": 1, "fpr": 0}
 
 
 def proxy_bounds(score: torch.Tensor, tau: float, proxy: str) -> tuple[torch.Tensor, torch.Tensor]:
@@ -55,9 +58,18 @@ def proxy_bounds(score: torch.Tensor, tau: float, proxy: str) -> tuple[torch.Ten
 class EqualizedOddsRateTaskLoss(ConditionalObjective):
     """hard EO 制約と、上下界 proxy によるモデル損失を分離する。
 
-    列確率行列 M は uniform 初期化。更新は outer([0,hard_g],lambda)。
-    陽性、陰性の順に全有向群ペアを列挙し、固定閾値 s>0 を使う。
-    モデル側の proxy は既定で TFCO と同じ hinge 上下界を使う（``proxy_bounds``）。
+    列確率行列 M は uniform 初期化。更新は outer([0,hard_g],lambda)。固定閾値 s>0 を使う。
+    制約は陽性（TPR）、陰性（FPR）の順に並べる。どちらの率にかけるかは ``rates``、形は ``constraint_form`` で選ぶ。
+
+    - ``"pairwise"``：全有向群ペアで ``rate_g - rate_h <= epsilon``。最大 − 最小 <= epsilon と同値で、
+      評価指標（Eopp1・Eopp0）に直接対応する。制約は 2G(G-1) 本。
+    - ``"overall"``：Cotter et al. の実験（COMPAS・Communities）と同じ、各群を全体と比べる片側の制約。
+      ``TPR_all - TPR_g <= epsilon_pos``（TPR が全体より低すぎない）と ``FPR_g - FPR_all <= epsilon_neg``
+      （FPR が全体より高すぎない）。全体の率は train の群構成で重み付けした群の率の和で、セル均等の
+      バッチの単純平均ではない。制約は 2G 本。
+
+    モデル側の proxy は既定で TFCO と同じ hinge 上下界を使う（``proxy_bounds``）。率に正の係数が
+    かかる項は上界、負の係数がかかる項は下界で置き換える。
     """
 
     dual_update = "step"
@@ -74,6 +86,8 @@ class EqualizedOddsRateTaskLoss(ConditionalObjective):
         tau: float = 1.0,
         initial_task_weight: float | None = None,
         proxy: str = "hinge",
+        constraint_form: str = "pairwise",
+        rates: Sequence[str] = ("tpr", "fpr"),
     ) -> None:
         """制約定義と swap-regret 状態を設定する。
 
@@ -90,6 +104,9 @@ class EqualizedOddsRateTaskLoss(ConditionalObjective):
                 未学習から始める 1 stage では、一様だと proxy が損失の大半を占め、全予測を片側へ
                 寄せる自明解（制約は満たされ双対の圧力も消える）に落ちるので、task 側へ寄せて始める。
             proxy: モデル側の上下界。``"hinge"``（既定、TFCO と同じ）か、既存 run 再現用の ``"smoothstep"``。
+            constraint_form: 制約の形。``"pairwise"``（既定）か ``"overall"``（class docstring）。
+            rates: 制約をかける率。既定は EO の ``("tpr", "fpr")``。Cotter et al. の実験は 1 種類だけにかける
+                （COMPAS は TPR、Communities は FPR）。
 
         Returns:
             None
@@ -102,7 +119,18 @@ class EqualizedOddsRateTaskLoss(ConditionalObjective):
         self.proxy = proxy
         if not all(0 <= x <= 1 for x in (epsilon_pos, epsilon_neg)):
             raise ValueError("epsilon は [0,1] が必要")
-        self.constraints = [(c, g, h) for c in (1, 0) for g in range(num_groups) for h in range(num_groups) if g != h]
+        if constraint_form not in CONSTRAINT_FORMS:
+            raise ValueError(f"constraint_form は {CONSTRAINT_FORMS} のいずれか: {constraint_form!r}")
+        self.constraint_form = constraint_form
+        if not rates or len(set(rates)) != len(rates) or not set(rates) <= set(RATE_CLASSES):
+            raise ValueError(f"rates は {tuple(RATE_CLASSES)} から重複なく 1 つ以上: {rates!r}")
+        classes = [c for name, c in RATE_CLASSES.items() if name in rates]
+        if constraint_form == "pairwise":
+            self.constraints = [(c, g, h) for c in classes for g in range(num_groups) for h in range(num_groups) if g != h]
+        else:
+            self.constraints = [(c, g, None) for c in classes for g in range(num_groups)]
+            # pairwise の state_dict を変えないよう、overall のときだけ持つ（既存 checkpoint を strict に読める）。
+            self.register_buffer("overall_coefficients", self._overall_coefficients())
         self.register_buffer("epsilon", torch.tensor([epsilon_pos if c else epsilon_neg for c, _, _ in self.constraints]))
         dimension = len(self.constraints) + 1
         if initial_task_weight is None:
@@ -114,6 +142,26 @@ class EqualizedOddsRateTaskLoss(ConditionalObjective):
             initial[0] = initial_task_weight
         # 全列を同じ分布にすると、その分布が M の定常分布（初期 lambda）になる。
         self.register_buffer("log_M", initial.log()[:, None].expand(dimension, dimension).clone())
+
+    def _overall_coefficients(self) -> torch.Tensor:
+        # 制約 k の値は sum_g A[k,g] rate[g,c_k]。全体の率は train の群構成 w_c で重み付けした和なので、
+        # TPR は w_1 - e_g（全体 − 群）、FPR は e_g - w_0（群 − 全体）。
+        share = self.population / self.population.sum(dim=0, keepdim=True)
+        rows = []
+        for c, g, _ in self.constraints:
+            coefficient = share[:, c].clone()
+            coefficient[g] -= 1
+            rows.append(coefficient if c == 1 else -coefficient)
+        return torch.stack(rows)
+
+    def _versus_overall(self, hard: torch.Tensor, upper: torch.Tensor, lower: torch.Tensor, cells: list[list[torch.Tensor]]) -> tuple[torch.Tensor, torch.Tensor]:
+        classes = torch.tensor([c for c, _, _ in self.constraints], device=hard.device)
+        upper_mean = torch.stack([torch.stack([upper[m].mean() for m in row]) for row in cells])
+        lower_mean = torch.stack([torch.stack([lower[m].mean() for m in row]) for row in cells])
+        coefficients = self.overall_coefficients
+        violations = (coefficients * hard[:, classes].T).sum(dim=1) - self.epsilon
+        bound = coefficients.clamp_min(0) * upper_mean[:, classes].T + coefficients.clamp_max(0) * lower_mean[:, classes].T
+        return violations, bound.sum(dim=1) - self.epsilon
 
     def _stationary(self) -> tuple[torch.Tensor, torch.Tensor]:
         matrix = self.log_M.exp()
@@ -139,8 +187,11 @@ class EqualizedOddsRateTaskLoss(ConditionalObjective):
         score = inputs.logits[:, 1].float() - inputs.logits[:, 0].float()
         hard = torch.stack([torch.stack([(score[m] > 0).float().mean() for m in row]) for row in cells])
         upper, lower = proxy_bounds(score, self.tau, self.proxy)
-        violations = torch.stack([hard[g, c] - hard[h, c] for c, g, h in self.constraints]) - self.epsilon
-        proxy = torch.stack([upper[cells[g][c]].mean() - lower[cells[h][c]].mean() for c, g, h in self.constraints]) - self.epsilon
+        if self.constraint_form == "pairwise":
+            violations = torch.stack([hard[g, c] - hard[h, c] for c, g, h in self.constraints]) - self.epsilon
+            proxy = torch.stack([upper[cells[g][c]].mean() - lower[cells[h][c]].mean() for c, g, h in self.constraints]) - self.epsilon
+        else:
+            violations, proxy = self._versus_overall(hard, upper, lower, cells)
         with torch.no_grad():
             distribution, residual = self._stationary()
         weights = distribution.float().clone()
