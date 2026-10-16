@@ -26,7 +26,7 @@
 | [research-premises.md](research-premises.md) | 研究の前提と評価の定義。計画・手法選定・結論の書き方はこれに反しない形で進める |
 | [experiment-workflow.md](experiment-workflow.md) | 実験 1 本を仮説から結論まで進める手順 |
 | [plans/](plans/) | 日付つきの実験計画と実行記録。どれが現役かは上の「現在地」が決める。いまある 2 本（10-02 の主比較の実行記録、10-11 の Q1〜Q3）はどちらも過去の記録 |
-| [methods/](methods/) | 公平性手法の調査。[比較候補](methods/fairness-baseline-methods.md)と、[評価指標に合わせた学習への検討](methods/fairness-objective-alternatives.md)。手法ごとの原論文の条件・実装・checkpoint の選び方は [EO rate](methods/eo-rate.md)、[GroupDRO](methods/group-dro.md) |
+| [methods/](methods/README.md) | 学習手法ごとの文書（原論文の条件・この repo の実装・違い・checkpoint の選び方・2026-10-16 の照合結果）。一覧は [methods/README.md](methods/README.md) |
 | [reviews/](reviews/) | 実装・実験基盤のレビューと修正記録 |
 | [meetings/](meetings/) | ミーティング用メモ。`<YYYYMMDD>/` ごとに置く |
 | [slides/](slides/) | スライド。`<name>/` に図を作る `figures.py`、pptx を組む `build.js`、生成物を置く |

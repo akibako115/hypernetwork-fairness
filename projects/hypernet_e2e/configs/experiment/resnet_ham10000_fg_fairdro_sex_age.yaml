@@ -1,5 +1,5 @@
 # @package _global_
-# 公平性手法の比較（ResNet-50、HAM10000）。FairDRO（Jung et al. ICLR 2023、χ² 半径 1.0）。
+# 公平性手法の比較（ResNet-50、HAM10000）。FairDRO（Jung et al. ICLR 2023、χ² 半径は training_strategy の既定 0.5＝公式実装の単位。2026-10-16 より前の run の 1.0 と同じ重み）。
 defaults:
   - resnet_ham10000
   - _fairness_ham10000

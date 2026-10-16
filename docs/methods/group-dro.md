@@ -1,7 +1,7 @@
 # GroupDRO（Sagawa et al.）：原論文・実装・使い方
 
-2026-10-14 作成。原論文の本文と公式実装を読み直し、この repo の実装と突き合わせた結果をまとめる。
-GroupDRO の run を設計・起動・評価するセッションは、先にこれを読む。
+2026-10-14 作成、2026-10-16 更新（HEAD `0f2af99` のコードと照合）。原論文の本文と公式実装を読み直し、この repo の実装と
+突き合わせた結果をまとめる。GroupDRO の run を設計・起動・評価するセッションは、先にこれを読む。
 
 ## 先に押さえること
 
@@ -14,6 +14,12 @@ GroupDRO の run を設計・起動・評価するセッションは、先にこ
 - 属性だけの群では、**q は陽性率の高い群（CheXpert では若年群）に集まる**。陽性のクラス重みが陰性の約 8.7 倍なので、
   陽性率の高い群ほどクラス重み付きの群損失が大きくなるため（下の「q が向く群」）。最悪 AUROC・最小 TPR の群
   （高齢群）には向かない。公平性損失の代表として結論に使わない（ユーザー方針）。
+- **q の更新は公式実装と同じ**（2026-10-16 に照合）。原論文と違うのは、上の群の切り方・クラス重み・抽出・
+  checkpoint の選び方で、どれも意図して変えたもの（下の「照合結果」）。
+- **GroupDRO の実装は `objectives/group.py` の 1 つだけ。** 以前あった 2 つ目（`SamplingCorrectedGroupTaskLoss` の
+  `mode=dro`、strategy `sampling_corrected_group_dro`）は 1 step 前の q を使っていて数値が一致しなかったため、
+  `0f2af99` で削除した。残っている `sampling_corrected_uniform_group` は群を等しく重み付けする別の損失
+  （[uniform-group.md](uniform-group.md)）で、GroupDRO ではない。
 
 ## 原論文と公式実装
 
@@ -38,16 +44,23 @@ GroupDRO の run を設計・起動・評価するセッションは、先にこ
 
 ## この repo の実装
 
-`projects/hypernet_e2e/objectives/group.py`。
+`projects/hypernet_e2e/objectives/group.py`（共通部分は `_ClassWeightedGroupDROTaskLoss`、`group.py:106-147`）。
 
 | class | strategy（`configs/training_strategy/`） | クラス重み |
 | --- | --- | --- |
 | `GlobalClassWeightedGroupDROTaskLoss` | `group_dro_global` | 全群共通の `[num_classes]`（inverse）。preset の既定 |
 | `SubgroupClassWeightedGroupDROTaskLoss` | `group_dro_subgroup` | 群ごとの `[num_groups, num_classes]` |
 
-- **q の更新**：train の forward ごとに、公式と同じく `q *= exp(step_size * group_loss); q /= q.sum()`。
+- **q の更新**（`group.py:75-82`、`:123-135`）：train の forward ごとに、公式と同じく先に
+  `q *= exp(step_size * group_loss); q /= q.sum()` で q を更新し、更新後の q で群損失を重み付けして返す。
   バッチに現れない群の損失は 0 として扱い、全群で正規化する（公式と同じ。2026-10-13 にいったん入れた独自補正は撤回済み）。
-- **群損失**：クラス重み付き CE の群平均。クラス重みはこの repo の追加で、原論文には無い。
+  `step_size` の既定は 0.01（公式の `--robust_step_size` の既定と同じ）。
+- **群損失**（`group.py:55-72`）：クラス重み付き CE の群内の単純平均（群内のクラス重みの和では割らない）。
+  クラス重みはこの repo の追加で、原論文には無い。
+  - `group_dro_global`：`[num_classes]` の逆頻度を平均 1 に正規化したもの（`training.py:284-296`）。
+  - `group_dro_subgroup`：群ごとに `n_g / (C · n_{g,c})`（`training.py:249-266`）。群の中で陽性と陰性が半分ずつ効くので、
+    群損失は「陽性の平均 CE と陰性の平均 CE の平均」になり、群の陽性率によらない。
+  - どちらも `weighting=inverse` が必須（`training.py:220-224`）。
 - **抽出**：preset（`*_group_dro_race_known`）は `train_sampling: uniform`（自然抽出）。
   B = 128 では、少数群がバッチに 1 件も入らないことがある（≥65 × Black は約 10% のバッチで欠ける）。
 - **checkpoint**：2026-10-14 から `group_dro_global`・`group_dro_subgroup` の strategy が `save_top_k: -1`・
@@ -66,7 +79,9 @@ GroupDRO の run を設計・起動・評価するセッションは、先にこ
 | optimizer | SGD momentum 0.9、固定 lr | AdamW lr 1e-4 |
 | データ拡張 | なし | あり（`train_transforms_chexpert`） |
 | group adjustment | C を探索 | なし（C = 0 相当） |
-| checkpoint | val の最悪群 accuracy が最大の epoch | best val AUROC |
+| checkpoint | val の最悪群 accuracy が最大の epoch | 2026-10-14 以降は全 epoch を残し、分析側で選ぶ（選び方は未決）。それより前は best val AUROC と last だけ |
+| 群損失の大きさ | 群の平均 CE（クラス重みなし） | global のクラス重みでは陽性率の高い群ほど大きくなる（下の照合結果） |
+| 複数 GPU | 単一 GPU | q を GPU 間で揃える処理は無い。preset はどれも `devices: 1` |
 | 評価 | 最悪群 accuracy | 固定しきい値 0.5 の群別 TPR・FPR（research-premises） |
 
 群を属性 × ラベルにすると、最悪群 accuracy は「各属性群の TPR と TNR の最小」になる。
@@ -99,5 +114,40 @@ grid の年齢 × race 8 群の GroupDRO 15 run（5 構成 × seed 42〜44、`an
   属性だけの群で回した run を評価するときに、何を最悪群の成績とするか（最悪 FPR、最小 bacc など）は未決。決めてから選ぶ。
 - 2026-10-14 より前の run は、原論文どおりには選べない（best val AUROC の 1 つと last しか無い）。
   `metrics.csv` の val 指標の epoch 推移で、選ばれた epoch と最悪群が最良の epoch がどれだけ離れているかは推測できる。
+  `analysis/hypernet_conditioning_grid/README.md` の「GroupDRO は best（val AUROC）と last だけ」は、この grid の run
+  （2026-10-12 学習）については正しい。今の strategy は全 epoch を残すので、新しく回す run には当てはまらない。
 - 予測は EO rate と同じく `analysis/common/predictions.py`。全 epoch を残した run では `--checkpoint` を必ず渡す。
 - q の推移は、`metrics.csv` の `train/group_dro/q/g*` で、最悪群（val で FPR が最大の群）に寄ったかを確かめる。
+
+## 2026-10-16 の照合結果
+
+原論文の Algorithm 1 と公式実装（`loss.py` の `compute_robust_loss`・`compute_group_avg`、`run_expt.py`）を読み、
+HEAD `0f2af99` の `objectives/group.py` と突き合わせた。
+
+### 公式と同じ（確認済み）
+
+- **q の更新順序と式**：バッチの群損失で先に q を `q · exp(η · ℓ_g)` と更新し、全群の和で正規化し、更新後の q で
+  重み付けした損失を返す。公式の `compute_robust_loss` と同じ順序。
+- **バッチに現れない群**：群損失を 0 とする（公式の `compute_group_avg` も件数 0 の群は 0）。exp(0) = 1 で q は
+  そのままだが、他の群が上がって正規化されるので、相対的に下がる。公式と同じ挙動。
+- **η の既定**：0.01。
+
+### 意図して変えたこと（確認済み）
+
+- 群は属性だけ（原論文は属性 × ラベル）。
+- クラス重みを足した。
+- 自然抽出（原論文の例は群を均等に引く `--reweight_groups`）。
+- group adjustment（C/√n_g）は無い（C = 0 相当）。
+- checkpoint は学習側で選ばず、全 epoch を残して分析側に任せる。
+
+### 注意すること
+
+- **global のクラス重みでは、q は群の陽性率を追う。** 群損失を群内の件数で割るだけで、群内のクラス重みの和では
+  割らない。陽性の重みが陰性より大きいので、予測の質が同じでも陽性率の高い群ほど群損失が大きくなる。照合時の計算例では、
+  陽性・陰性とも 1 件あたりの CE が同じとき、陽性率 15% の群の群損失は 0.31、6% の群は 0.21（約 1.5 倍）。上の
+  「q が向く群」で見た偏り（q が <65 の群に集まる）はこれで説明できる。subgroup のクラス重み
+  （`group_dro_subgroup`）なら群損失が陽性率によらないので、この偏りは出ない。
+- **複数 GPU への備えが無い。** q は GPU ごとに別々に更新され、揃える処理が無い。今の preset は単一 GPU なので
+  問題にならないが、`trainer.devices` を増やすと GPU ごとに q がずれる。
+- **2 つ目の実装は削除済み。** 2026-10-16 より前の文書や run に `sampling_corrected_group_dro`（`SamplingCorrectedGroupTaskLoss`
+  の `mode=dro`）が出てきたら、それは今の GroupDRO とは別物。1 step 前の q で損失を重み付けしていた。

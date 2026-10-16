@@ -184,10 +184,12 @@ uv run python -m projects.hypernet_e2e.run \
   model.backbone_checkpoint_path=projects/hypernet_e2e/runs/<stage1-run-id>/checkpoints/<best>.ckpt
 ```
 
-比較用に、GRL係数を DANN 式に 0 から warm-up する `resnet_chexpert_attribute_invariant_dann` と、
-adversary を先に1回、task/backboneを次に1回更新する ALFR 型の
-`resnet_chexpert_attribute_invariant_alfr` も用意している。ALFR は task optimizer と adversary optimizer を
-分離し、adversary 更新時は feature を detach する。
+どちらの GRL の model config も、反転の倍率を Ganin et al. の式で 0 から上げる。既定の
+`resnet_chexpert_attribute_invariant` は属性損失の重み 0.1、`resnet_chexpert_attribute_invariant_dann` は 1.0。
+ALFR 型の `resnet_chexpert_attribute_invariant_alfr` は、minibatch ごとに adversary と task/backbone を交互に
+1 回ずつ更新する（偶数番目が adversary）。task optimizer と adversary optimizer を分離し、adversary 更新時は
+feature を detach する。手法の詳細は [docs/methods/dann.md](../../docs/methods/dann.md)、
+[docs/methods/alfr.md](../../docs/methods/alfr.md)。
 
 ```bash
 uv run python -m projects.hypernet_e2e.run experiment=resnet_chexpert_attribute_invariant_dann
