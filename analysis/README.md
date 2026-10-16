@@ -23,6 +23,7 @@ package の slug は学習側の `study` と同じ値になる。run は起動�
 common/        run 記録の読み方と予測 cache。全 package で共有する
 styles/        図の style。全 package で共有する
 tests/         共有層と、指標の定義が学習側と一致することのテスト
+archive/<slug>/ 終わった仮説の package。中の構成は <slug>/ と同じ
 <slug>/
   README.md     仮説、対象 run、結論
   runs.md       この仮説に紐づく run の一覧と状態
@@ -67,39 +68,59 @@ checkpoint 選択・予測 cache）までとする。**群の切り方・指標�
 
 ## package の索引
 
-2026-10-13 時点。いまの問い（柱 A・B）との対応は [docs/README.md](../docs/README.md) の「現在地」を正本とし、
-ここでは各 package が何を扱ったかだけを書く。✱ は 2026-10-13 の公平性損失の修正
-（[修正記録](../docs/reviews/20261013_fairness_objective_fixes.md)）の影響を受ける結果を含む package で、
-README の冒頭に注記がある。
+2026-10-14 時点。いまの問い（柱 A・B）との対応は [docs/README.md](../docs/README.md) の「現在地」を正本とし、
+ここでは各 package が何を扱ったかだけを書く。
 
-条件付けのモデル構成と目的関数（柱 A）
+### 現役（直下）
+
+柱 A（条件付けのモデル構成と目的関数）
 
 | package | 扱ったこと |
 | --- | --- |
-| `race_known_architecture_objective_comparison/` ✱ | CheXpert race-known の主比較 13 条件 × 3 seed。ResNet / Spatial LoRA / HyperAdapt × ERM / GroupDRO × class weight × 1・2 stage |
-| `two_stage_vs_e2e_age_race_group_dro/` ✱ | 元 split・14 群での 2 stage と e2e の GroupDRO 比較（旧実験）。race-known 分は上へ分離 |
-| `hyperadapt_two_stage_vs_e2e/` | HyperAdapt の 2 stage と e2e（CheXpert、seed 43） |
+| `hypernet_conditioning_grid/` | 柱 A の主実験。条件付けの有無（ResNet-50 / Spatial LoRA）× 目的関数 × 学習手順の格子を CheXpert で回す。条件のそろう過去の ERM は再利用し、公平性損失は修正後の実装で回し直す |
+| `hypernet_conditioning_grid_ham10000/` | 上の格子をデータだけ HAM10000（sex × 年齢 65 歳の 4 群）に替えて回す。条件付けの効きがデータに依存するかを見る |
 | `ham10000_architecture_erm/` | 主比較の ERM 3 構成を HAM10000 で回す |
 | `fairvlmed_architecture_erm/` | 主比較の ERM 3 構成を FairVLMed で回す |
 | `dataset_gain_sources/` | 条件付けが HAM10000 でだけ全体性能を上げる理由を、3 データセットで切り分ける |
-| `conditional_fairness_one_stage/` ✱ | 年齢 2 群の FairDRO・EO rate・minimax AUC を 1 stage で回す（CheXpert、seed 42） |
-| `minimax_auc_vs_eo/` ✱ | Minimax AUC と EO rate 制約の実装・実験計画 |
-| `fairness_mechanism_probe/` | 群間差の機構診断（条件付けの伸びしろ・ラベルの意味・動作点） |
-| `iterative_probe/` ✱ | `hypernet_iterative` の初期方針を決める探り（GroupDRO の step size など） |
-| `initial_resnet_vs_invariant/` ✱ | ResNet と attribute-invariant ResNet（DANN）の初期比較 |
-| `adversary_strength/` ✱ | DANN の adversary の強さと、属性が消えるまでの水準 |
 
-潜在サブグループ（柱 B）
+柱 B（潜在サブグループ）
 
 | package | 扱ったこと |
 | --- | --- |
-| `latent_bias_hypernet/` ✱ | 1 段目を凍結して hypernetwork の補正にバイアスを溜め、潜在サブグループを発見・改善する設計。部分群の定義の比較（Q1）、公平性手法 11 種の比較、Q2 の損失比較もここにある |
+| `latent_group_fairness/` | 柱 B の「改善」側。生成 ΔW のクラスタに公平性損失をかけ、評価の 8 群（年齢 × race）の動作点が良くなるかを、属性を直接 k-means した群と比べる |
+| `latent_subgroup_spaces/` | 1 段・ERM の Spatial LoRA（CheXpert）で、属性・metadata encoder の c・生成 ΔW・モデル自身の特徴・RAD-DINO の 5 空間 × クラスタリング／見落としの監査器で潜在サブグループを探し、同じ物差し（0.5 の FPR、val で作り test で測る）で並べる。小さな部分集団（細かい群・k 近傍の走査）も扱う |
 | `conditioned_subgroup_discovery/` | 属性条件付き Spatial LoRA の生成 ΔW を属性セルで読み、規則の反転を植え込んで回収できるかを見る（README なし。`attribute_rule_planting.py`・`delta_probe.py` の docstring が説明） |
-| `direction_poc/` | `latent_bias_hypernet` を受けた次の方向 5 案を、凍結特徴と既存予測で当たり付けする PoC |
 
 その他
 
 - `scratch/` — まだ仮説に紐づかない run の逃げ道。結論の根拠にしない
+
+### 退避済み（`archive/`）
+
+終わった仮説と、柱 A・B に置き換わる前の探り。slug は学習側の `study` と W&B に残っているので名前は変えず、
+置き場だけを `archive/<slug>/` へ移している。`common/paths.py` の `study_dir()` は直下に無い slug を
+`archive/` から探すので、`runs.py import <slug>` などはそのまま動く。import は `analysis.archive.<slug>` になる。
+
+✱ は 2026-10-13 の公平性損失の修正（[修正記録](../docs/reviews/20261013_fairness_objective_fixes.md)）の
+影響を受ける結果を含む package で、README の冒頭に注記がある。過去の結果を再利用するときは
+research_overview の「過去の実験結果の扱い」に従う。
+
+| package | 扱ったこと |
+| --- | --- |
+| `archive/race_known_architecture_objective_comparison/` ✱ | CheXpert race-known の主比較 13 条件 × 3 seed。ResNet / Spatial LoRA / HyperAdapt × ERM / GroupDRO × class weight × 1・2 stage |
+| `archive/two_stage_vs_e2e_age_race_group_dro/` ✱ | 元 split・14 群での 2 stage と e2e の GroupDRO 比較（旧実験）。race-known 分は上へ分離 |
+| `archive/hyperadapt_two_stage_vs_e2e/` | HyperAdapt の 2 stage と e2e（CheXpert、seed 43） |
+| `archive/conditional_fairness_one_stage/` ✱ | 年齢 2 群の FairDRO・EO rate・minimax AUC を 1 stage で回す（CheXpert、seed 42） |
+| `archive/minimax_auc_vs_eo/` ✱ | Minimax AUC と EO rate 制約の実装・実験計画 |
+| `archive/fairness_mechanism_probe/` | 群間差の機構診断（条件付けの伸びしろ・ラベルの意味・動作点） |
+| `archive/iterative_probe/` ✱ | `hypernet_iterative` の初期方針を決める探り（GroupDRO の step size など） |
+| `archive/initial_resnet_vs_invariant/` ✱ | ResNet と attribute-invariant ResNet（DANN）の初期比較 |
+| `archive/adversary_strength/` ✱ | DANN の adversary の強さと、属性が消えるまでの水準 |
+| `archive/latent_bias_hypernet/` ✱ | 1 段目を凍結して hypernetwork の補正にバイアスを溜め、潜在サブグループを発見・改善する設計。部分群の定義の比較（Q1）、公平性手法 11 種の比較、Q2 の損失比較もここにある |
+| `archive/direction_poc/` | `latent_bias_hypernet` を受けた次の方向 5 案を、凍結特徴と既存予測で当たり付けする PoC |
+
+仮説が終わった package は、同じ要領で `archive/` へ移す。移すときは `analysis.<slug>` の import と
+`analysis/<slug>` の path を repo 全体で書き換え、package 内の `../` で始まる相対リンクを 1 段深くする。
 
 ## 追跡境界
 

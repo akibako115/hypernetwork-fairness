@@ -9,7 +9,7 @@ from hydra.utils import instantiate
 CONFIG_DIR = Path(__file__).parent.parent / "configs"
 
 
-@pytest.mark.parametrize("experiment", ["resnet_fairvlmed", "spatial_lora_fairvlmed"])
+@pytest.mark.parametrize("experiment", ["resnet_fairvlmed", "spatial_lora_fairvlmed", "hyperadapt_fairvlmed"])
 def test_fairvlmed_preset_connects_the_fundus_data_and_transforms(experiment: str) -> None:
     """FairVLMed は glaucoma の 2 クラスで、属性も transform も CheXpert とは別物になる。"""
     with initialize_config_dir(version_base="1.3", config_dir=str(CONFIG_DIR)):
@@ -26,3 +26,12 @@ def test_fairvlmed_preset_connects_the_fundus_data_and_transforms(experiment: st
     assert "maritalstatus" in categorical
     assert "maritalstatus" not in config.data.fairness_attribute_names.categorical
     assert instantiate(config.model) is not None
+
+
+def test_hyperadapt_fairvlmed_trains_the_backbone_from_imagenet() -> None:
+    """HyperAdapt の model 既定は凍結・path 無しなので、E2E の preset で ImageNet 重みと凍結解除を入れる。"""
+    with initialize_config_dir(version_base="1.3", config_dir=str(CONFIG_DIR)):
+        config = compose(config_name="train", overrides=["experiment=hyperadapt_fairvlmed"])
+
+    assert config.model.backbone_checkpoint_path.endswith("resnet50_imagenet.pth")
+    assert config.model.freeze_backbone is False

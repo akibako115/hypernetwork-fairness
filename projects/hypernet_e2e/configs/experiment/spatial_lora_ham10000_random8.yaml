@@ -1,6 +1,6 @@
 # @package _global_
 # Spatial LoRA を、病変単位のランダムな 8 区分で条件付ける。容量が増えた効果を除く対照。
-# 条件の列は analysis/latent_bias_hypernet/latent_conditions.py が data/ham10000/splits_latent に足したもの。
+# 条件の列は analysis/archive/latent_bias_hypernet/latent_conditions.py が data/ham10000/splits_latent に足したもの。
 # それ以外は spatial_lora_ham10000 と同じ（評価軸は sex と age_group_65 のまま）。
 defaults:
   - /model: spatial_lora_resnet50

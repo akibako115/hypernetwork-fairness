@@ -1,5 +1,5 @@
 # @package _global_
-# 規則の食い違いを植え込んだ HAM10000（analysis/latent_bias_hypernet/rule_planting.py）での ResNet-50 ERM。
+# 規則の食い違いを植え込んだ HAM10000（analysis/archive/latent_bias_hypernet/rule_planting.py）での ResNet-50 ERM。
 # マーカーの意味が GMM 8 のクラスタ 2・4 でだけ反転する。振り分けの正の対照の基準。
 defaults:
   - resnet_ham10000

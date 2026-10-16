@@ -3,7 +3,7 @@
 いずれも群の id を `attributes[group_key]` から読み、群が属性でもコホート（画像埋め込みのクラスタ）でも同じに動く。
 - `WorstCohortTaskLoss`：Masroor et al. (MICCAI 2026) Eq. 3 の ℓ_wst。CE + λ·max_k R_k
 - `FISTaskLoss`：Luo et al. (FairVision) Eq. 3–5 の Fair Identity Scaling
-- `FaMITaskLoss`：Sadri et al. (MICCAI 2025) Eq. 1–3 の相互情報量の勾配罰則
+- `FaMITaskLoss`：Sadri et al. (MICCAI 2025) Eq. 1–3 の相互情報量の勾配罰則。LHCF の文献 [34] は FairDomain を指すが、名前と説明はこの論文のもの
 """
 
 from collections.abc import Sequence
@@ -87,28 +87,41 @@ def sinkhorn_divergence(x: torch.Tensor, y: torch.Tensor, blur: float = 0.05, it
 
 
 class FISTaskLoss(nn.Module):
-    """Fair Identity Scaling：標本の重み s^I と群の重み s^G を c で混ぜて CE に掛ける（Eq. 3–5）。
+    """Fair Identity Scaling：標本の重み s^I と群の重み s^G を c で混ぜて CE に掛ける（Luo et al. Eq. 3–5）。
 
-    - s^I_i：バッチ内の損失の softmax（Eq. 4）
-    - s^G_i：バッチ全体の損失分布と、標本 i が属す群のバッチ内の損失分布との Sinkhorn 距離を
-      標本ごとに並べ、バッチについて取った softmax（Eq. 5）
+    論文の式に従い、論文が書いていない所は公式実装（FairVision `src/modules.py` の `Fair_Loss_Scaler`、
+    `scripts/train_*_fis.py`）に従う。
 
-    s^I と s^G はどちらもバッチ内の和が 1 なので、c がそのまま 2 つの重みの混合比になる。
-    公式実装（FairVision `src/modules.py` の `Fair_Loss_Scaler`、temperature=1・right_asymptote=1）と同じ正規化。
-    2026-10-13 より前は s^G を群について softmax してから標本に配っており、和が約 B/G になって
-    c=0.5 でも群の項が支配していた。
+    - s^I_i：バッチ B^t の損失の softmax（Eq. 4）
+    - s^G_a：B^t の損失分布と、群 a から別に引いたミニバッチ B^t_a の損失分布との OT を、群について取った softmax（Eq. 5）。
+      標本 i には s^G_{a_i} を掛ける
+    - 損失：(1/|B|) Σ_i ((1 − c) s^I_i + c s^G_{a_i}) ℓ_i（Eq. 3）
 
-    重みは損失から作るが勾配は流さない（公式実装は重みを detach しない）。論文の B^t_a
-    （群 a から別に抽出したミニバッチ）は、追加の forward を避けてバッチ内の群 a の標本で代える。
+    論文と公式実装の食い違いは論文に合わせた。
+    - OT の相手：論文は B^t と B^t_a。公式実装は B^t_a と全群の B^t_a の連結で、B^t を使わない。
+    - s^G の softmax：論文は群について（和が 1）。公式実装はバッチの標本について。
+      論文の形では s^G_{a_i} が 1/|A| 前後、s^I_i が 1/|B| 前後なので、c = 0.5 でも群の項が大きくなる。
+      2026-10-13 から 10-15 までは公式実装の正規化にしていた。
+    論文に記載がなく公式実装に従ったもの：OT は Sinkhorn divergence（geomloss の `SamplesLoss("sinkhorn", p=2, blur=0.1)`）、
+    B^t_a は群あたり 64 件、温度と `right_asymptote` は 1、s^I には勾配を流し、s^G には流さない（公式実装の s^G は勾配なしの B^t_a だけから作られる）。
     """
 
-    def __init__(self, num_groups: int, fusion: float = 0.5, blur: float = 0.05, class_weight: Sequence[float] | None = None, group_key: str = "group_id"):
-        """混合比 c と Sinkhorn の設定を保持する。
+    def __init__(
+        self,
+        num_groups: int,
+        fusion: float = 0.5,
+        blur: float = 0.1,
+        group_sample_size: int = 64,
+        class_weight: Sequence[float] | None = None,
+        group_key: str = "group_id",
+    ):
+        """混合比 c と Sinkhorn・B^t_a の設定を保持する。
 
         Args:
-            num_groups: 群の総数。
+            num_groups: 群の総数 |A|。
             fusion: c。論文の既定 0.5。
-            blur: Sinkhorn の blur（ε = blur²）。
+            blur: Sinkhorn の blur（ε = blur²）。公式実装の既定 0.1。
+            group_sample_size: B^t_a の件数。公式実装の既定 64。
             class_weight: 全群共通の `[num_classes]` 重み。
             group_key: 群 id のキー。
 
@@ -116,45 +129,86 @@ class FISTaskLoss(nn.Module):
             None
         """
         super().__init__()
-        if num_groups < 2 or not 0 <= fusion <= 1:
-            raise ValueError(f"num_groups >= 2 と 0 <= fusion <= 1 が必要: {num_groups}, {fusion}")
+        if num_groups < 2 or not 0 <= fusion <= 1 or group_sample_size < 1:
+            raise ValueError(f"num_groups >= 2、0 <= fusion <= 1、group_sample_size >= 1 が必要: {num_groups}, {fusion}, {group_sample_size}")
         self.register_buffer("_class_weight", _class_weight_tensor(class_weight), persistent=False)
         self.num_groups = num_groups
         self.fusion = float(fusion)
         self.blur = float(blur)
+        self.group_sample_size = int(group_sample_size)
         self.group_key = group_key
 
     def forward(self, inputs: ObjectiveInput) -> torch.Tensor:
+        if inputs.group_samples is None:
+            raise ValueError("FIS には群ごとに別に引いたバッチ（ObjectiveInput.group_samples）が必要")
         group_ids = inputs.attributes[self.group_key].long()
         losses = _weighted_ce(inputs.logits, inputs.target, self._class_weight)
+        samples = inputs.group_samples
+        sample_groups = samples.attributes[self.group_key].long()
         with torch.no_grad():
-            detached = losses.detach()
-            individual = torch.softmax(detached, dim=0)
-            distance = torch.full((self.num_groups,), float("-inf"), device=losses.device)
-            for g in group_ids.unique():
-                distance[g] = sinkhorn_divergence(detached, detached[group_ids == g], self.blur)
-            sample_group_weight = torch.softmax(distance[group_ids], dim=0)
-            # 群あたりの重みの合計。バッチ内の件数の差も含む（公式実装と同じ）。
-            group_mass = torch.zeros(self.num_groups, device=losses.device).index_add_(0, group_ids, sample_group_weight)
-            self._batch_diagnostics = {"group_weight_mass": group_mass}
-            weight = (1 - self.fusion) * individual + self.fusion * sample_group_weight
+            sample_losses = _weighted_ce(samples.logits, samples.target, self._class_weight)
+            batch = losses.detach()
+            distance = torch.stack([sinkhorn_divergence(batch, sample_losses[sample_groups == g], self.blur) for g in range(self.num_groups)])
+            group_weight = torch.softmax(distance, dim=0)
+            self._batch_diagnostics = {"group_weight": group_weight, "group_distance": distance}
+        individual = torch.softmax(losses, dim=0)
+        weight = (1 - self.fusion) * individual + self.fusion * group_weight[group_ids]
         return (weight * losses).mean()
 
 
-def _kde_score(points: torch.Tensor, data: torch.Tensor, bandwidth: torch.Tensor) -> torch.Tensor:
-    """Gaussian KDE の対数密度の微分 d/dv ln p̂(v) を `points` で評価する。"""
-    diff = points[:, None] - data[None, :]
-    log_kernel = -(diff**2) / (2 * bandwidth**2)
-    weight = torch.softmax(log_kernel, dim=1)
-    return -(weight * diff).sum(1) / bandwidth**2
+def _polynomial_basis(x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    """各次元の 0〜3 次の単項式（交差項なし）と、その各次元についての微分。
+
+    Babaie-Zadeh & Jutten (2005) 式 (29)–(32) の基底を d 次元に広げたもの。
+
+    Args:
+        x: `[n, d]`。
+
+    Returns:
+        tuple: 基底 `[n, L]` と微分 `[d, n, L]`（L = 1 + 3d）。
+    """
+    n, d = x.shape
+    ones, zeros = torch.ones(n, 1, dtype=x.dtype, device=x.device), torch.zeros(n, 1, dtype=x.dtype, device=x.device)
+    basis = torch.cat([ones] + [torch.stack([x[:, j], x[:, j] ** 2, x[:, j] ** 3], 1) for j in range(d)], 1)
+    derivatives = []
+    for k in range(d):
+        parts = [zeros]
+        for j in range(d):
+            parts.append(torch.stack([torch.ones_like(x[:, j]), 2 * x[:, j], 3 * x[:, j] ** 2], 1) if j == k else torch.zeros(n, 3, dtype=x.dtype, device=x.device))
+        derivatives.append(torch.cat(parts, 1))
+    return basis, torch.stack(derivatives)
+
+
+def polynomial_log_density_gradient(x: torch.Tensor) -> torch.Tensor:
+    """標本 x の分布の ∇_x ln p(x) を、多項式の最小二乗スコア推定で x 自身の点で評価する。
+
+    Babaie-Zadeh & Jutten (2005) IV-A-2・IV-B-1：スコア φ(x) = −∇ ln p(x) を基底の線形結合 k(x)ᵀw で近似し、
+    E{k kᵀ} w = E{∂k/∂x_d}（式 (28)）を標本平均で解く。正則化は論文どおり入れない。係数行列が退化したときに
+    解が定まるよう、逆行列ではなく擬似逆行列を使う。
+
+    Args:
+        x: `[n, d]` の標本。
+
+    Returns:
+        Tensor: `[n, d]`。
+    """
+    x = x.double()
+    basis, derivatives = _polynomial_basis(x)
+    gram = basis.T @ basis / len(x)
+    weight = torch.linalg.pinv(gram) @ derivatives.mean(1).T
+    return -(basis @ weight)
 
 
 class FaMITaskLoss(nn.Module):
-    """CE + μ·I(u; v)。I の勾配を score function difference で与える（Eq. 1–3）。
+    """CE + μ·I(u; v)。I の勾配を score function difference で与える（Sadri et al. MICCAI 2025 Eq. 1–3、Alg. 1）。
 
-    v は 2 クラスの logit 差（softmax の予測を決める 1 次元）。λ(u, v) = ∇_v ln p(v|u) − ∇_v ln p(v) を
-    バッチ内の Gaussian KDE（Silverman の幅）で推定し、`λ.detach() · v` の平均を罰則に足す。
-    この項の勾配が Eq. 2 の J_v^T λ になる。論文の多項式カーネル推定は、本文に式がないので KDE で代える。
+    v はモデルの出力（logits、`[B, num_classes]`）、u は群。λ(u, v) = ∇_v ln p(u|v) = ∇_v ln p(v|u) − ∇_v ln p(v) を、
+    論文が引く多項式のスコア推定（Babaie-Zadeh & Jutten 2005、3 次・交差項なし・正則化なし）で、
+    バッチ内の群ごとの v と、バッチ全体の v からそれぞれ推定する。`λ.detach() · v` の平均を罰則に足すと、
+    その勾配が Alg. 1 の (1/|b|) Σ_i J_vᵢᵀ λ(u_i, v_i) になる。
+
+    公式実装はない。u が離散なので p(u|v) のスコアを群ごとの条件付き密度と周辺密度の差で求める点、
+    基底の数（1 + 3·num_classes）より件数の少ない群の λ を 0 にする点は、論文に記載がなくこちらで決めた。
     """
 
     def __init__(self, num_groups: int, mi_weight: float = 0.5, class_weight: Sequence[float] | None = None, group_key: str = "group_id"):
@@ -178,29 +232,28 @@ class FaMITaskLoss(nn.Module):
         self.group_key = group_key
 
     def score_difference(self, v: torch.Tensor, group_ids: torch.Tensor) -> torch.Tensor:
-        """各標本の λ(u_i, v_i)。バッチ内に 2 件未満の群は 0。
+        """各標本の λ(u_i, v_i)。基底の数より件数の少ない群は 0。
 
         Args:
-            v: `[B]` の logit 差。
+            v: `[B, d]` の logits。
             group_ids: `[B]` の群 id。
 
         Returns:
-            Tensor: `[B]`。
+            Tensor: `[B, d]`。
         """
         v = v.detach()
-        bandwidth = (1.06 * v.std() * len(v) ** (-0.2)).clamp_min(1e-3)
-        marginal = _kde_score(v, v, bandwidth)
-        out = torch.zeros_like(v)
+        minimum = 1 + 3 * v.shape[1]
+        marginal = polynomial_log_density_gradient(v)
+        out = torch.zeros_like(marginal)
         for g in group_ids.unique():
             mask = group_ids == g
-            if mask.sum() >= 2:
-                out[mask] = _kde_score(v[mask], v[mask], bandwidth) - marginal[mask]
-        return out
+            if mask.sum() >= minimum:
+                out[mask] = polynomial_log_density_gradient(v[mask]) - marginal[mask]
+        return out.to(v.dtype)
 
     def forward(self, inputs: ObjectiveInput) -> torch.Tensor:
         group_ids = inputs.attributes[self.group_key].long()
-        logits = inputs.logits.float()
-        v = logits[:, 1] - logits[:, 0]
-        task = _weighted_ce(logits, inputs.target, self._class_weight).mean()
+        v = inputs.logits.float()
+        task = _weighted_ce(v, inputs.target, self._class_weight).mean()
         sfd = self.score_difference(v, group_ids)
-        return task + self.mi_weight * (sfd * v).mean()
+        return task + self.mi_weight * (sfd * v).sum(1).mean()

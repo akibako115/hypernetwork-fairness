@@ -18,11 +18,11 @@ checkpoint の選び方（`run_artifacts.selected_checkpoint`）と、network �
 
 使い方:
     uv run python analysis/common/predictions.py --study iterative_probe --split test \
-      --run-dir analysis/iterative_probe/runs/<run-id> \
-      --run-dir analysis/iterative_probe/runs/<run-id>
+      --run-dir analysis/archive/iterative_probe/runs/<run-id> \
+      --run-dir analysis/archive/iterative_probe/runs/<run-id>
 
     uv run python analysis/common/predictions.py --study initial_resnet_vs_invariant \
-      --split val --features --run-dir analysis/initial_resnet_vs_invariant/runs/<run-id>
+      --split val --features --run-dir analysis/archive/initial_resnet_vs_invariant/runs/<run-id>
 
 `--run-dir` には package に取り込んだ run を渡す（`analysis/common/runs.py import`）。
 """
@@ -294,6 +294,31 @@ def load_network(run_dir: Path, device: torch.device, checkpoint: Path | None = 
     return network.to(device).eval()
 
 
+def evaluation_data_config(data: Any) -> Any:
+    """群の損失を使う run の datamodule 設定を、属性欠損の行も予測できる形にして返す。
+
+    GroupDRO などの datamodule は、群を作る属性が欠けた行で群 ID を決められず止まる。HAM10000 の
+    test は sex か age を欠く行を残しているので、そのままでは test を予測できない。群 ID は学習損失の
+    重みにしか使わず network の入力にはならないので、予測では欠損を仮の値 0 に寄せる。学習時に
+    欠損の値を指定していた属性はそのまま使う。分析側は群を split CSV から切り直すので、この仮の
+    群 ID は cache に残らない。
+
+    Args:
+        data: run の `config.data`（OmegaConf）
+
+    Returns:
+        Any: 群の属性を持たない設定はそのまま、持つ設定は `group_missing_values` を補った複製
+    """
+    if "group_attribute_names" not in data:
+        return data
+    data = OmegaConf.create(OmegaConf.to_container(data))
+    filled = dict(data.get("group_missing_values") or {})
+    for name in data.group_attribute_names:
+        filled.setdefault(name, 0)
+    data.group_missing_values = filled
+    return data
+
+
 def _forward_split(
     network: torch.nn.Module,
     loader: Any,
@@ -383,7 +408,7 @@ def write_cache(
     for key in ("cv_splits_dir", "data_dir"):
         if key in config.data:
             config.data[key] = str(local_data_path(config.data[key]))
-    datamodule = instantiate(config.data)
+    datamodule = instantiate(evaluation_data_config(config.data))
     loader = datamodule.evaluation_dataloader(split)
     network = load_network(run_dir, device, checkpoint)
     use_attributes = bool(config.model.get("use_attributes", False))

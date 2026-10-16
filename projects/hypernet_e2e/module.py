@@ -90,6 +90,7 @@ class LitModule(L.LightningModule):
         self.fairness_attribute_names = fairness_attribute_names
         # 双対の更新に使う held-out のバッチの流れ。DataModule が held-out を持つときだけ on_train_start で作る。
         self._held_out = None
+        self._group_samples = None
         # 直近の step で held-out から測った objective の診断値。held-out を使わないときは空。
         self.held_out_diagnostics: dict[str, torch.Tensor] = {}
 
@@ -143,7 +144,7 @@ class LitModule(L.LightningModule):
         if not self.automatic_optimization:
             return self._alternating_training_step(batch)
         logits, preds, target, attributes, features = self._shared_step(batch)
-        inputs = ObjectiveInput(logits=logits, target=target, attributes=attributes, features=features)
+        inputs = ObjectiveInput(logits=logits, target=target, attributes=attributes, features=features, group_samples=self._group_sample_input())
         components = self._objective_components(inputs)
         loss = components["loss"]
         self._log_objective_components("train", components)
@@ -283,6 +284,25 @@ class LitModule(L.LightningModule):
         if uses_held_out and dual_update not in ("step", "epoch"):
             raise ValueError("held-out は双対変数を更新する条件付き objective でだけ使う")
         self._held_out = datamodule.held_out_batches() if uses_held_out and dual_update == "step" else None
+        per_group = getattr(self.training_objective, "group_sample_size", None)
+        self._group_samples = datamodule.group_sample_batches(per_group) if per_group else None
+
+    @torch.no_grad()
+    def _group_sample_input(self) -> ObjectiveInput | None:
+        """群ごとに別に引いたバッチを勾配なしで forward し、目的関数に渡す入力にする。
+
+        FIS の公式実装（FairVision `train_*_fis.py`）と同じく、model は train モードのまま no_grad で forward する。
+
+        Args:
+            なし
+
+        Returns:
+            ObjectiveInput | None: 群ごとのバッチを使わない目的関数なら None。
+        """
+        if self._group_samples is None:
+            return None
+        image, attributes, target = self.transfer_batch_to_device(next(self._group_samples), self.device, 0)
+        return ObjectiveInput(logits=self(image, attributes).float(), target=target.long(), attributes=attributes)
 
     @torch.no_grad()
     def _measure_on_held_out(self, batch: tuple[Any, Mapping[str, torch.Tensor], torch.Tensor]) -> None:

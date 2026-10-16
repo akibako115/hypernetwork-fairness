@@ -15,8 +15,8 @@ project と study の分離、独立した stage process、解決済み設定の
 
 ### R1 [P1] Q2 の再実行で、旧 run の epoch が選ばれる
 
-根拠: `analysis/latent_bias_hypernet/export_onestage.py:95-96`、
-`analysis/latent_bias_hypernet/q2_fairness_loss.py:70`。
+根拠: `analysis/archive/latent_bias_hypernet/export_onestage.py:95-96`、
+`analysis/archive/latent_bias_hypernet/q2_fairness_loss.py:70`。
 
 export の出力先は損失・条件・seed だけで決まり、既存 directory を再利用する。新しい run が旧 run より短い場合、
 新 run に存在しない後半 epoch の予測が残る。選択側は directory 内の全 epoch を候補にするため、旧 run の予測を選べる。
@@ -29,7 +29,7 @@ mock を用いた実際の `export → select_epoch` 呼び出しで、epoch 0 �
 
 ### R2 [P1] SWAD と最悪群評価で、再生成前の cache を採用できる
 
-根拠: `analysis/latent_bias_hypernet/fairness_eval.py:123-125,134-139`、
+根拠: `analysis/archive/latent_bias_hypernet/fairness_eval.py:123-125,134-139`、
 `analysis/common/predictions.py:411-415`。
 
 予測生成側は checkpoint・split の hash ごとに別の cache を作る。一方、選択側は checkpoint 名が合う最初のファイルを返し、
@@ -119,7 +119,7 @@ pytest の収集方針をまとめて整え、文書の標準コマンドを通�
 
 ### 主結果を作る学習が、分析用cacheの生成として実装されている
 
-`analysis/latent_bias_hypernet/probes/train_stage1.py` と `train_adapter_fair.py` は独自の学習loopを持つ。
+`analysis/archive/latent_bias_hypernet/probes/train_stage1.py` と `train_adapter_fair.py` は独自の学習loopを持つ。
 Q1 は前者の `a_s42`、Q2 は後者の出力を使用する。探索用と記されていても、現在は報告の根拠になっている。
 Q2 の2段目は予測と log を保存する一方、評価epochのモデル重みを保存しない。
 独自loopでは、run ID、状態確定、preflight、W&B、データmanifest、parent checkpoint hash の契約がそろわない。
@@ -150,7 +150,7 @@ trainingとanalysis、2つのprojectを一つのPython実装へまとめるこ�
 
 ### cacheの再利用には、行IDと入力hashの両方が必要
 
-`analysis/latent_bias_hypernet/crossfit.py:105-107,120-123` の独自cacheは、存在だけで再利用され、
+`analysis/archive/latent_bias_hypernet/crossfit.py:105-107,120-123` の独自cacheは、存在だけで再利用され、
 画像ID・checkpoint hash・split hashを持たない。targetだけの照合では同ラベル行の入れ替えを見つけられない。
 `dataset_gain_sources/data.py:116-134` は同じ実験・seedのcacheを上書きして選び、valとtestを別々に探索する。
 手元の現行cacheでval/testのrun不一致は見つからなかったが、重複runが入ると一意な比較を保証できない。

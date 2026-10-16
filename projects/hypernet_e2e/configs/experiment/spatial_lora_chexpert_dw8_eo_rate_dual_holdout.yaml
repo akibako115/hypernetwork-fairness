@@ -1,0 +1,10 @@
+# @package _global_
+# Spatial LoRA（stage3・stage4・fc）、1 段。潜在群 dw8：生成 ΔW の k-means（K = 8）。
+# EO rate 制約（Cotter et al. JMLR 2019 の proxy-Lagrangian）。8 群の全有向ペアで TPR 差・FPR 差 ≤ 0.1、双対変数は held-out で更新。
+defaults:
+  - spatial_lora_chexpert_age_race_eo_rate_dual_holdout
+  - _latent_groups_chexpert
+  - override /data: chexpert_latent_cells_dual_holdout
+  - _self_
+latent_partition: dw8
+experiment_name: spatial-lora-chexpert-dw8-eo-rate-dual-holdout

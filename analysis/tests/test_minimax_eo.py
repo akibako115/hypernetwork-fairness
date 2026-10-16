@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from analysis.minimax_auc_vs_eo.evaluation import (
+from analysis.archive.minimax_auc_vs_eo.evaluation import (
     age_metrics,
     eo_mixture,
     paired_patient_bootstrap,
@@ -43,7 +43,7 @@ def test_bootstrap_pairs_all_images_of_patient():
 
 
 def test_seed_average_differences_keep_seed_models_separate():
-    from analysis.minimax_auc_vs_eo.evaluation import bootstrap_seed_difference
+    from analysis.archive.minimax_auc_vs_eo.evaluation import bootstrap_seed_difference
 
     labels = {
         "target": np.array([0, 1, 0, 1] * 3),
@@ -58,7 +58,7 @@ def test_seed_average_differences_keep_seed_models_separate():
 
 
 def test_vector_bootstrap_matches_scalar_and_reuses_auc_computation(monkeypatch):
-    import analysis.minimax_auc_vs_eo.evaluation as evaluation
+    import analysis.archive.minimax_auc_vs_eo.evaluation as evaluation
 
     labels = {
         "target": np.array([0, 1, 0, 1] * 3),
@@ -89,7 +89,7 @@ def test_vector_bootstrap_matches_scalar_and_reuses_auc_computation(monkeypatch)
 
 
 def test_patient_grouping_preserves_order_and_all_repeated_images():
-    from analysis.minimax_auc_vs_eo.evaluation import _patient_index_groups
+    from analysis.archive.minimax_auc_vs_eo.evaluation import _patient_index_groups
 
     groups = _patient_index_groups(["b", "a", "b", "c", "a"])
     assert [group.tolist() for group in groups] == [[1, 4], [0, 2], [3]]

@@ -1,0 +1,18 @@
+{
+ "args": {
+  "stage1": "a_pacersub_s42",
+  "discover": "train_b",
+  "route": "raddino",
+  "K": [
+   8,
+   32
+  ],
+  "field": [],
+  "subgroup": "pacer",
+  "calibrate_on": "val",
+  "calib": "spline",
+  "tag": ""
+ },
+ "threshold": 0.09702012063456252,
+ "base_tpr": 0.7950097847358122
+}

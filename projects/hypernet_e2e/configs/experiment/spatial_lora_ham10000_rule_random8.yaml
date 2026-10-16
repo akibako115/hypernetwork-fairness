@@ -1,5 +1,5 @@
 # @package _global_
-# 規則の食い違いを植え込んだ HAM10000（analysis/latent_bias_hypernet/rule_planting.py）での Spatial LoRA。
+# 規則の食い違いを植え込んだ HAM10000（analysis/archive/latent_bias_hypernet/rule_planting.py）での Spatial LoRA。
 # 条件は spatial_lora_ham10000_random8 と同じ。gmm8 は規則が反転する境界を含む区分、const と random8 は対照。
 defaults:
   - spatial_lora_ham10000_random8

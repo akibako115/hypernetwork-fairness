@@ -23,7 +23,7 @@
 
 - CheXpert の AUROC の年齢差は、ラベルの付け方の違いで説明できる。高齢の「No Finding」陽性には、正常を明言した
   レポートではなく、追跡撮影の質問に答えただけのレポートから付いたものが多い。陽性を正常明言のものに絞ると、
-  差は 0.065 から 0.012 に縮む（`analysis/direction_poc/reports/d5_label_semantics.md`）。HAM10000・FairVLMed でも
+  差は 0.065 から 0.012 に縮む（`analysis/archive/direction_poc/reports/d5_label_semantics.md`）。HAM10000・FairVLMed でも
   AUROC の差は小さい。
 - したがって、この研究で扱う公平性の問題は、主に群ごとの動作点（TPR・FPR）のずれとする（2026-10-12）。
 - 動作点は**仮置き**の定義である。公平性の定義は先行研究でも分野全体でも定まっていないので、評価の仕方も含めて

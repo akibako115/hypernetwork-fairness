@@ -71,4 +71,17 @@ CheXpert の格子と同じ方針で、データ以外は動かさない。
 
 ## 状態
 
-2026-10-13 に preset を用意した。学習は未起動。
+2026-10-14 00:35 JST に ws06（GPU 0〜3）で 36 run を起動し、01:40 JST ごろまでに全 run が `succeeded` で終わった。run ID は [runs.md](runs.md)。checkpoint を除く metadata を回収し、45 run を `runs/` に取り込んだ。新規 36 run の checkpoint は best だけを回収した。
+
+## 2026-10-15：ERM・GroupDRO の図（EO rate は回し直し中）
+
+[requested_figures.ipynb](requested_figures.ipynb) で、CheXpert の [requested_figures](../hypernet_conditioning_grid/reports/requested_figures.md) と
+同じ 6 種類の図を、ERM・GroupDRO の 30 run について作った。test は属性の揃った 1,217 件、最悪群は TPR 最小の群。
+[分析メモ](reports/requested_figures.md)、数値の正本は `results/requested_figures/`、図は `figures/requested_figures/`（再生成物）。
+
+観察として、ERM の条件付けは全体 AUROC と worst-AUC を上げるが、Eopp1 は広がり worst-TPR は上がらない（2-stage では下がる）。
+GroupDRO は Spatial LoRA で Eopp1 を下げ worst-TPR を上げる向きに動くが、同 seed 差の SD が平均と同程度以上で、FPR の上昇を伴う。
+結論は未確定。EO rate がそろったら `OBJECTIVES` に足して再実行する。
+
+予測 cache を作るために、`analysis/common/predictions.py` が GroupDRO の datamodule で属性欠損行を仮の群に寄せるようにした
+（群 ID は network の入力にならない）。

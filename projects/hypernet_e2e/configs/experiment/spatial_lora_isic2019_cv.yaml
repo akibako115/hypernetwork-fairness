@@ -1,4 +1,5 @@
 # @package _global_
+# 新しい実験では使わない（2026-10-12）。皮膚画像の補足は HAM10000 の preset を使う。docs/research-premises.md
 # 5-fold CV の 1 fold を回す preset。`fold=0..4` で切り替え、5 run の test 結果をプールして評価する。
 # 稀少クラス（DF 239 枚 / VASC 253 枚）は単一 test split では属性で割った時点で群あたり 10 枚前後に
 # なり、群間 gap がサンプリング変動に埋もれる。全画像が 1 回ずつ test に回る CV ならプールした

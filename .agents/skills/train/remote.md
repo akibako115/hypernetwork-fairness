@@ -180,6 +180,17 @@ ssh -o ConnectTimeout=10 -o ControlPath=~/.ssh/sockets/%r@%h-%p kohkiakiba@192.1
 - **この repo の remote 配置・container 名・データ置き場は未確定。** 初回は ws_docker.md の
   baseline 確認から決め、決まった値をこの節に追記する
 
+## ws06 メモ
+
+- アドレス: `kohkiakiba@192.168.1.16`。Ubuntu 22.04、conda・uv・docker が使える
+- 作業領域: `/fast/kohkiakiba`（2026-10-11 に使用許可。ログイン案内では `/fast`、旧 `/raid`）
+- repo の配置: `/mnt/fast/kohkiakiba/hypernet-fairness`（`/fast` は `/mnt/fast` への symlink。container 内 `/workspaces/hypernet-fairness`）
+- データ置き場: `/mnt/fast/kohkiakiba/fairness_data`（2026-10-14 時点で `ham10000/` の images・splits・splits_dual_holdout だけ）
+- image: `hypernet-fairness`（2026-10-14 に `docker/build.sh` で作成、uid 10090）。mount・IPC は ws11 と同じ
+- GPU は 7 枚（0・3 が A6000、1・2 が 6000 Ada、4〜6 が RTX PRO 6000 Blackwell）。**4〜6 の Blackwell は
+  `uv.lock` の torch 2.7.1+cu118 が対応しないので使えない**（sm_120 が無い）
+- `~/.netrc` は 2026-10-14 にローカルから置いた
+
 ## ws11 メモ
 
 - アドレス: `kohkiakiba@192.168.1.21`。A100 80GB × 9（index 0-8）。uid:gid は `10090:10091`
@@ -190,3 +201,4 @@ ssh -o ConnectTimeout=10 -o ControlPath=~/.ssh/sockets/%r@%h-%p kohkiakiba@192.1
 - 常駐 container `hypernet-fairness-adversary-strength` は `.netrc` を mount していない。学習の
   起動に使わない（上の「起動」）
 - W&B project は `fairness_hypernet`（entity `kohki-akiba-kyushu-university`）
+- GPU は他の利用者と共有している。空いている GPU のうち**番号の大きいものから**使う（2026-10-12）

@@ -1,6 +1,6 @@
 # @package _global_
 # 2 段学習（cross-fit）の 1 段目。ResNet-50 ERM を train の半分（stage1）だけで学習する。
-# 2 段目は残りの半分（stage2）で学習する（analysis/latent_bias_hypernet/crossfit.py）。
+# 2 段目は残りの半分（stage2）で学習する（analysis/archive/latent_bias_hypernet/crossfit.py）。
 defaults:
   - resnet_ham10000
   - _self_

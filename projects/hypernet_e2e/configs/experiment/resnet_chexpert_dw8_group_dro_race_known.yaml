@@ -1,0 +1,9 @@
+# @package _global_
+# ResNet-50、1 段。潜在群 dw8：生成 ΔW の k-means（K = 8）。GroupDRO（原典どおり train のバッチで q を更新）。
+defaults:
+  - resnet_chexpert_age_race_group_dro_race_known
+  - _latent_groups_chexpert
+  - override /data: chexpert_latent_groups
+  - _self_
+latent_partition: dw8
+experiment_name: resnet-chexpert-dw8-group-dro-race-known

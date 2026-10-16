@@ -1,6 +1,6 @@
 # @package _global_
 # Spatial LoRA を、ラベル予測方向を INLP で除いた DINOv2 埋め込みの PCA 16 成分だけで条件付ける（段階 2）。
-# 列は analysis/latent_bias_hypernet/latent_conditions.py が data/ham10000/splits_latent に足したもの。
+# 列は analysis/archive/latent_bias_hypernet/latent_conditions.py が data/ham10000/splits_latent に足したもの。
 # 学習前に固定した画像埋め込みを、属性の代わりに連続入力として MetadataEncoder に入れる（サンプルごとの連続な振り分け）。
 defaults:
   - /model: spatial_lora_resnet50

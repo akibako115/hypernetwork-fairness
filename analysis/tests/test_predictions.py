@@ -11,12 +11,14 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from omegaconf import OmegaConf
 
 from analysis.common import predictions
 from analysis.common.predictions import (
     FEATURES_SCHEMA_VERSION,
     SCHEMA_VERSION,
     cache_path,
+    evaluation_data_config,
     features_cache_path,
     load_cache,
     load_features,
@@ -285,3 +287,17 @@ def test_sha_is_reused_within_operation_but_new_operation_detects_rewrite(tmp_pa
     replacement.write_bytes(b"replaced")
     replacement.replace(path)
     assert predictions._sha256(path) != first and len(calls) == 3
+
+
+def test_group_datamodule_config_fills_missing_group_attributes_for_prediction() -> None:
+    data = OmegaConf.create(
+        {"group_attribute_names": ["sex", "age_group_65"], "group_missing_values": {"sex": 2}, "batch_size": 8}
+    )
+    filled = evaluation_data_config(data)
+    assert dict(filled.group_missing_values) == {"sex": 2, "age_group_65": 0}
+    assert "group_missing_values" in data and dict(data.group_missing_values) == {"sex": 2}
+
+
+def test_plain_datamodule_config_is_left_unchanged() -> None:
+    data = OmegaConf.create({"batch_size": 8})
+    assert evaluation_data_config(data) is data

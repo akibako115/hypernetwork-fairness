@@ -87,7 +87,7 @@ class _AttributeAdversary(nn.Module):
             self.categorical_trunks = self.continuous_trunks = None
         else:
             # 共有 trunk では 3 属性の勾配が同じ unit を取り合い、止めた特徴量の上でも sex の学習が遅く
-            # 死ぬ unit も多かった（analysis/adversary_strength/adversary_head_state.ipynb）。
+            # 死ぬ unit も多かった（analysis/archive/adversary_strength/adversary_head_state.ipynb）。
             self.trunk = None
             self.categorical_trunks = nn.ModuleList([_trunk(feature_dim, hidden_dims, activation) for _ in categorical_cardinalities])
             self.continuous_trunks = nn.ModuleList([_trunk(feature_dim, hidden_dims, activation) for _ in range(num_continuous)])

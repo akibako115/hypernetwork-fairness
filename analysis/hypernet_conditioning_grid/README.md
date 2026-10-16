@@ -12,6 +12,23 @@
 評価の定義は [research-premises.md](../../docs/research-premises.md)（固定しきい値 0.5 の Eopp1・Eopp0・Eodds と
 害の大きい側の最悪群の率が主、AUROC は副）。
 
+## TODO：EO の列を Cotter et al. の形の run に差し替える（2026-10-15）
+
+全ペアの EO rate（8 群の有向ペア 112 本、TPR・FPR とも ε=0.1、λ の初期 task 重み 0.9）は、原著の制約
+（各群の率を全体の率と比べる）と形が違った。EO の列は `*_eo_fpr_overall_dual_holdout` の 15 run
+（`FPR_g − FPR_全体 ≤ 0.05` を 8 本、TPR は制約しない、λ は一様から）に差し替える。ws06 で 2026-10-14 23:58 JST に起動した。
+
+- [x] 全ペアの EO rate 15 run の hardlink を `runs/` から外し、`runs.md` の表からも外した（run ID は「外した run」に残す。
+  run 本体は `projects/hypernet_e2e/runs/` にある）
+- [x] `compute.condition()` が `eo-fpr-overall` を ERM と読まないようにした（目的関数名 `eo_fpr_overall`）
+- [ ] 15 run が終わったら、metadata と全 epoch の checkpoint を ws06 から回収し、`runs/` に取り込む
+- [ ] checkpoint の選び方を実装する：holdout で制約（`FPR_g − FPR_全体 ≤ 0.05`）を満たす epoch のうち、目的関数が最もよいもの。
+  満たす epoch が無い run は、そのことを明示する。best val AUROC では選ばない（制約の効く前の epoch が選ばれる）
+- [ ] 選んだ checkpoint で予測 cache を作り直す。`cache/` に残る全ペアの EO の cache（60 本）は使わない
+- [ ] `grid.ipynb`・`requested_figures.ipynb` の目的関数の一覧（`eo_rate`）を `eo_fpr_overall` に差し替え、図と
+  `results/` を作り直す。差し替えるまで、2026-10-14 の図と `reports/requested_figures.md` の EO の列は全ペアの版の結果である
+- [ ] 主な指標は FPR 側（Eopp0・最悪群の FPR）。TPR は制約していないので、Eopp1 は狙った指標ではないと書く
+
 ## 格子（CheXpert、年齢 65 歳 × race の 8 群、seed 42・43・44）
 
 | 手順 | モデル | ERM | GroupDRO | EO rate |
@@ -75,4 +92,17 @@
 
 ## 状態
 
-起動前。起動は `run_logs/hcg_chexpert_ws11_launch_20261013.sh`（ws11、1 条件 1 container で 3 seed を直列、1 GPU に最大 2 container）。
+2026-10-13 に 39 run がすべて正常終了。起動は `run_logs/hcg_chexpert_ws11_launch_20261013.sh`（ws11、1 条件 1 container で 3 seed を直列、1 GPU に最大 2 container）。
+
+
+## 2026-10-14：依頼された6種類の図
+
+[requested_figures.ipynb](requested_figures.ipynb)で、45 runのbest validation AUROC checkpointをtest評価した。
+ERMのモデル比較、公平性損失の比較、各8群の性能、指定GroupDRO runのq、validationのepoch推移を扱う。
+[図一覧](figures/requested_figures/index.html)・[全15図PDF](figures/requested_figures/all_requested_figures.pdf)・
+[分析メモ](reports/requested_figures.md)にまとめた。数値の正本は`results/requested_figures/`。
+
+観察として、ERMの属性条件付けではAUROC系とFPR系の改善方向がそろわない。EO-rate（全ペアの版。上の TODO で差し替える）でEopp0が
+縮む条件はあるが、全体性能の低下や群別FPRの悪化を伴う。一般的な有効性の結論は未確定とする。
+worst-FPRの全epoch値は未記録なので、学習推移図の該当枠はbest checkpointの点のみ。
+他の曲線は30 epochのログに基づき、global TPR/FPRはaccuracy・BACC・陽性率から復元した。

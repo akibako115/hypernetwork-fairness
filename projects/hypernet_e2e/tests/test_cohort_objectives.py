@@ -5,7 +5,7 @@ import torch
 import torch.nn.functional as F
 
 from projects.hypernet_e2e.callbacks.swad import SWADCallback, _Segment
-from projects.hypernet_e2e.objectives.cohort import FaMITaskLoss, FISTaskLoss, WorstCohortTaskLoss, sinkhorn_divergence
+from projects.hypernet_e2e.objectives.cohort import FaMITaskLoss, FISTaskLoss, WorstCohortTaskLoss, polynomial_log_density_gradient, sinkhorn_divergence
 from projects.hypernet_e2e.objectives.input import ObjectiveInput
 
 
@@ -36,53 +36,96 @@ def test_sinkhorn_divergence_is_zero_for_identical_sets_and_grows_with_shift() -
     assert far == pytest.approx(0.5, rel=0.1)
 
 
-def test_fis_matches_equation_three() -> None:
-    """公式実装（Fair_Loss_Scaler）と同じく、群の重みは標本ごとに並べた距離のバッチについての softmax。"""
+def _with_group_samples(inputs: ObjectiveInput, logits: torch.Tensor, target: list[int], groups: list[int]) -> ObjectiveInput:
+    return ObjectiveInput(logits=inputs.logits, target=inputs.target, attributes=inputs.attributes, group_samples=_inputs(logits, target, groups))
+
+
+def test_fis_matches_equations_three_to_five() -> None:
+    """s^G は B^t と B^t_a の損失分布の OT を、群について取った softmax（論文 Eq. 5）。"""
     torch.manual_seed(0)
-    logits = torch.randn(8, 2)
+    logits, sample_logits = torch.randn(8, 2), torch.randn(12, 2)
     target, groups = [0, 1] * 4, [0] * 6 + [1] * 2
-    inputs = _inputs(logits, target, groups)
+    sample_target, sample_groups = [0, 1] * 6, [0] * 6 + [1] * 6
+    inputs = _with_group_samples(_inputs(logits, target, groups), sample_logits, sample_target, sample_groups)
     loss = FISTaskLoss(2, fusion=0.5)(inputs)
     losses = F.cross_entropy(logits, inputs.target, reduction="none")
-    g = torch.tensor(groups)
-    distance = torch.stack([sinkhorn_divergence(losses, losses[g == k]) for k in range(2)])
-    weight = 0.5 * torch.softmax(losses, 0) + 0.5 * torch.softmax(distance[g], 0)
+    sample_losses = F.cross_entropy(sample_logits, torch.tensor(sample_target), reduction="none")
+    sg = torch.tensor(sample_groups)
+    distance = torch.stack([sinkhorn_divergence(losses, sample_losses[sg == k], 0.1) for k in range(2)])
+    weight = 0.5 * torch.softmax(losses, 0) + 0.5 * torch.softmax(distance, 0)[torch.tensor(groups)]
     assert torch.isclose(loss, (weight * losses).mean(), atol=1e-6)
 
 
-def test_fis_individual_and_group_weights_have_the_same_total() -> None:
-    """c が混合比として働くには、2 つの重みの合計がそろっている必要がある。"""
+def test_fis_group_weights_sum_to_one_over_groups() -> None:
     torch.manual_seed(0)
-    logits = torch.randn(64, 2)
-    inputs = _inputs(logits, [0, 1] * 32, [k % 4 for k in range(64)])
+    inputs = _with_group_samples(_inputs(torch.randn(16, 2), [0, 1] * 8, [k % 4 for k in range(16)]), torch.randn(16, 2), [0, 1] * 8, [k // 4 for k in range(16)])
     objective = FISTaskLoss(4, fusion=1.0)
     objective(inputs)
-    assert torch.isclose(objective._batch_diagnostics["group_weight_mass"].sum(), torch.tensor(1.0))
+    assert torch.isclose(objective._batch_diagnostics["group_weight"].sum(), torch.tensor(1.0))
 
 
-def test_fis_weights_carry_no_gradient() -> None:
+def test_fis_requires_group_samples() -> None:
+    with pytest.raises(ValueError, match="group_samples"):
+        FISTaskLoss(2)(_inputs(torch.randn(4, 2), [0, 1, 0, 1], [0, 0, 1, 1]))
+
+
+def test_fis_gradient_flows_through_individual_weights_only() -> None:
+    """s^I = softmax(ℓ) には勾配が流れる（公式実装は detach しない）。s^G は定数。"""
     logits = torch.randn(6, 2, requires_grad=True)
-    inputs = _inputs(logits, [0, 1, 0, 1, 0, 1], [0, 0, 0, 1, 1, 1])
-    FISTaskLoss(2)(inputs).backward()
-    assert logits.grad is not None and torch.isfinite(logits.grad).all()
+    inputs = _with_group_samples(_inputs(logits, [0, 1, 0, 1, 0, 1], [0, 0, 0, 1, 1, 1]), torch.randn(6, 2), [0, 1] * 3, [0, 0, 0, 1, 1, 1])
+    FISTaskLoss(2, fusion=0.0)(inputs).backward()
+    reference, logits.grad = logits.grad.clone(), None
+    losses = F.cross_entropy(logits, inputs.target, reduction="none")
+    (torch.softmax(losses, 0) * losses).mean().backward()
+    assert torch.allclose(reference, logits.grad, atol=1e-6)
+
+
+def test_group_sample_batches_draw_the_same_count_from_every_group() -> None:
+    from projects.hypernet_e2e.data.group_datamodule import GroupSampleBatchSampler
+
+    groups = torch.tensor([0] * 5 + [1] * 2 + [2] * 9)
+    batches = iter(GroupSampleBatchSampler(groups, 3, per_group=4, seed=0))
+    seen = []
+    for _ in range(3):
+        batch = torch.tensor(next(batches))
+        assert torch.equal(torch.bincount(groups[batch], minlength=3), torch.tensor([4, 4, 4]))
+        seen.append(batch)
+    # 群 0（5 件）は 1 周目の 5 件を、並べ直す前にすべて使う
+    first_cycle = torch.cat([b[:4] for b in seen])[:5]
+    assert sorted(first_cycle.tolist()) == [0, 1, 2, 3, 4]
+
+
+def test_polynomial_score_recovers_a_gaussian_score() -> None:
+    """N(μ, σ²I) では ∇ ln p(x) = −(x − μ)/σ²（SD 2）。3 次の基底は 1 次を含むので、標本誤差の範囲で推定できる。"""
+    torch.manual_seed(0)
+    x = 2.0 + 0.5 * torch.randn(4000, 2)
+    error = polynomial_log_density_gradient(x).float() + (x - 2.0) / 0.25
+    assert error.abs().mean() < 0.1
 
 
 def test_fami_score_difference_is_zero_when_groups_are_identically_distributed() -> None:
-    v = torch.tensor([-1.0, 0.0, 1.0, -1.0, 0.0, 1.0])
-    sfd = FaMITaskLoss(2).score_difference(v, torch.tensor([0, 0, 0, 1, 1, 1]))
-    assert torch.allclose(sfd, torch.zeros(6), atol=1e-5)
+    v = torch.randn(40, 2)
+    v = torch.cat([v, v])
+    sfd = FaMITaskLoss(2).score_difference(v, torch.tensor([0] * 40 + [1] * 40))
+    assert torch.allclose(sfd, torch.zeros_like(sfd), atol=1e-5)
 
 
 def test_fami_penalty_pulls_separated_groups_together() -> None:
-    v = torch.tensor([-2.0, -1.5, -1.0, 1.0, 1.5, 2.0], requires_grad=True)
-    logits = torch.stack([torch.zeros_like(v), v], 1)
+    torch.manual_seed(0)
+    low, high = torch.randn(30, 2) * 0.5 - 1.0, torch.randn(30, 2) * 0.5 + 1.0
+    v = torch.cat([low, high]).requires_grad_()
+    groups = torch.tensor([0] * 30 + [1] * 30)
     loss = FaMITaskLoss(2, mi_weight=1.0)
-    groups = torch.tensor([0, 0, 0, 1, 1, 1])
-    penalty = (loss.score_difference(v, groups) * v).mean()
-    penalty.backward()
+    (loss.score_difference(v, groups) * v).sum(1).mean().backward()
     # 降下方向（−勾配）が、低い群を上へ、高い群を下へ動かす
-    assert (v.grad[:3] < 0).all() and (v.grad[3:] > 0).all()
-    assert torch.isfinite(loss(_inputs(logits, [0, 0, 0, 1, 1, 1], groups.tolist())))
+    assert (-v.grad[:30].mean(0) > 0).all() and (-v.grad[30:].mean(0) < 0).all()
+    assert torch.isfinite(loss(_inputs(v.detach(), [0] * 60, groups.tolist())))
+
+
+def test_fami_skips_groups_smaller_than_the_basis() -> None:
+    v = torch.randn(20, 2)
+    sfd = FaMITaskLoss(2).score_difference(v, torch.tensor([0] * 14 + [1] * 6))
+    assert torch.equal(sfd[14:], torch.zeros(6, 2))
 
 
 def _segments(losses: list[float]) -> list[_Segment]:
@@ -110,3 +153,46 @@ def test_swad_adds_the_remaining_valley_at_the_end_of_training() -> None:
     swad.finalize()
     assert swad.converge_epoch == 1
     assert swad.averaged_epochs == [1, 2, 3, 4, 5]
+
+
+def test_lightning_passes_group_sample_batches_to_fis(tmp_path) -> None:
+    """学習 step ごとに DataModule の群別バッチを勾配なしで forward し、FIS の s^G に使う。"""
+    import lightning as L
+    from torch.utils.data import DataLoader, TensorDataset
+
+    from projects.hypernet_e2e.module import LitModule
+
+    class Data(TensorDataset):
+        def __getitem__(self, index):
+            x, group, target = super().__getitem__(index)
+            return x, {"group_id": group}, int(target)
+
+    groups, targets = torch.tensor([0, 0, 1, 1] * 2), torch.tensor([0, 1, 0, 1] * 2)
+    train = Data(torch.randn(8, 2), groups, targets)
+    sample_batch = next(iter(DataLoader(Data(torch.randn(6, 2), torch.tensor([0, 0, 0, 1, 1, 1]), torch.tensor([0, 1, 1, 0, 0, 1])), batch_size=6)))
+    requested = []
+
+    class DM(L.LightningDataModule):
+        def train_dataloader(self):
+            return DataLoader(train, batch_size=8)
+
+        def group_sample_batches(self, per_group):
+            requested.append(per_group)
+            while True:
+                yield sample_batch
+
+    net = torch.nn.Linear(2, 2)
+    objective = FISTaskLoss(2, group_sample_size=3)
+    module = LitModule(net, objective, optimizer=lambda params: torch.optim.SGD(params, lr=0.0), scheduler=None, backbone_checkpoint_path=None)
+    trainer = L.Trainer(
+        accelerator="cpu", max_epochs=1, logger=False, enable_checkpointing=False, enable_model_summary=False, enable_progress_bar=False, limit_val_batches=0, default_root_dir=tmp_path
+    )
+    trainer.fit(module, datamodule=DM())
+
+    x, attributes, target = next(iter(DataLoader(train, batch_size=8)))
+    with torch.no_grad():
+        expected = FISTaskLoss(2)
+        sx, sattributes, starget = sample_batch
+        expected(ObjectiveInput(net(x), target, attributes, group_samples=ObjectiveInput(net(sx), starget, sattributes)))
+    assert requested == [3]
+    assert torch.allclose(objective._batch_diagnostics["group_weight"], expected._batch_diagnostics["group_weight"], atol=1e-6)

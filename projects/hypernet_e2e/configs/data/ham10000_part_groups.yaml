@@ -5,7 +5,7 @@ defaults:
 _target_: projects.hypernet_e2e.data.group_datamodule.GroupImageDataModule
 
 # 2 段学習（cross-fit）の 2 段目で、区分 `part` を群にする。
-# 列と区分の数（k.txt）は analysis/latent_bias_hypernet/crossfit.py が data/ham10000/splits_crossfit/<dir> に書いたもの。
+# 列と区分の数（k.txt）は analysis/archive/latent_bias_hypernet/crossfit.py が data/ham10000/splits_crossfit/<dir> に書いたもの。
 group_attribute_names: [part]
 group_cardinalities: ["${crossfit.k}"]
 num_groups: ${crossfit.k}

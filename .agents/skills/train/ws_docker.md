@@ -109,7 +109,8 @@ ssh -o ConnectTimeout=10 -o ControlPath=~/.ssh/sockets/%r@%h-%p kohkiakiba@192.1
 - 予約された run directory の所有者が `kohkiakiba` である（`root` なら `--user` の指定が残っている）
 
 worker が bus error を起こした場合、失敗 container と成功 container の `IpcMode` と `ShmSize` を
-比べる。成功側の IPC mode で `retryN` の名前を付けて再起動し、失敗側の log は残す。
+比べる。成功側の IPC mode で `retryN` の名前を付けて再起動する。失敗側の log は比較が終わるまで残し、
+その後は失敗 run と一緒に消す（[failures.md](failures.md) の「掃除」）。
 失敗が確定した exited container だけを、ID とエラーを記録してから削除する。
 
 ## root 所有のファイルが残ったとき

@@ -27,7 +27,8 @@ projects/hypernet_e2e/runs/
 ```
 
 `runs/` は Git 管理しない。生成済み run は不変であり、再実行や再開で既存 directory を使い回さない。
-途中で失敗した run も `run.json` に `failed` を記録して残す。
+途中で失敗した run は `run.json` に `failed` とエラーを記録する。原因を確かめて報告したら、その run directory は消す
+（`.agents/skills/train/failures.md`）。
 
 ## run ID
 

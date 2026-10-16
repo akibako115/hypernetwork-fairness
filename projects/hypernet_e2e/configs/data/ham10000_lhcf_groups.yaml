@@ -5,7 +5,7 @@ defaults:
 _target_: projects.hypernet_e2e.data.group_datamodule.GroupImageDataModule
 
 # LHCF の隠れコホート：ResNet-50 ERM（seed 42）の train 埋め込みの GMM、K は BIC で 11。
-# 列は analysis/latent_bias_hypernet/lhcf_cohorts.py が data/ham10000/splits_lhcf に足したもの。
+# 列は analysis/archive/latent_bias_hypernet/lhcf_cohorts.py が data/ham10000/splits_lhcf に足したもの。
 cv_splits_dir: ${paths.data_dir}/ham10000/splits_lhcf
 group_attribute_names: [lhcf]
 group_cardinalities: [11]

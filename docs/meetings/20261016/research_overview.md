@@ -33,8 +33,9 @@
 2026-10-13 に決めた。金曜に向けて実験を設計し、まとめるときは次のようにする。
 
 - **再利用する**：10/13 の修正の影響を受けず、設計した格子の条件に合う run。
-  例：ERM、minimax AUC、PopAUC、均等抽出、再重み付け、ℓ_wst、FaMI、SWAD。
+  例：ERM、minimax AUC、PopAUC、均等抽出、再重み付け、ℓ_wst、SWAD。
 - **使わない**：修正の影響を受ける run（EO rate、自然抽出の GroupDRO、FIS、DANN、ρ=1 の FairDRO）。
+  FIS と FaMI は 2026-10-15 に論文の式に合わせ直した（[記録](../../reviews/20261015_lhcf_paper_alignment.md)）。
   修正後の実装で回し直し、旧実装の結果とは比べない。
 - **新しく回す**：格子のうち、まだ回していない条件。
 - どの run が影響を受けるかは、[修正記録](../../reviews/20261013_fairness_objective_fixes.md)と各 study の README 冒頭の注記による。
@@ -151,7 +152,7 @@
 | 画像側の情報を入れる | ERM の特徴量や誤りの出方で束ねる（LHCF 系） | 1：属性で書けないバイアスを拾えない |
 | 妥当性を検定する | 正解の分かっている群を植え込んで回収できるかを見る。見つかった群の性能差が偶然以上かを見る | 1・2 の両方を確かめる |
 
-repo には近い試みの断片がある。`analysis/direction_poc` の multiaccuracy、`analysis/conditioned_subgroup_discovery` の植え込み、
+repo には近い試みの断片がある。`analysis/archive/direction_poc` の multiaccuracy、`analysis/conditioned_subgroup_discovery` の植え込み、
 LHCF のコホートである。いずれも整理されていないので、使えるかは個別に確かめる。
 
 ## 未決事項

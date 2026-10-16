@@ -1,0 +1,15 @@
+# 潜在群（K = 8）の GroupDRO 用。群は学習前に 1 段・ERM の Spatial LoRA（seed ごと）から固定したもので、
+# 列は analysis/latent_subgroup_spaces/latent_groups.py が data/chexpert/splits_race_known_latent に足したもの。
+# どの群を使うかは preset の `latent_partition`（dw8：生成 ΔW の k-means、attrk8：属性の k-means の対照）で決め、
+# seed s の run は seed s の ERM から作った列を読む。
+defaults:
+  - chexpert_race_known
+  - _self_
+
+_target_: projects.hypernet_e2e.data.group_datamodule.GroupImageDataModule
+cv_splits_dir: ${paths.data_dir}/chexpert/splits_race_known_latent
+group_attribute_names: ["${latent_partition}_s${seed}"]
+group_cardinalities: [8]
+group_missing_values: {}
+num_groups: 8
+group_key: group_id

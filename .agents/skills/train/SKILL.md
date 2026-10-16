@@ -133,13 +133,14 @@ detached docker）と、`du` / `ls` / `ps` のような読み取りは転送で�
 `metrics/fit.json` の内容を人手の文書へ複製しない。人が残すのは run ID と「なぜこの条件か」だけで、
 それも必要になった時点で書く。
 
-`projects/*/runs/` は Git 管理外。生成済み run は不変で、上書き・改名・削除をしない。
-失敗した run も `status: failed` のまま残す。
+`projects/*/runs/` は Git 管理外。生成済み run は不変で、上書き・改名をしない。
+成功した run は削除しない。失敗した run は、原因を報告したら run directory と controller log を消す
+（[failures.md](failures.md) の「掃除」）。
 
 ## 失敗と再実行
 
 [failures.md](failures.md)。再開機構は無いので、途中失敗した条件をやり直す場合も新しい run になる。
-前の run directory は消さず、どの run の再実行かを報告に残す。
+前の run の ID とエラーを報告に残してから、その run directory を消す。
 
 ## 完了条件
 

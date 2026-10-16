@@ -14,6 +14,8 @@
   それ以前の EO rate・自然抽出の GroupDRO・FIS・DANN の結果は、手法の効果として読めない。
   過去の結果は、修正の影響を受けず格子に合うものだけを再利用し、影響を受けるものは使わずに回し直す
   （research_overview の「過去の実験結果の扱い」）。
+- 2026-10-15 に FIS と FaMI を論文の式に合わせた（[reviews/20261015_lhcf_paper_alignment.md](reviews/20261015_lhcf_paper_alignment.md)）。
+  それ以前の FIS・FaMI の結果は使わない。
 - Q1〜Q3 の区分（[plans/20261011_chexpert_restructure_plan.md](plans/20261011_chexpert_restructure_plan.md)）は柱 A・B に置き換えた。
   結果の一部は上の不具合の影響を受ける。
 
@@ -24,7 +26,7 @@
 | [research-premises.md](research-premises.md) | 研究の前提と評価の定義。計画・手法選定・結論の書き方はこれに反しない形で進める |
 | [experiment-workflow.md](experiment-workflow.md) | 実験 1 本を仮説から結論まで進める手順 |
 | [plans/](plans/) | 日付つきの実験計画と実行記録。どれが現役かは上の「現在地」が決める。いまある 2 本（10-02 の主比較の実行記録、10-11 の Q1〜Q3）はどちらも過去の記録 |
-| [methods/](methods/) | 公平性手法の調査。[比較候補](methods/fairness-baseline-methods.md)と、[評価指標に合わせた学習への検討](methods/fairness-objective-alternatives.md) |
+| [methods/](methods/) | 公平性手法の調査。[比較候補](methods/fairness-baseline-methods.md)と、[評価指標に合わせた学習への検討](methods/fairness-objective-alternatives.md)。手法ごとの原論文の条件・実装・checkpoint の選び方は [EO rate](methods/eo-rate.md)、[GroupDRO](methods/group-dro.md) |
 | [reviews/](reviews/) | 実装・実験基盤のレビューと修正記録 |
 | [meetings/](meetings/) | ミーティング用メモ。`<YYYYMMDD>/` ごとに置く |
 | [slides/](slides/) | スライド。`<name>/` に図を作る `figures.py`、pptx を組む `build.js`、生成物を置く |

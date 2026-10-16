@@ -12,7 +12,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from analysis.iterative_probe.groups import GROUPING_NAMES, group_metrics, group_rows
+from analysis.archive.iterative_probe.groups import GROUPING_NAMES, group_metrics, group_rows
 
 # split CSV 8 行のうち、欠損で 4 行が落ちた状態を作る。
 KEPT = [1, 2, 5, 6]

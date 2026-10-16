@@ -22,9 +22,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from analysis.archive.initial_resnet_vs_invariant import groups as initial_groups
+from analysis.archive.iterative_probe import groups as iterative_groups
 from analysis.common.paths import REPOSITORY_ROOT
-from analysis.initial_resnet_vs_invariant import groups as initial_groups
-from analysis.iterative_probe import groups as iterative_groups
 
 # golden を流す実装。package が増えたらここへ足す。
 IMPLEMENTATIONS = {

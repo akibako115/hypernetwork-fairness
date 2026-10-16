@@ -41,7 +41,7 @@
 定義できず求めない。TPR 差は陽性の 4 群、FPR 差は陰性の 4 群で求めた。GEORGE の群の作り方を
 基盤モデルの埋め込みに当てた版も試したが、他のクラスタと違う傾向が無く、先行研究にも無い組み合わせなので外した。
 
-### 結果（`analysis/latent_bias_hypernet/results/q1_definitions.csv`）
+### 結果（`analysis/archive/latent_bias_hypernet/results/q1_definitions.csv`）
 
 CheXpert。上段は属性の値、下段は属性との差 [95% 区間]。太字は区間が 0 を含まないもの。
 
@@ -68,7 +68,7 @@ CheXpert。上段は属性の値、下段は属性との差 [95% 区間]。太�
 ### どういう状況でどの定義が役に立つか（植え込み実験、旧設定）
 
 正解の分かっている偏りを 1 段目の学習データに植え込み、各定義で見えるかを確かめた
-（`analysis/latent_bias_hypernet/reports/latent_subgroups.md`）。指標は log O/E、属性は年齢 4 区分のセル、
+（`analysis/archive/latent_bias_hypernet/reports/latent_subgroups.md`）。指標は log O/E、属性は年齢 4 区分のセル、
 クラスタは RAD-DINO の GMM で、上の設定とはそろっていない。
 
 | 状況 | 植え込み | 属性セル | 特徴空間のクラスタ |
@@ -87,7 +87,7 @@ CheXpert。上段は属性の値、下段は属性との差 [95% 区間]。太�
 - 植え込み実験を上の設定（8 群・標準指標・複数の埋め込みと方法）で回し直す
 - 1 段目の seed を増やした再現、潜在スライスの中身の確認
 
-詳細な検証（log O/E・監査器・スコア層別の帰無分布など）は `analysis/latent_bias_hypernet/audit_metrics.py` と
+詳細な検証（log O/E・監査器・スコア層別の帰無分布など）は `analysis/archive/latent_bias_hypernet/audit_metrics.py` と
 `results/audit_metrics.csv` に残してある。報告には使わない。
 
 ## Q2 是正（2026-10-12 にまとめた）
@@ -105,7 +105,7 @@ CheXpert。上段は属性の値、下段は属性との差 [95% 区間]。太�
 - 損失：ERM、EO rate（Cotter et al. 2019）、minimax AUC（Yang et al. 2023）。パラメータは原論文に沿う
   （EO の初期 task 重みだけ 0.9 に変えた。一様な初期値では全予測が片側に寄って崩れたため）。
   群の重みは、学習に使わない held-out（train の患者の 20%）で更新する。train で更新すると少数セルの記憶で
-  制約が満たされたことになり、重みが戻る（`analysis/conditional_fairness_one_stage`）。
+  制約が満たされたことになり、重みが戻る（`analysis/archive/conditional_fairness_one_stage`）。
 - 手順と、損失をかける段が見るデータ（各 3 seed、epoch は val の全体 AUROC で選ぶ）：
 
 | 手順 | 1 段目（凍結する土台） | 損失をかける段（重み / 群の重み） |
@@ -117,7 +117,7 @@ CheXpert。上段は属性の値、下段は属性との差 [95% 区間]。太�
   手順の間では値の大きさを比べず、手順の中での ERM との差だけを読む。GroupDRO は q が最悪群に向かず、
   公平性損失の代表にしない。
 
-### 結果（`analysis/latent_bias_hypernet/results/q2_*.csv`）
+### 結果（`analysis/archive/latent_bias_hypernet/results/q2_*.csv`）
 
 ERM の行は値、損失の行は同じ手順の ERM との差 [95% 区間]。太字は区間が 0 を含まないもの。
 2 段の ERM は補正前（1 段目そのもの）と比べて、どの指標にも区間が 0 を含まない差は無い。
@@ -156,7 +156,7 @@ ERM の行は値、損失の行は同じ手順の ERM との差 [95% 区間]。�
 - 例外：1 段の Eopp0 だけは、今回のしきい値の規則より損失のほうが低い（0.10〜0.11 対 0.18）。Eopp0 を直接狙う
   しきい値で届くかは確かめていない。
 - 補足：ResNet-50 に同じ損失をかけた予備実験（seed 42、年齢 2 群、群の重みは train で更新）では、Spatial LoRA と
-  振る舞いが同じだった（`analysis/conditional_fairness_one_stage`）。Q2 と同じ設定の ResNet の run は無い。
+  振る舞いが同じだった（`analysis/archive/conditional_fairness_one_stage`）。Q2 と同じ設定の ResNet の run は無い。
 
 ### 今回は扱わないこと（次の課題）
 
