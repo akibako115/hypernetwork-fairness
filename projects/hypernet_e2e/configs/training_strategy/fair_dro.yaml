@@ -10,5 +10,5 @@ model:
     group_key: ${data.group_key}
     population_cell_counts: null
     class_weight: null
-    radius: 1.0
+    radius: 0.5
     max_epochs: ${trainer.max_epochs}

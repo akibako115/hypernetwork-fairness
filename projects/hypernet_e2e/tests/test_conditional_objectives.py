@@ -11,7 +11,7 @@ from torch.nn import functional as F
 
 from projects.hypernet_e2e.callbacks.conditional_fairness import select_candidate
 from projects.hypernet_e2e.data.group_class_sampler import GroupClassBatchSampler
-from projects.hypernet_e2e.objectives.equalized_odds import EqualizedOddsRateTaskLoss, proxy_bounds, smooth_step
+from projects.hypernet_e2e.objectives.equalized_odds import EqualizedOddsRateTaskLoss, proxy_bounds
 from projects.hypernet_e2e.objectives.fair_dro import FairDROTaskLoss, chi_square_best_response, nonnegative_radius_limit
 from projects.hypernet_e2e.objectives.input import ObjectiveInput
 from projects.hypernet_e2e.objectives.minimax_auc import MinimaxAUCTaskLoss, PopulationAUCTaskLoss
@@ -110,21 +110,14 @@ def test_eo_overall_proxy_bounds_the_hard_constraints_on_random_batches():
         assert (diagnostics["proxy_g"] >= diagnostics["hard_g"] - 1e-6).all()
 
 
-@pytest.mark.parametrize("proxy", ["hinge", "smoothstep"])
-def test_proxy_bounds_including_strict_zero_tie(proxy):
+def test_proxy_bounds_including_strict_zero_tie():
     score = torch.cat([torch.linspace(-100, 100, 10001), torch.tensor([0.0])])
-    upper, lower = proxy_bounds(score, 1.0, proxy)
+    upper, lower = proxy_bounds(score, 1.0)
     hard = (score > 0).float()
     assert (upper >= hard).all() and (lower <= hard).all()
 
 
-def test_smoothstep_bounds_keep_the_legacy_formula():
-    score = torch.linspace(-3, 3, 61)
-    upper, lower = proxy_bounds(score, 0.5, "smoothstep")
-    assert torch.equal(upper, smooth_step(1 + score / 0.5)) and torch.equal(lower, smooth_step(score / 0.5))
-
-
-def _rate_gap_after_minimizing_proxy(proxy: str) -> tuple[float, float]:
+def _rate_gap_after_minimizing_proxy() -> tuple[float, float]:
     """代理制約だけを score について下げ、陽性セルの TPR 差の前後を返す。"""
     generator = torch.Generator().manual_seed(0)
     score_g = (torch.randn(32, generator=generator) + 0.8).requires_grad_()
@@ -132,8 +125,8 @@ def _rate_gap_after_minimizing_proxy(proxy: str) -> tuple[float, float]:
     before = float((score_g > 0).float().mean() - (score_h > 0).float().mean())
     optimizer = torch.optim.SGD([score_g, score_h], lr=0.5)
     for _ in range(500):
-        upper, _ = proxy_bounds(score_g, 1.0, proxy)
-        _, lower = proxy_bounds(score_h, 1.0, proxy)
+        upper, _ = proxy_bounds(score_g, 1.0)
+        _, lower = proxy_bounds(score_h, 1.0)
         optimizer.zero_grad()
         (upper.mean() - lower.mean()).backward()
         optimizer.step()
@@ -142,14 +135,8 @@ def _rate_gap_after_minimizing_proxy(proxy: str) -> tuple[float, float]:
 
 
 def test_hinge_proxy_can_flip_predictions_to_close_the_rate_gap():
-    before, after = _rate_gap_after_minimizing_proxy("hinge")
+    before, after = _rate_gap_after_minimizing_proxy()
     assert before > 0.3 and after < 0.05
-
-
-def test_smoothstep_proxy_cannot_cross_the_threshold():
-    """旧 proxy は U が s>=0 で、D が s<=0 で平坦なので、hard rate を一切動かせない。"""
-    before, after = _rate_gap_after_minimizing_proxy("smoothstep")
-    assert after == before
 
 
 @pytest.mark.parametrize("kind", [MinimaxAUCTaskLoss, EqualizedOddsRateTaskLoss, PopulationAUCTaskLoss, FairDROTaskLoss])
@@ -215,7 +202,7 @@ def test_selection_refuses_nan_and_infeasible_eo():
 
 def test_all_age_presets_compose_and_objectives_instantiate():
     config_dir = Path(__file__).parents[1] / "configs"
-    methods = ["erm", "group_dro", "sampling_corrected_erm", "sampling_corrected_group_dro", "sampling_corrected_uniform_group", "population_auc", "minimax_auc", "equalized_odds_rate"]
+    methods = ["erm", "group_dro", "sampling_corrected_erm", "sampling_corrected_uniform_group", "population_auc", "minimax_auc", "equalized_odds_rate"]
     methods += ["fair_dro"]
     for method in methods:
         with initialize_config_dir(version_base="1.3", config_dir=str(config_dir)):
@@ -367,26 +354,27 @@ def test_resume_is_rejected_before_parent_or_candidate_output(tmp_path):
 def test_fair_dro_closed_form_maximizes_over_chi_square_ball(size, radius):
     losses = torch.tensor([0.1, 0.4, 0.25][:size], dtype=torch.float64)
     best = chi_square_best_response(losses, radius)
-    # Q_rho = {q : sum q = 1, (1/2|A|) sum (|A| q - 1)^2 <= rho}（式 4）。境界上の候補と比べる。
+    # 公式実装の単位では Q_rho = {q : sum q = 1, (1/2|A|) sum (|A| q - 1)^2 <= rho}（φ(t) = (t-1)²/2 の χ² 球）。
+    # 閉形式解はこの球の境界上にあり、境界上の他の候補より大きい。
     assert torch.allclose(best.sum(), torch.tensor(1.0, dtype=torch.float64))
-    assert torch.allclose(((size * best - 1).square().sum() / (2 * size)), torch.tensor(radius / 2, dtype=torch.float64)) or size * ((best - 1 / size).square().sum()) <= radius + 1e-9
+    assert torch.allclose((size * best - 1).square().sum() / (2 * size), torch.tensor(radius, dtype=torch.float64))
     generator = torch.Generator().manual_seed(0)
     for _ in range(2000):
         direction = torch.randn(size, generator=generator, dtype=torch.float64)
         direction -= direction.mean()
-        candidate = 1 / size + math.sqrt(radius / size) * direction / direction.norm()
+        candidate = 1 / size + math.sqrt(2 * radius / size) * direction / direction.norm()
         assert torch.dot(candidate, losses) <= torch.dot(best, losses) + 1e-12
-    bound = math.sqrt(radius * (size - 1)) / size
+    bound = math.sqrt(2 * radius * (size - 1)) / size
     assert ((best >= 1 / size - bound - 1e-12) & (best <= 1 / size + bound + 1e-12)).all()
 
 
 def test_fair_dro_two_groups_bang_bang_negative_weight_and_tie():
-    assert torch.allclose(chi_square_best_response(torch.tensor([0.3, 0.1], dtype=torch.float64), 4.0), torch.tensor([1.5, -0.5], dtype=torch.float64))
-    assert torch.equal(chi_square_best_response(torch.tensor([0.2, 0.2], dtype=torch.float64), 4.0), torch.tensor([0.5, 0.5], dtype=torch.float64))
+    assert torch.allclose(chi_square_best_response(torch.tensor([0.3, 0.1], dtype=torch.float64), 2.0), torch.tensor([1.5, -0.5], dtype=torch.float64))
+    assert torch.equal(chi_square_best_response(torch.tensor([0.2, 0.2], dtype=torch.float64), 2.0), torch.tensor([0.5, 0.5], dtype=torch.float64))
 
 
 def test_fair_dro_smoothed_ibr_schedule_and_classwise_q():
-    obj = FairDROTaskLoss(2, COUNTS, radius=0.25, max_epochs=4)
+    obj = FairDROTaskLoss(2, COUNTS, radius=0.125, max_epochs=4)
     errors = torch.tensor([[0.3, 0.1], [0.1, 0.2]])
     first = obj.update_from_errors(errors)
     assert first["eta"] == 1 and torch.allclose(obj.q, torch.tensor([[0.75, 0.25], [0.25, 0.75]], dtype=torch.float64))

@@ -14,9 +14,14 @@ from .input import ObjectiveInput
 def chi_square_best_response(losses: torch.Tensor, radius: float) -> torch.Tensor:
     """χ² 球 Q_rho 上の内側最大化の閉形式解を返す（Prop. 2, 式 8）。
 
+    rho の単位は公式実装（sangwon-jung94/FairDRO の ``_update_mw_margin``）に合わせ、
+    ``q* = 1/G + sqrt(2 rho / G) * 偏差 / ||偏差||`` とする。論文の式 8 は ``sqrt(rho / G)`` で、
+    公式実装の rho は論文の rho の半分にあたる（φ(t) = (t-1)²/2 で χ² 球を測ったものと一致する）。
+    公式 README の rho（UTKFace 0.3、CelebA 1.5 など）をそのまま使えるよう、こちらに揃える。
+
     Args:
         losses: [A] の群別損失。
-        radius: rho。
+        radius: rho（公式実装の単位）。
 
     Returns:
         Tensor: [A] の quasi-probability。偏差がなければ一様。
@@ -27,24 +32,24 @@ def chi_square_best_response(losses: torch.Tensor, radius: float) -> torch.Tenso
     uniform = torch.full_like(losses, 1 / size)
     if norm <= 0:
         return uniform
-    return uniform + math.sqrt(radius / size) * deviation / norm
+    return uniform + math.sqrt(2 * radius / size) * deviation / norm
 
 
 def nonnegative_radius_limit(num_groups: int) -> float:
-    """閉形式解 q* の全成分が正に保たれる rho の上限 1/(G-1) を返す。
+    """閉形式解 q* の全成分が正に保たれる rho の上限 1/(2(G-1)) を返す。
 
-    偏差の単位ベクトルの最小成分は -sqrt((G-1)/G) なので、q* の最小値は (1 - sqrt(rho(G-1)))/G になる。
-    rho がこの上限以上だと、誤り率のわずかな差でも q* の成分が 0 以下になる。G=2・rho=1 では各クラスで
-    片方の群の重みが 0 になり、一方の群だけを学ぶ解へ epoch ごとに振れた（conditional_fairness_one_stage）。
+    偏差の単位ベクトルの最小成分は -sqrt((G-1)/G) なので、q* の最小値は (1 - sqrt(2 rho (G-1)))/G になる。
+    rho がこの上限以上だと、誤り率のわずかな差でも q* の成分が 0 以下になる。G=2・rho=0.5（公式の既定値）では
+    各クラスで片方の群の重みが 0 になり、一方の群だけを学ぶ解へ epoch ごとに振れた（conditional_fairness_one_stage）。
     負の重みは原著の定義域内なので禁止はしない。
 
     Args:
         num_groups: 群数 G（2 以上）。
 
     Returns:
-        float: 1/(G-1)。
+        float: 1/(2(G-1))。
     """
-    return 1 / (num_groups - 1)
+    return 1 / (2 * (num_groups - 1))
 
 
 class FairDROTaskLoss(ConditionalObjective):
@@ -63,7 +68,7 @@ class FairDROTaskLoss(ConditionalObjective):
         num_groups: int,
         population_cell_counts: Sequence[Sequence[float]],
         group_key: str = "group_id",
-        radius: float = 1.0,
+        radius: float = 0.5,
         max_epochs: int = 30,
         class_weight: Sequence[float] | None = None,
     ) -> None:
@@ -73,7 +78,7 @@ class FairDROTaskLoss(ConditionalObjective):
             num_groups: 群数。
             population_cell_counts: train の [G,2] 件数。セル存在の検証に使う。
             group_key: 群属性のキー。
-            radius: χ² 球の半径 rho。
+            radius: χ² 球の半径 rho（公式実装の単位。既定 0.5 は公式の既定値）。
             max_epochs: eta_t = 1 - t/T の T。
             class_weight: 互換設定用。None のみ許可。
 

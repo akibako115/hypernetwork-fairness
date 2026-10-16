@@ -211,7 +211,7 @@ class ConditionalFairnessRecorder(L.Callback):
         objective = pl_module.training_objective
         if hasattr(objective, "constraints"):
             score_tensor = torch.from_numpy(scores)
-            upper, lower = proxy_bounds(score_tensor, objective.tau, objective.proxy)
+            upper, lower = proxy_bounds(score_tensor, objective.tau)
             proxy, hard = [], []
             for index, (c, source, other) in enumerate(objective.constraints):
                 epsilon = float(objective.epsilon[index])

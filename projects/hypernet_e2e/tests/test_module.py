@@ -223,16 +223,32 @@ def test_alfr_configures_disjoint_task_and_adversary_optimizers() -> None:
     assert module.automatic_optimization is False
 
 
-def test_trainer_runs_one_alfr_epoch_and_updates_both_sides(tmp_path) -> None:
+class _BatchNormFeatureNet(nn.Module):
+    """特徴量が BatchNorm を通り、forward のたびに train/eval の状態を記録する net。"""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.backbone = nn.Sequential(nn.Linear(1, 1), nn.BatchNorm1d(1))
+        self.fc = nn.Linear(1, 2)
+        self.forward_modes: list[bool] = []
+
+    def forward_with_features(self, image: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        self.forward_modes.append(self.training)
+        features = self.backbone(image.mean(dim=(1, 2, 3)).unsqueeze(-1))
+        return self.fc(features), features
+
+
+def _fit_alfr(tmp_path, num_batches: int) -> tuple[LitModule, AlternatingAttributeInvariantTaskLoss, L.Trainer, torch.Tensor, torch.Tensor]:
     objective = _alfr_objective()
     module = _module(
+        net=_BatchNormFeatureNet(),
         loss_fn=objective,
         optimizer=lambda params: torch.optim.SGD(params, lr=0.1),
         adversary_optimizer=lambda params: torch.optim.SGD(params, lr=0.1),
     )
     before_net = module.net.fc.weight.detach().clone()
     before_adversary = next(objective.attribute_adversary.parameters()).detach().clone()
-    loader = DataLoader([_alfr_batch()], batch_size=None)
+    loader = DataLoader([_alfr_batch() for _ in range(num_batches)], batch_size=None)
     trainer = L.Trainer(
         accelerator="cpu",
         devices=1,
@@ -244,8 +260,24 @@ def test_trainer_runs_one_alfr_epoch_and_updates_both_sides(tmp_path) -> None:
         default_root_dir=tmp_path,
     )
     trainer.fit(module, train_dataloaders=loader)
+    return module, objective, trainer, before_net, before_adversary
+
+
+def test_alfr_updates_only_the_adversary_on_the_first_minibatch(tmp_path) -> None:
+    module, objective, trainer, before_net, before_adversary = _fit_alfr(tmp_path, num_batches=1)
+    assert torch.equal(module.net.fc.weight, before_net)
+    assert not torch.equal(next(objective.attribute_adversary.parameters()), before_adversary)
+    assert trainer.global_step == 1
+
+
+def test_alfr_alternates_sides_once_per_minibatch_in_train_mode(tmp_path) -> None:
+    module, objective, trainer, before_net, before_adversary = _fit_alfr(tmp_path, num_batches=2)
     assert not torch.equal(module.net.fc.weight, before_net)
     assert not torch.equal(next(objective.attribute_adversary.parameters()), before_adversary)
+    # minibatch ごとに optimizer step は 1 回なので、global_step（DANN schedule の進捗）は minibatch 数と一致する。
+    assert trainer.global_step == 2
+    # どちらの側の更新も train モードの 1 回の forward で、BatchNorm は同じ batch 統計を使う。
+    assert module.net.forward_modes == [True, True]
 
 
 def test_feature_requiring_loss_receives_features_and_its_parameters_enter_the_optimizer() -> None:

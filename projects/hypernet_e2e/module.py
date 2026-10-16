@@ -470,25 +470,30 @@ class LitModule(L.LightningModule):
             self.log("train/adversary_scale", self.training_objective.adversary_scale, on_step=False, on_epoch=True)
 
     def _alternating_training_step(self, batch: tuple[Any, Mapping[str, torch.Tensor], torch.Tensor]) -> dict[str, Any]:
-        """ALFR の adversary update と representation update を1:1で実行する。"""
-        task_optimizer, adversary_optimizer = self.optimizers()
-        # adversary update は feature を detach して行うため、ここで backbone の
-        # BatchNorm running statistics まで二重に更新しない。task update 側だけを
-        # train mode にして、1 iteration を 1 回の表現更新として扱う。
-        was_training = self.net.training
-        self.net.eval()
-        try:
-            logits, preds, target, attributes, features = self._shared_step(batch)
-        finally:
-            self.net.train(was_training)
-        adversary_inputs = ObjectiveInput(logits=logits, target=target, attributes=attributes, features=features)
-        adversary_optimizer.zero_grad()
-        adversary_loss = self.training_objective.adversary_loss(adversary_inputs)
-        self.manual_backward(adversary_loss)
-        adversary_optimizer.step()
+        """ALFR の adversary 更新と表現側の更新を minibatch ごとに交互に行う。
 
+        Edwards & Storkey (2016) の Algorithm 1（strict alternation）に合わせ、1 つの minibatch では
+        どちらか一方だけを更新し、最初の minibatch は adversary 側とする。各 minibatch は train モードで
+        1 回だけ forward するので、両側とも同じ BatchNorm の batch 統計で正規化した表現を見る。
+        optimizer step は minibatch ごとに 1 回なので、global_step は処理した minibatch 数と一致し、
+        交互の順番も DANN schedule の進捗もこれで数える。
+        """
+        task_optimizer, adversary_optimizer = self.optimizers()
         logits, preds, target, attributes, features = self._shared_step(batch)
         inputs = ObjectiveInput(logits=logits, target=target, attributes=attributes, features=features)
+        if self.global_step % 2 == 0:
+            adversary_optimizer.zero_grad()
+            adversary_loss = self.training_objective.adversary_loss(inputs)
+            self.manual_backward(adversary_loss)
+            adversary_optimizer.step()
+            # train/loss などの epoch 集計が全 minibatch にわたるよう、表現側の損失も勾配なしで記録する。
+            with torch.no_grad():
+                components = self._objective_components(inputs)
+            self._log_objective_components("train", components)
+            if hasattr(self._trainer, "barebones"):
+                self.log("train/alfr/adversary_loss", adversary_loss.detach(), on_step=False, on_epoch=True)
+            return self._step_output(components["loss"], logits, preds, target, attributes, detach_loss=True)
+
         adversary_parameters = list(self.training_objective.adversary_parameters())
         previous_requires_grad = [parameter.requires_grad for parameter in adversary_parameters]
         for parameter in adversary_parameters:
@@ -503,8 +508,6 @@ class LitModule(L.LightningModule):
             for parameter, requires_grad in zip(adversary_parameters, previous_requires_grad, strict=True):
                 parameter.requires_grad_(requires_grad)
         self._log_objective_components("train", components)
-        if hasattr(self._trainer, "barebones"):
-            self.log("train/alfr/adversary_loss", adversary_loss.detach(), on_step=False, on_epoch=True)
         return self._step_output(loss, logits, preds, target, attributes, detach_loss=False)
 
     def _shared_step(self, batch: tuple[Any, Mapping[str, torch.Tensor], torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, Mapping[str, torch.Tensor], torch.Tensor | None]:

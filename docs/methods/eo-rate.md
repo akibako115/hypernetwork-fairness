@@ -50,9 +50,10 @@ EO rate の run を設計・起動・評価するセッションは、先にこ�
 | `epsilon_pos` / `epsilon_neg` | 0.1 / 0.1 | TPR 側 / FPR 側の許容値 |
 | `initial_task_weight` | null（一様、原論文どおり） | CheXpert の 8 群 preset は 0.9（下記） |
 | `dual_step_size` | 0.01 | M の指数勾配の step。原論文は validation で選ぶ |
-| `proxy` / `tau` | hinge / 1.0 | TFCO の既定 HingeLoss と同じ上下界。`smoothstep` は 2026-10-13 より前の run の再現用 |
+| `tau` | 1.0 | hinge の幅。代理は TFCO の既定 HingeLoss と同じ上下界に固定（2026-10-13 より前の run が使った smoothstep は閾値を越える勾配を持たないため 2026-10-16 に削除） |
 
 - **制約の向き（overall）**：TPR は TPR_全体 − TPR_g ≤ ε_pos（低すぎない）、FPR は FPR_g − FPR_全体 ≤ ε_neg（高すぎない）。
+  FPR は原論文の Communities と同じ向き。TPR は原論文の COMPAS（TPR_g ≤ TPR_全体 + 0.05、高すぎない）と**逆向き**で、陽性の見落としを抑えるために意図的に変えている。
   CheXpert は陽性 = No Finding なので、FPR は所見のある人の見落としで、害の大きい側にあたる。
 - **全体の率**：train の群構成で重み付けした群の率の和。セル均等のバッチの単純平均ではない。
 - **制約の本数**：pairwise は |rates| × G(G−1)（8 群・両方で 112 本）、overall は |rates| × G（8 群・FPR だけなら 8 本）。

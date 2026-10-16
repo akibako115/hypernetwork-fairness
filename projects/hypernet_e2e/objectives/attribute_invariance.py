@@ -364,7 +364,11 @@ class AttributeInvariantTaskLoss(nn.Module):
 
 
 class AlternatingAttributeInvariantTaskLoss(AttributeInvariantTaskLoss):
-    """adversary と task/backbone を交互に更新する属性不変化 objective。"""
+    """adversary と task/backbone を minibatch ごとに交互に更新する属性不変化 objective（ALFR）。
+
+    Edwards & Storkey (2016) の式 9 で、再構成の項を除いた α=0、β=attribute_adversary_weight·gradient_scale、
+    γ=1 にあたる。交互更新の順序は LitModule が持つ（偶数番目の minibatch で adversary、奇数番目で表現側）。
+    """
 
     requires_manual_optimization = True
 

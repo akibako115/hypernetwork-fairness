@@ -32,9 +32,14 @@ loss_fn:
   adversary_lr_scale: 1.0
   gradient_scale: 1.0
   attribute_adversary_weight: 0.1
+  # GRL の倍率 s を Ganin et al. (2016) の式 2/(1+exp(-γp))-1 で 0 から max_scale へ上げる（p は学習の進捗）。
+  gradient_schedule:
+    name: dann
+    gamma: 10.0
+    max_scale: 1.0
 
 # 第1段: GRL は属性予測器を強化しつつ、backbone には属性予測を悪化させる勾配を渡す。
-# λ は `attribute_adversary_weight * gradient_scale` として効く。
+# backbone に届く逆向きの勾配の倍率は `attribute_adversary_weight * s` になる。
 
 use_attributes: false
 backbone_checkpoint_path: ${paths.checkpoints_dir}/resnet50_imagenet.pth

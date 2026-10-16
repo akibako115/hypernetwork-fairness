@@ -23,7 +23,6 @@ CHEXPERT_PRESETS: dict[str, tuple[str, str, str]] = {
     "resnet_chexpert_from_resnet_age_erm_race_known": ("inverse", "uniform", "erm"),
     "resnet_chexpert_from_resnet_age_group_dro_race_known": ("inverse", "uniform", "group_dro_global"),
     "resnet_chexpert_from_resnet_age_sampling_corrected_erm_race_known": ("inverse", "group_class_balanced", "sampling_corrected_erm"),
-    "resnet_chexpert_from_resnet_age_sampling_corrected_group_dro_race_known": ("inverse", "group_class_balanced", "sampling_corrected_group_dro"),
     "resnet_chexpert_from_resnet_age_sampling_corrected_uniform_group_race_known": ("inverse", "group_class_balanced", "sampling_corrected_uniform_group"),
     "resnet_chexpert_from_resnet_age_population_auc_race_known": ("none", "group_class_balanced", "population_auc"),
     "resnet_chexpert_from_resnet_age_minimax_auc_race_known": ("none", "group_class_balanced", "minimax_auc"),

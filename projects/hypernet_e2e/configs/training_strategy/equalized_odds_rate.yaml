@@ -14,7 +14,6 @@ model:
     epsilon_pos: 0.1
     epsilon_neg: 0.1
     tau: 1.0
-    proxy: hinge
     initial_task_weight: null
     constraint_form: pairwise
     rates: [tpr, fpr]

@@ -7,52 +7,26 @@ import torch
 from .conditional import ConditionalObjective, _positive_step
 from .input import ObjectiveInput
 
-
-def smooth_step(x: torch.Tensor) -> torch.Tensor:
-    """コンパクトな C1 smoothstep を返す。
-
-    Args:
-        x: 任意形状の Tensor。
-
-    Returns:
-        Tensor: [0,1] の値。
-    """
-    t = x.clamp(0, 1)
-    return t.square() * (3 - 2 * t)
-
-
-PROXIES = ("hinge", "smoothstep")
 CONSTRAINT_FORMS = ("pairwise", "overall")
 # 率の名前と、その率を測るクラス（TPR は陽性、FPR は陰性）。並びが制約の並び。
 RATE_CLASSES = {"tpr": 1, "fpr": 0}
 
 
-def proxy_bounds(score: torch.Tensor, tau: float, proxy: str) -> tuple[torch.Tensor, torch.Tensor]:
-    """指示関数 1(s>0) の上界 U と下界 D を返す。
+def proxy_bounds(score: torch.Tensor, tau: float) -> tuple[torch.Tensor, torch.Tensor]:
+    """指示関数 1(s>0) の hinge 上界 U と下界 D を返す。
 
-    hinge は TFCO の既定 ``HingeLoss``（margin 1）と同じ形で、``U=(1+s/tau)_+``、
-    ``D=1-(1-s/tau)_+``。負の係数がかかる rate を、補集合の hinge で評価したものが D になる。
+    TFCO の既定 ``HingeLoss``（margin 1）と同じ形で、``U=(1+s/tau)_+``、``D=1-(1-s/tau)_+``。
+    負の係数がかかる rate を、補集合の hinge で評価したものが D になる。
     U は閾値の正側でも勾配を持つので、陽性と予測した標本を閾値の下へ押し戻せる。
-
-    smoothstep は 2026-10-13 より前の run が使った自前の有界 ramp で、既存 run の再現のためにだけ残す。
-    U は s>=0 で 1、D は s<=0 で 0 に張り付くため、予測を閾値の反対側へ動かす勾配を持たない。
 
     Args:
         score: 二値 logit 差 s。
         tau: proxy の幅。
-        proxy: ``"hinge"`` または ``"smoothstep"``。
 
     Returns:
         tuple[Tensor, Tensor]: score と同じ形の (U, D)。全 s で D <= 1(s>0) <= U。
-
-    Raises:
-        ValueError: proxy が未知のとき。
     """
-    if proxy == "hinge":
-        return (1 + score / tau).clamp_min(0), 1 - (1 - score / tau).clamp_min(0)
-    if proxy == "smoothstep":
-        return smooth_step(1 + score / tau), smooth_step(score / tau)
-    raise ValueError(f"proxy は {PROXIES} のいずれか: {proxy!r}")
+    return (1 + score / tau).clamp_min(0), 1 - (1 - score / tau).clamp_min(0)
 
 
 class EqualizedOddsRateTaskLoss(ConditionalObjective):
@@ -63,13 +37,15 @@ class EqualizedOddsRateTaskLoss(ConditionalObjective):
 
     - ``"pairwise"``：全有向群ペアで ``rate_g - rate_h <= epsilon``。最大 − 最小 <= epsilon と同値で、
       評価指標（Eopp1・Eopp0）に直接対応する。制約は 2G(G-1) 本。
-    - ``"overall"``：Cotter et al. の実験（COMPAS・Communities）と同じ、各群を全体と比べる片側の制約。
-      ``TPR_all - TPR_g <= epsilon_pos``（TPR が全体より低すぎない）と ``FPR_g - FPR_all <= epsilon_neg``
-      （FPR が全体より高すぎない）。全体の率は train の群構成で重み付けした群の率の和で、セル均等の
-      バッチの単純平均ではない。制約は 2G 本。
+    - ``"overall"``：Cotter et al. の実験（COMPAS・Communities）にならい、各群を全体と比べる片側の制約。
+      ``FPR_g - FPR_all <= epsilon_neg``（FPR が全体より高すぎない）は Communities と同じ向き。
+      ``TPR_all - TPR_g <= epsilon_pos``（TPR が全体より低すぎない）は COMPAS の
+      ``TPR_g <= TPR_all + 0.05`` と**逆向き**にしてある。COMPAS は再犯予測で TPR が高すぎる群を抑えたが、
+      ここでは陽性を見落とす（TPR が低い）群を抑えたいため。全体の率は train の群構成で重み付けした
+      群の率の和で、セル均等のバッチの単純平均ではない。制約は 2G 本。
 
-    モデル側の proxy は既定で TFCO と同じ hinge 上下界を使う（``proxy_bounds``）。率に正の係数が
-    かかる項は上界、負の係数がかかる項は下界で置き換える。
+    モデル側の proxy は TFCO と同じ hinge 上下界（``proxy_bounds``）。率に正の係数がかかる項は上界、
+    負の係数がかかる項は下界で置き換える。
     """
 
     dual_update = "step"
@@ -85,7 +61,6 @@ class EqualizedOddsRateTaskLoss(ConditionalObjective):
         epsilon_neg: float = 0.1,
         tau: float = 1.0,
         initial_task_weight: float | None = None,
-        proxy: str = "hinge",
         constraint_form: str = "pairwise",
         rates: Sequence[str] = ("tpr", "fpr"),
     ) -> None:
@@ -103,7 +78,6 @@ class EqualizedOddsRateTaskLoss(ConditionalObjective):
             initial_task_weight: lambda の初期 task 重み。None なら M を一様に置き、全座標が 1/(m+1)。
                 未学習から始める 1 stage では、一様だと proxy が損失の大半を占め、全予測を片側へ
                 寄せる自明解（制約は満たされ双対の圧力も消える）に落ちるので、task 側へ寄せて始める。
-            proxy: モデル側の上下界。``"hinge"``（既定、TFCO と同じ）か、既存 run 再現用の ``"smoothstep"``。
             constraint_form: 制約の形。``"pairwise"``（既定）か ``"overall"``（class docstring）。
             rates: 制約をかける率。既定は EO の ``("tpr", "fpr")``。Cotter et al. の実験は 1 種類だけにかける
                 （COMPAS は TPR、Communities は FPR）。
@@ -114,9 +88,6 @@ class EqualizedOddsRateTaskLoss(ConditionalObjective):
         super().__init__(num_groups, population_cell_counts, group_key, class_weight)
         self.dual_step_size = _positive_step(dual_step_size, "dual_step_size")
         self.tau = _positive_step(tau, "tau")
-        if proxy not in PROXIES:
-            raise ValueError(f"proxy は {PROXIES} のいずれか: {proxy!r}")
-        self.proxy = proxy
         if not all(0 <= x <= 1 for x in (epsilon_pos, epsilon_neg)):
             raise ValueError("epsilon は [0,1] が必要")
         if constraint_form not in CONSTRAINT_FORMS:
@@ -186,7 +157,7 @@ class EqualizedOddsRateTaskLoss(ConditionalObjective):
         groups, cells = self._cells(inputs)
         score = inputs.logits[:, 1].float() - inputs.logits[:, 0].float()
         hard = torch.stack([torch.stack([(score[m] > 0).float().mean() for m in row]) for row in cells])
-        upper, lower = proxy_bounds(score, self.tau, self.proxy)
+        upper, lower = proxy_bounds(score, self.tau)
         if self.constraint_form == "pairwise":
             violations = torch.stack([hard[g, c] - hard[h, c] for c, g, h in self.constraints]) - self.epsilon
             proxy = torch.stack([upper[cells[g][c]].mean() - lower[cells[h][c]].mean() for c, g, h in self.constraints]) - self.epsilon

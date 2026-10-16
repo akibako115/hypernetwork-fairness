@@ -10,4 +10,3 @@ model:
     group_key: ${data.group_key}
     population_cell_counts: null
     class_weight: null
-    mode: uniform
