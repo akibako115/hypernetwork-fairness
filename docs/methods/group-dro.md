@@ -77,7 +77,7 @@
 | 抽出 | 群を均等に（`--reweight_groups`） | 自然抽出 |
 | 正則化 | 強い ℓ2（0.1〜1.0）か 1 epoch の early stopping | AdamW の weight decay 0.01（decoupled）、30 epoch |
 | optimizer | SGD momentum 0.9、固定 lr | AdamW lr 1e-4 |
-| データ拡張 | なし | あり（`train_transforms_chexpert`） |
+| データ拡張 | なし | あり（`train_transforms_medfair`、MEDFAIR と同じ） |
 | group adjustment | C を探索 | なし（C = 0 相当） |
 | checkpoint | val の最悪群 accuracy が最大の epoch | 2026-10-14 以降は全 epoch を残し、分析側で選ぶ（選び方は未決）。それより前は best val AUROC と last だけ |
 | 群損失の大きさ | 群の平均 CE（クラス重みなし） | global のクラス重みでは陽性率の高い群ほど大きくなる（下の照合結果） |

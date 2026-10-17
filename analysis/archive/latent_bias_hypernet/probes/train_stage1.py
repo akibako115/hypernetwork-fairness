@@ -7,8 +7,10 @@ run 契約（projects/*/runs）の外で回す探索用の学習。毎 epoch に
     - `best.pt`（best val AUROC の state_dict）、`log.json`
     - `<split>.npz`（image、target、logits [n,2]、features [n,2048] float16、marked [n] bool）
 
-    uv run python analysis/archive/latent_bias_hypernet/probes/train_stage1.py --name a_s42 --fit-split train_a --seed 42
-    uv run python analysis/archive/latent_bias_hypernet/probes/train_stage1.py --name a_plant_s42 --fit-split train_a --plant
+    uv run python analysis/archive/latent_bias_hypernet/probes/train_stage1.py --name a_s42 \
+        --fit-split train_a --seed 42
+    uv run python analysis/archive/latent_bias_hypernet/probes/train_stage1.py --name a_plant_s42 \
+        --fit-split train_a --plant
     uv run python analysis/archive/latent_bias_hypernet/probes/train_stage1.py --name a_yfdev_s42 --epochs 6 \
         --subgroup young_female_device --undersample-pos 0.1
 
@@ -43,8 +45,8 @@ from analysis.archive.latent_bias_hypernet.planting import (  # noqa: E402
     stamp,
 )
 from projects.hypernet_e2e.data.transform_utils import (  # noqa: E402
-    train_transforms_chexpert,
-    val_transforms_chexpert,
+    train_transforms_medfair,
+    val_transforms_medfair,
 )
 from projects.hypernet_e2e.models.resnet.network import ResNet  # noqa: E402
 from projects.hypernet_e2e.models.utils import load_compatible_state_dict  # noqa: E402
@@ -101,7 +103,7 @@ def forward_split(network: nn.Module, loader: DataLoader, device: str) -> tuple[
 
 def eval_loader(frame: pd.DataFrame, marked: np.ndarray) -> DataLoader:
     # 評価 loader は persistent にしない（2026-10-06 の OOM、fairness_mechanism_probe/runs.md）。
-    dataset = Images(frame, val_transforms_chexpert(), marked)
+    dataset = Images(frame, val_transforms_medfair(), marked)
     return DataLoader(dataset, batch_size=256, num_workers=8, pin_memory=True, prefetch_factor=2)
 
 
@@ -136,7 +138,7 @@ def train(args: argparse.Namespace, frames: dict[str, pd.DataFrame], marks: dict
                 f"undersampled {args.subgroup} positives:", int(hit.sum()), "->", int((hit & ~drop).sum()), flush=True
             )
     train_loader = DataLoader(
-        Images(fit, train_transforms_chexpert(), fit_marks),
+        Images(fit, train_transforms_medfair(), fit_marks),
         batch_size=args.batch,
         shuffle=True,
         drop_last=True,

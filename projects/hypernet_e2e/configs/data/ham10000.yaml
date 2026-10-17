@@ -30,9 +30,9 @@ fairness_age_groups:
     source: age
     boundaries: [65]
 
-# 色恒常性を掛けていない dermoscopy なので、ISIC 2019 と同じ色を触らない recipe を使う。
-# HAM10000 は黒縁の除去をしていないが、Resize(256) → Crop(224) で縁の大半は落ちる。
+# CheXpert と同じ MEDFAIR の前処理（縦横比を保たず 256x256 → train はランダム、評価は中央で 224 を切り出す）。
+# MEDFAIR も色を変える augmentation を使わない。2026-10-17 より前は ISIC 2019 の recipe（短辺 256）だった。
 train_transform:
-  _target_: projects.hypernet_e2e.data.transform_utils.train_transforms_isic2019
+  _target_: projects.hypernet_e2e.data.transform_utils.train_transforms_medfair
 val_transform:
-  _target_: projects.hypernet_e2e.data.transform_utils.val_transforms_isic2019
+  _target_: projects.hypernet_e2e.data.transform_utils.val_transforms_medfair

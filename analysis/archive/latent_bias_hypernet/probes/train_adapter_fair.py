@@ -61,8 +61,8 @@ from analysis.archive.latent_bias_hypernet.probes.train_adapter import (  # noqa
     worst8,
 )
 from projects.hypernet_e2e.data.transform_utils import (  # noqa: E402
-    train_transforms_chexpert,
-    val_transforms_chexpert,
+    train_transforms_medfair,
+    val_transforms_medfair,
 )
 from projects.hypernet_e2e.objectives.equalized_odds import EqualizedOddsRateTaskLoss  # noqa: E402
 from projects.hypernet_e2e.objectives.input import ObjectiveInput  # noqa: E402
@@ -157,7 +157,7 @@ def loaders_for(args, frames, attrs, group) -> dict:
     """学習・held-out・評価の DataLoader。公平性損失の 2 つはセル均等抽出、ERM はふつうの抽出。"""
     kw = dict(num_workers=args.workers, pin_memory=True, prefetch_factor=2)
     zeros = {s: np.zeros(len(f), dtype=bool) for s, f in frames.items()}
-    fit_rows = Rows(frames["fit"], attrs["fit"], train_transforms_chexpert(), zeros["fit"])
+    fit_rows = Rows(frames["fit"], attrs["fit"], train_transforms_medfair(), zeros["fit"])
     steps = len(frames["fit"]) // BATCH
     rng = np.random.default_rng(args.seed)
     if args.loss == "erm":
@@ -166,9 +166,9 @@ def loaders_for(args, frames, attrs, group) -> dict:
         batches = cell_batches(group["fit"], frames["fit"].target.to_numpy(), steps * args.epochs, rng)
         fit = [batches[e * steps : (e + 1) * steps] for e in range(args.epochs)]
     out = {"fit": fit, "fit_rows": fit_rows, "kw": kw, "steps": steps, "rng": rng}
-    out["holdout_rows"] = Rows(frames["holdout"], attrs["holdout"], val_transforms_chexpert(), zeros["holdout"])
+    out["holdout_rows"] = Rows(frames["holdout"], attrs["holdout"], val_transforms_medfair(), zeros["holdout"])
     for s in ("val", "test"):
-        out[s] = DataLoader(Rows(frames[s], attrs[s], val_transforms_chexpert(), zeros[s]), batch_size=256, **kw)
+        out[s] = DataLoader(Rows(frames[s], attrs[s], val_transforms_medfair(), zeros[s]), batch_size=256, **kw)
     return out
 
 

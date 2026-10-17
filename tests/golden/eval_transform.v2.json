@@ -30,7 +30,7 @@
     ]
   },
   "val_transform": {
-    "factory": "val_transforms_chexpert",
+    "factory": "val_transforms_medfair",
     "composition": [
       "Resize(size=(256, 256), interpolation=bilinear, max_size=None, antialias=True)",
       "CenterCrop(size=(224, 224))",
@@ -39,7 +39,7 @@
     ]
   },
   "train_transform": {
-    "factory": "train_transforms_chexpert",
+    "factory": "train_transforms_medfair",
     "composition": [
       "Resize(size=(256, 256), interpolation=bilinear, max_size=None, antialias=True)",
       "RandomHorizontalFlip(p=0.5)",

@@ -11,7 +11,7 @@ import torch
 from PIL import Image
 
 from projects.hypernet_e2e.callbacks.fairness_metrics import FairnessMetricsCallback
-from projects.hypernet_e2e.data.transform_utils import IMAGENET_FILL, IMAGENET_MEAN, IMAGENET_STD, train_transforms_chexpert, val_transforms_chexpert
+from projects.hypernet_e2e.data.transform_utils import IMAGENET_FILL, IMAGENET_MEAN, IMAGENET_STD, train_transforms_medfair, val_transforms_medfair
 
 
 def _golden() -> dict:
@@ -22,7 +22,7 @@ def _golden() -> dict:
 @pytest.mark.preflight
 def test_chexpert_eval_transform_reproduces_the_golden_cases() -> None:
     golden = _golden()
-    transform = val_transforms_chexpert()
+    transform = val_transforms_medfair()
 
     assert IMAGENET_MEAN == golden["constants"]["IMAGENET_MEAN"]
     assert IMAGENET_STD == golden["constants"]["IMAGENET_STD"]
@@ -44,7 +44,7 @@ def test_chexpert_eval_transform_reproduces_the_golden_cases() -> None:
 @pytest.mark.preflight
 def test_chexpert_train_transform_composition_matches_the_golden_contract() -> None:
     golden = _golden()
-    transform = train_transforms_chexpert()
+    transform = train_transforms_medfair()
     composition = [str(step) for step in transform.transforms]
 
     assert composition == golden["train_transform"]["composition"]

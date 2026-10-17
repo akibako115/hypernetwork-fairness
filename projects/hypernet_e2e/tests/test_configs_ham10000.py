@@ -19,8 +19,8 @@ def test_ham10000_preset_connects_the_dermoscopy_data_and_transforms(experiment:
     assert config.weighting == "inverse"
     assert config.data.num_classes == config.model.net.num_classes == 2
     assert config.data.cv_splits_dir.endswith("ham10000/splits")
-    assert config.data.train_transform._target_.endswith("train_transforms_isic2019")
-    assert config.data.val_transform._target_.endswith("val_transforms_isic2019")
+    assert config.data.train_transform._target_.endswith("train_transforms_medfair")
+    assert config.data.val_transform._target_.endswith("val_transforms_medfair")
     categorical = list(config.data.attribute_names.categorical)
     assert len(categorical) == len(config.data.attribute_spec.categorical_cardinalities)
     # localization は患者の属性ではないので、モデル入力にだけ使い評価軸には入れない。

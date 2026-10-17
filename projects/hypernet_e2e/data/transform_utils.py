@@ -1,4 +1,4 @@
-"""CheXpert・ISIC 2019・FairVLMed の画像前処理を定義する。
+"""CheXpert・HAM10000（MEDFAIR）・ISIC 2019・FairVLMed の画像前処理を定義する。
 
 各 factory は PIL Image を受け取り、ImageNet 正規化済みの
 `torch.float32` tensor を返す transform を構築する。
@@ -17,17 +17,18 @@ IMAGENET_FILL = tuple(round(value * 255) for value in IMAGENET_MEAN)
 ########################################################
 
 
-# 1. CheXpert（MEDFAIR と同じ前処理）
+# 1. CheXpert・HAM10000（MEDFAIR と同じ前処理）
 # MEDFAIR（Zong et al., ICLR 2023、github.com/ys-zong/MEDFAIR）は、2D 画像を前処理の段階で
 # `cv2.resize(img, (256, 256))` により縦横比を保たずに 256x256 へ縮めて保存し（notebooks/HAM10000-example.ipynb）、
-# 学習時に datasets/utils.py の get_dataset の transform を掛ける。CheXpert の前処理 notebook は公開されていないが、
-# 2D データセットはすべて同じ transform を通る。ここでは画像を読むたびに Resize((256, 256)) で同じ形にしてから、
-# MEDFAIR の transform を掛ける。2026-10-17 までは CXR_Fairness の構成（train は RandomResizedCrop、評価は
-# pad-to-square → 224）だった。
+# 学習時に datasets/utils.py の get_dataset の transform を掛ける。2D データセットはすべて同じ transform を通る
+# （CheXpert の前処理 notebook は公開されていない）。ここでは画像を読むたびに Resize((256, 256)) で同じ形にしてから、
+# MEDFAIR の transform を掛ける。MEDFAIR の HAM10000 の例は cv2 で読んだ BGR のまま渡しているが、ここは RGB で渡す。
+# 2026-10-17 までは、CheXpert は CXR_Fairness の構成（train は RandomResizedCrop、評価は pad-to-square → 224）、
+# HAM10000 は下の ISIC 2019 の構成（短辺 256、回転の余白は灰色）だった。
 
 
-def train_transforms_chexpert() -> transforms.Compose:
-    """CheXpert 学習用 transform。MEDFAIR の `augment=True` の構成と同じ。
+def train_transforms_medfair() -> transforms.Compose:
+    """CheXpert・HAM10000 の学習用 transform。MEDFAIR の `augment=True` の構成と同じ。
 
     256x256 に引き伸ばす → RandomHorizontalFlip → RandomRotation(±15, 余白は黒) → RandomCrop(224) →
     ImageNet normalize。MEDFAIR の 256x256 化は cv2（INTER_LINEAR、antialias なし）で、ここは PIL の
@@ -51,8 +52,8 @@ def train_transforms_chexpert() -> transforms.Compose:
     )
 
 
-def val_transforms_chexpert() -> transforms.Compose:
-    """CheXpert 検証・テスト用 transform。MEDFAIR の transform_test と同じ。
+def val_transforms_medfair() -> transforms.Compose:
+    """CheXpert・HAM10000 の検証・テスト用 transform。MEDFAIR の transform_test と同じ。
 
     256x256 に引き伸ばす → CenterCrop(224) → ImageNet normalize。train と同じ 256x256 の画像から、
     train の切り出し範囲の中央を取る。

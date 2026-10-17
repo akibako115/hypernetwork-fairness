@@ -35,8 +35,8 @@ ROOT = rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True
 
 from analysis.archive.latent_bias_hypernet.planting import marker_mask, stamp  # noqa: E402
 from projects.hypernet_e2e.data.transform_utils import (  # noqa: E402
-    train_transforms_chexpert,
-    val_transforms_chexpert,
+    train_transforms_medfair,
+    val_transforms_medfair,
 )
 from projects.hypernet_e2e.models.resnet.network import ResNetBackbone  # noqa: E402
 from projects.hypernet_e2e.models.spatial_hypernet.metadata_encoder import MetadataEncoder  # noqa: E402
@@ -212,7 +212,7 @@ def main() -> None:
     cw = torch.tensor([0.5 / (1 - pos), 0.5 / pos], device=args.device, dtype=torch.float32)
     kw = dict(num_workers=8, pin_memory=True, prefetch_factor=2)
     train_loader = DataLoader(
-        Rows(fit, attrs[args.fit_split], train_transforms_chexpert(), marks[args.fit_split]),
+        Rows(fit, attrs[args.fit_split], train_transforms_medfair(), marks[args.fit_split]),
         batch_size=args.batch,
         shuffle=True,
         drop_last=True,
@@ -220,7 +220,7 @@ def main() -> None:
         **kw,
     )
     eval_loaders = {
-        s: DataLoader(Rows(frames[s], attrs[s], val_transforms_chexpert(), marks[s]), batch_size=256, **kw)
+        s: DataLoader(Rows(frames[s], attrs[s], val_transforms_medfair(), marks[s]), batch_size=256, **kw)
         for s in ("val", "test")
     }
     log = {"args": vars(args), "epochs": []}

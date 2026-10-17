@@ -28,8 +28,8 @@ ROOT = rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True
 
 from analysis.common.predictions import load_network  # noqa: E402
 from projects.hypernet_e2e.data.transform_utils import (  # noqa: E402
-    train_transforms_chexpert,
-    val_transforms_chexpert,
+    train_transforms_medfair,
+    val_transforms_medfair,
 )
 from projects.hypernet_e2e.models.resnet.network import ResNet  # noqa: E402
 from projects.hypernet_e2e.models.utils import load_compatible_state_dict  # noqa: E402
@@ -154,7 +154,7 @@ def main() -> None:
     # 2026-10-06 に OOM killer が他プロセスまで止めた。評価 loader は persistent にしない。
     loader_kw = dict(num_workers=8, pin_memory=True, prefetch_factor=2)
     train_loader = DataLoader(
-        Frame(train, train_transforms_chexpert(), age_mean, age_std),
+        Frame(train, train_transforms_medfair(), age_mean, age_std),
         batch_size=args.batch,
         shuffle=True,
         drop_last=True,
@@ -162,7 +162,7 @@ def main() -> None:
         **loader_kw,
     )
     eval_loaders = {
-        s: DataLoader(Frame(f, val_transforms_chexpert(), age_mean, age_std), batch_size=256, **loader_kw)
+        s: DataLoader(Frame(f, val_transforms_medfair(), age_mean, age_std), batch_size=256, **loader_kw)
         for s, f in frames.items()
     }
     # class weight は全 train の頻度から（M01 と同じ 0.206 / 1.794）。subset でも変えない。

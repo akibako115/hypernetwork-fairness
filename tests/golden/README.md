@@ -12,7 +12,7 @@
 | --- | --- |
 | `fairness_metrics.v1.json` | fairness callback を 1 epoch 分駆動したときのログキーと値 |
 | `eval_transform.v1.json` | PNG を読んで eval transform を適用した出力テンソル。pad-to-square → 224 の旧前処理（2026-10-17 より前の CheXpert run）。hypernet_iterative の preflight が使う |
-| `eval_transform.v2.json` | 同じ入力 PNG に、MEDFAIR の前処理（縦横比を保たず 256x256 → CenterCrop 224）を適用した出力テンソル。hypernet_e2e の preflight が使う |
+| `eval_transform.v2.json` | 同じ入力 PNG に、MEDFAIR の前処理（縦横比を保たず 256x256 → CenterCrop 224、`val_transforms_medfair`）を適用した出力テンソル。hypernet_e2e の preflight が使う。CheXpert と HAM10000 が同じ前処理を通る |
 
 ## 形式
 
