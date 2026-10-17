@@ -216,20 +216,15 @@ uv run python -m projects.hypernet_e2e.run \
 
 ## 学習起動
 
-2026-10-02の主比較は、各GPUでseed 42 → 43 → 44の固定ループを使います。
-1-stageを先に実行し、2-stageは後日のユーザー依頼後に起動します。
-`overnight.py`による自動割り当ては停止済みで、再起動しません。
-割り当て・操作・履歴は[実験計画](../../docs/plans/20261002_experiment.md)を参照してください。
-
 `run.py` は `fit` を一度だけ実行し、Hydra 自身の `outputs/` を作りません。run の入力と出力は
 `projects/hypernet_e2e/runs/<run-id>/` に集約されます。例えば CPU で 1 epoch だけ確認するには、
 次を実行します。
 
 ```bash
-uv run python -m projects.hypernet_e2e.run trainer=cpu trainer.max_epochs=1 data.num_workers=0 data.persistent_workers=false data.prefetch_factor=null
+uv run python -m projects.hypernet_e2e.run experiment=resnet_chexpert study=scratch logger=none trainer=cpu trainer.max_epochs=1 data.num_workers=0 data.persistent_workers=false data.prefetch_factor=null
 ```
 
-デフォルトは GPU trainer と Spatial LoRA ERM です。`experiment=` で比較条件を選べます。
+`experiment=` に既定は無く、指定しないと起動を止めます。比較条件は `experiment=` で選びます。
 
 epoch ごとの metric は run directory の `metrics/metrics.csv` に必ず残し、既定では wandb
 （project `fairness_hypernet`）にも送ります。送信せずに試すときは `logger=none` を付けますが、
