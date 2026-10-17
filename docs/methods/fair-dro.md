@@ -15,8 +15,9 @@ FairDRO の run を設計・起動・評価するセッションは、先にこ�
 - **G=2 では q* は誤り率の差の符号だけで決まる**：q* = 1/2 ± √(ρ/2)。ρ=0.5 で (1, 0)、それより大きいと片方が負になる。
   q* の全成分が 0 以上に収まる ρ の上限は 1/(2(G−1))（G=2 で 0.5、G=4 で 0.167、G=8 で 0.071）。
   手法の性質で、実装の誤りではない。公式 README の値（2 群の Adult 5、COMPAS 3、CelebA 1.5）もこの上限を大きく超える。
-- **preset の 0.5 は、2026-10-16 より前の「ρ=1」と同じ重みを出す**（単位を変えただけ）。2026-10-16 の meeting 資料で
-  「使わない」とした ρ=1 の FairDRO run と同じ設定なので、preset のまま回すと同じ振る舞いになる。回す前に ρ を決める。
+- **preset の 0.5 は、2026-10-16 より前の「ρ=1」と同じ重みを出す**（単位を変えただけ）。この振る舞いは原論文が想定する
+  もので、旧 ρ=1 の run は 2026-10-16 に「使わない」から外した（[research_overview](../meetings/20261016/research_overview.md)）。
+  ρ は原論文どおり振って選ぶハイパーパラメータなので、格子に入れる値は回す前に決める。
 - checkpoint は EO の規則（val の TPR・TNR の群間差）で選ぶ。best val AUROC ではない。原論文は最終 epoch を報告している。
 
 ## 原論文と公式実装
@@ -120,7 +121,7 @@ uv run python -m projects.hypernet_e2e.run experiment=resnet_ham10000_fg_fairdro
 - **HAM10000 preset**：best val AUROC、best val 性別 × 年齢の最悪群 AUROC、last の 3 つだけが残る。gmm8 preset でも
   最悪群は性別 × 年齢で測る（学習に使った GMM 群ではない）。EO の規則で選ぶなら、上の例のように全 epoch を残して回す。
 - held-out で q を更新した run は、選択には val を使う（held-out は q の更新に使ったので、選択にも使うと二重に使う）。
-- 予測は `analysis/common/predictions.py`。全 epoch を残した run では `--checkpoint` を必ず渡す。
+- 予測は `analysis/common/predictions.py`。EO の規則など best val AUROC 以外で選んだ epoch は `--checkpoint` は名前で渡す（既定 `best` は run.json に記録された val AUROC の best、`xxx` は `checkpoints/xxx.ckpt`。例 `best_val_auroc_009`、`last`、`swad`）。
 - q の推移は `fair_dro_q.jsonl` で見る。q が誤り率の高い群へ向いたか、負の重みがどれだけ続いたか（`q_min`）を確かめる。
 
 ## 2026-10-16 の照合結果

@@ -110,12 +110,13 @@ uv run python -m projects.hypernet_e2e.run experiment=<..._eo_rate_dual_holdout>
 ```bash
 for e in $(seq -w 0 9); do
   uv run python analysis/common/predictions.py --study <slug> --split val \
-    --run-dir analysis/<slug>/runs/<run-id> --checkpoint checkpoints/best_val_auroc_0$e.ckpt
+    --run-dir analysis/<slug>/runs/<run-id> --checkpoint best_val_auroc_0$e
 done
 ```
 
-全 epoch を残した run では `run_artifacts.selected_checkpoint` が 1 つに定まらず失敗するので、`--checkpoint` を必ず渡す。
-cache 名には checkpoint の hash が入るので、epoch ごとの cache は並べて置ける。
+全 epoch を残した run では `best_val_auroc_*.ckpt` が epoch の数だけあるが、既定の `best` は run.json の記録から
+val AUROC の best を選ぶ。特定の epoch は `--checkpoint best_val_auroc_<epoch>` で選ぶ。cache 名には checkpoint の名前が
+入るので（`<run-id>_<名前>_<split>.npz`）、epoch ごとの cache は並べて置ける。
 
 選び方（val で測る。holdout は λ の更新に使ったので、選択にも使うと二重に使うことになる）：
 

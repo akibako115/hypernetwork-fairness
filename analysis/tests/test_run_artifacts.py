@@ -96,6 +96,42 @@ def test_an_ambiguous_checkpoint_set_is_an_error_not_a_guess(tmp_path: Path, nam
         selected_checkpoint(run_dir)
 
 
+def _single_stage_run(tmp_path: Path, names: list[str], best: str) -> Path:
+    """全 epoch を残し、run.json に val AUROC の best を記録した単段 run を作る。"""
+    recorded = f"/workspaces/x/runs/20260921T103222Z-iterative-s42-d24d/checkpoints/{best}"
+    run_dir = _run(tmp_path, {"checkpoints": [{"monitor": "val/auroc", "best": {"path": recorded}}]})
+    (run_dir / "checkpoints").mkdir()
+    for name in names:
+        (run_dir / "checkpoints" / name).touch()
+    return run_dir
+
+
+def test_best_follows_the_run_record_when_every_epoch_was_kept(tmp_path: Path) -> None:
+    """全 epoch を残した run は best_val_auroc_*.ckpt が epoch の数だけある。ファイル名ではなく記録で選ぶ。"""
+    names = ["best_val_auroc_001.ckpt", "best_val_auroc_002.ckpt", "last.ckpt"]
+    run_dir = _single_stage_run(tmp_path, names, best="best_val_auroc_002.ckpt")
+
+    assert selected_checkpoint(run_dir) == run_dir / "checkpoints" / "best_val_auroc_002.ckpt"
+
+
+@pytest.mark.parametrize("name", ["swad", "last", "best_val_auroc_001"])
+def test_a_named_checkpoint_is_that_file_next_to_best(tmp_path: Path, name: str) -> None:
+    """best 以外は名前で選ぶ。SWAD の平均重みや特定 epoch を、ファイル名から .ckpt を除いた名前で指す。"""
+    names = ["best_val_auroc_001.ckpt", "best_val_auroc_002.ckpt", "last.ckpt", "swad.ckpt"]
+    run_dir = _single_stage_run(tmp_path, names, best="best_val_auroc_002.ckpt")
+
+    assert selected_checkpoint(run_dir, name) == run_dir / "checkpoints" / f"{name}.ckpt"
+
+
+@pytest.mark.parametrize("name", ["swad", "checkpoints/last", "last.ckpt"])
+def test_a_missing_or_path_like_name_is_an_error(tmp_path: Path, name: str) -> None:
+    """無い名前や path を渡したら、別の checkpoint で黙って評価せずに落とす。"""
+    run_dir = _single_stage_run(tmp_path, ["best_val_auroc_002.ckpt", "last.ckpt"], best="best_val_auroc_002.ckpt")
+
+    with pytest.raises((FileNotFoundError, ValueError)):
+        selected_checkpoint(run_dir, name)
+
+
 def test_run_record_and_config_are_read_as_written(tmp_path: Path) -> None:
     """run.json と config.yaml は run が残した契約そのものを返す。"""
     run_dir = _run(tmp_path, {"study": "iterative_probe", "seed": 42})

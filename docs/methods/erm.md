@@ -111,7 +111,7 @@ uv run python -m projects.hypernet_e2e.run experiment=resnet_chexpert_from_resne
 - 抽出補正 ERM は `metrics/fairness_selection.json` が選んだ epoch を使う。親より全体 AUROC と最悪年齢群 AUROC が
   0.005 以上下がらない epoch のうち、群の組（陽性の群 × 陰性の群）の AUROC の最小が最大のもの
   （`callbacks/conditional_fairness.py:33-69`）。
-- 予測は `analysis/common/predictions.py`。best 以外を使うときは `--checkpoint` を渡す。
+- 予測は `analysis/common/predictions.py`。best 以外を使うときは `--checkpoint` は名前で渡す（既定 `best` は run.json に記録された val AUROC の best、`xxx` は `checkpoints/xxx.ckpt`。例 `best_val_auroc_009`、`last`、`swad`）。
 
 ## 2026-10-16 の照合結果
 

@@ -10,7 +10,8 @@ cache の i 番目は split CSV の i 行目に対応する（`evaluation_datalo
 
 どの project の run も `config.yaml` に datamodule と network の定義を持つので、分岐は
 checkpoint の選び方（`run_artifacts.selected_checkpoint`）と、network が属性を取るかどうか
-だけになる。
+だけになる。checkpoint は `--checkpoint` に名前で渡す。既定の `best` は val AUROC で選んだもの、
+それ以外の `xxx` は run の `checkpoints/xxx.ckpt`（例：`swad`、`last`、`best_val_worst_sexage_012`）。
 
 `--features` を付けると、同じ forward から backbone 表現（分類 head の直前）も
 **別 file** へ書く。属性 probe のように「予測ではなく表現に何が残っているか」を見る分析が
@@ -23,6 +24,9 @@ checkpoint の選び方（`run_artifacts.selected_checkpoint`）と、network �
 
     uv run python analysis/common/predictions.py --study initial_resnet_vs_invariant \
       --split val --features --run-dir analysis/archive/initial_resnet_vs_invariant/runs/<run-id>
+
+    uv run python analysis/common/predictions.py --study <slug> --split test --checkpoint swad \
+      --run-dir analysis/<slug>/runs/<run-id>
 
 `--run-dir` には package に取り込んだ run を渡す（`analysis/common/runs.py import`）。
 """
@@ -45,7 +49,12 @@ from omegaconf import OmegaConf
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 
 from analysis.common.paths import REPOSITORY_ROOT, local_data_path, runs_root, study_dir  # noqa: E402
-from analysis.common.run_artifacts import read_config, run_project, selected_checkpoint  # noqa: E402
+from analysis.common.run_artifacts import (  # noqa: E402
+    DEFAULT_CHECKPOINT,
+    read_config,
+    run_project,
+    selected_checkpoint,
+)
 
 SCHEMA_VERSION = 1
 # 特徴量は予測 cache と**別 file** に持つ。1 run 1 split で 90MB あり、読むのは属性 probe
@@ -66,14 +75,13 @@ def _sha256(path: Path, source_hashes: dict[Path, str] | None = None) -> str:
     return digest
 
 
-def _checkpoint_path(run_dir: Path, checkpoint: Path | None) -> Path:
-    if checkpoint is None:
-        return selected_checkpoint(run_dir)
-    path = checkpoint if checkpoint.is_absolute() else run_dir / checkpoint
-    path = path.resolve()
-    if not path.is_relative_to(run_dir.resolve()) or not path.is_file():
-        raise ValueError("明示 checkpoint は取り込み済み run 内の実在ファイルが必要")
-    return path
+def _checkpoint_path(run_dir: Path, checkpoint: str) -> Path:
+    return selected_checkpoint(run_dir, checkpoint).resolve()
+
+
+def _cache_identity(run_dir: Path, checkpoint: str) -> str:
+    # best の cache 名は run-id だけにして、既定の選び方で作った既存の cache をそのまま使えるようにする。
+    return run_dir.name if checkpoint == DEFAULT_CHECKPOINT else f"{run_dir.name}_{checkpoint}"
 
 
 def _split_path(run_dir: Path, split: str) -> Path:
@@ -122,7 +130,7 @@ def read_metadata(path: Path) -> dict[str, Any]:
         return json.loads(str(cached["metadata"]))
 
 
-def checkpoint_reference(run_dir: Path, checkpoint: Path | None = None) -> str:
+def checkpoint_reference(run_dir: Path, checkpoint: str = DEFAULT_CHECKPOINT) -> str:
     """cache に記録する checkpoint を、run-id から始まる相対 path で返す。
 
     書く側と照合する側で同じ文字列になる必要があるので 1 箇所で作る。run-id より上を
@@ -131,7 +139,7 @@ def checkpoint_reference(run_dir: Path, checkpoint: Path | None = None) -> str:
 
     Args:
         run_dir: config と checkpoint を持つ run directory
-        checkpoint: 明示する run 内 checkpoint。None は従来の best AUROC。
+        checkpoint: checkpoint の名前（`run_artifacts.selected_checkpoint`）。既定 `best` は val AUROC で選んだもの。
 
     Returns:
         str: `<run-id>/.../<name>.ckpt`
@@ -156,7 +164,7 @@ def stale_reason(
     path: Path,
     run_dir: Path,
     schema_version: int = SCHEMA_VERSION,
-    checkpoint: Path | None = None,
+    checkpoint: str = DEFAULT_CHECKPOINT,
     *,
     source_hashes: dict[Path, str] | None = None,
 ) -> str | None:
@@ -169,7 +177,7 @@ def stale_reason(
         path: `cache_path` または `features_cache_path` が返す `.npz`
         run_dir: その cache の元になる run directory
         schema_version: その cache が従うべき schema version
-        checkpoint: 明示 checkpoint。None は従来の選択。
+        checkpoint: checkpoint の名前（`run_artifacts.selected_checkpoint`）。既定 `best` は val AUROC で選んだもの。
         source_hashes: 変更しない入力のhashを1回の処理内で共有する辞書。呼び出し間では使い回さない。
 
     Returns:
@@ -186,7 +194,7 @@ def stale_reason(
     reference = checkpoint_reference(run_dir, checkpoint)
     if _from_run_id(str(metadata.get("checkpoint")), run_dir.resolve().name) != reference:
         return f"checkpoint が {metadata.get('checkpoint')} から {reference} へ変わった"
-    if checkpoint is not None or "checkpoint_sha256" in metadata:
+    if checkpoint != DEFAULT_CHECKPOINT or "checkpoint_sha256" in metadata:
         if metadata.get("checkpoint_sha256") != _sha256(_checkpoint_path(run_dir, checkpoint), source_hashes):
             return "checkpoint SHA-256 が一致しない"
         if metadata.get("split_sha256") != _sha256(_split_path(run_dir, metadata["split"]), source_hashes):
@@ -261,7 +269,7 @@ def load_features(path: Path, images: np.ndarray) -> dict[str, Any]:
     return result
 
 
-def load_network(run_dir: Path, device: torch.device, checkpoint: Path | None = None) -> torch.nn.Module:
+def load_network(run_dir: Path, device: torch.device, checkpoint: str = DEFAULT_CHECKPOINT) -> torch.nn.Module:
     """分類 network だけを checkpoint から復元する。
 
     予測は network の logits だけで決まるので、loss も training objective も復元しない
@@ -274,7 +282,7 @@ def load_network(run_dir: Path, device: torch.device, checkpoint: Path | None = 
 
     Args:
         run_dir: config と checkpoint を持つ run directory
-        checkpoint: 明示する run 内 checkpoint。None は従来の best AUROC。
+        checkpoint: checkpoint の名前（`run_artifacts.selected_checkpoint`）。既定 `best` は val AUROC で選んだもの。
         device: 推論に使う device
 
     Returns:
@@ -380,7 +388,7 @@ def write_cache(
     cache_dir: Path,
     device: torch.device,
     with_features: bool = False,
-    checkpoint: Path | None = None,
+    checkpoint: str = DEFAULT_CHECKPOINT,
     *,
     source_hashes: dict[Path, str] | None = None,
 ) -> list[Path]:
@@ -392,7 +400,7 @@ def write_cache(
 
     Args:
         run_dir: config と checkpoint を持つ run directory
-        checkpoint: 明示する run 内 checkpoint。None は従来の best AUROC。
+        checkpoint: checkpoint の名前（`run_artifacts.selected_checkpoint`）。既定 `best` は val AUROC で選んだもの。
         source_hashes: 変更しない入力のhashを1回の処理内で共有する辞書。呼び出し間では使い回さない。
         split: `train` / `val` / `test`。`train` も評価 transform・CSV 順で読む
             （`evaluation_dataloader` が split を読み直すため、train sampling も augmentation も効かない）
@@ -433,11 +441,7 @@ def write_cache(
         "num_examples": len(target),
         "num_classes": int(probabilities.shape[1]),
     }
-    identity = (
-        run_dir.name
-        if checkpoint is None
-        else f"{run_dir.name}_{metadata['checkpoint_sha256'][:12]}_{metadata['split_sha256'][:12]}"
-    )
+    identity = _cache_identity(run_dir, checkpoint)
     output = cache_path(cache_dir, identity, split)
     np.savez_compressed(
         output,
@@ -498,7 +502,7 @@ def rebuild_reason(
     run_dir: Path,
     split: str,
     with_features: bool,
-    checkpoint: Path | None = None,
+    checkpoint: str = DEFAULT_CHECKPOINT,
     *,
     source_hashes: dict[Path, str] | None = None,
 ) -> str | None:
@@ -510,7 +514,7 @@ def rebuild_reason(
     Args:
         cache_dir: cache を置く directory
         run_dir: config と checkpoint を持つ run directory
-        checkpoint: 明示する run 内 checkpoint。None は従来の best AUROC。
+        checkpoint: checkpoint の名前（`run_artifacts.selected_checkpoint`）。既定 `best` は val AUROC で選んだもの。
         source_hashes: 変更しない入力のhashを1回の処理内で共有する辞書。呼び出し間では使い回さない。
         split: `val` または `test`
         with_features: 特徴量 cache も要求されているか
@@ -520,12 +524,7 @@ def rebuild_reason(
     """
     if source_hashes is None:
         source_hashes = {}
-    identity = run_dir.name
-    if checkpoint is not None:
-        identity += (
-            f"_{_sha256(_checkpoint_path(run_dir, checkpoint), source_hashes)[:12]}"
-            f"_{_sha256(_split_path(run_dir, split), source_hashes)[:12]}"
-        )
+    identity = _cache_identity(run_dir, checkpoint)
     reason = stale_reason(
         cache_path(cache_dir, identity, split), run_dir, checkpoint=checkpoint, source_hashes=source_hashes
     )
@@ -556,11 +555,10 @@ def main() -> None:
     parser.add_argument("--split", default="test", choices=("train", "val", "test"))
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--features", action="store_true", help="分類 head 直前の表現も別 file へ書く")
-    parser.add_argument("--checkpoint", type=Path, help="run内の明示checkpoint。run-dirは1つだけ指定する")
+    checkpoint_help = "評価する checkpoint の名前。既定 best は val AUROC の best。xxx は run の checkpoints/xxx.ckpt"
+    parser.add_argument("--checkpoint", default=DEFAULT_CHECKPOINT, help=checkpoint_help)
     parser.add_argument("--overwrite", action="store_true", help="古くなくても作り直す")
     args = parser.parse_args()
-    if args.checkpoint is not None and len(args.run_dirs) != 1:
-        parser.error("明示checkpointにはrun-dirを1つ指定する")
 
     cache_dir = study_dir(args.study) / "cache"
     device = torch.device(args.device)
@@ -574,11 +572,10 @@ def main() -> None:
         reason = rebuild_reason(
             cache_dir, run_dir, args.split, args.features, args.checkpoint, source_hashes=source_hashes
         )
+        label = cache_path(cache_dir, _cache_identity(run_dir, args.checkpoint), args.split)
         if reason is None and not args.overwrite:
-            label = cache_path(cache_dir, run_dir.name, args.split) if args.checkpoint is None else args.checkpoint
             print(f"cache is current: {label}")
             continue
-        label = cache_path(cache_dir, run_dir.name, args.split) if args.checkpoint is None else args.checkpoint
         print(f"rebuilding ({reason or '--overwrite'}): {label}")
         for output in write_cache(
             run_dir, args.split, cache_dir, device, args.features, args.checkpoint, source_hashes=source_hashes

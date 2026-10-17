@@ -114,7 +114,7 @@ PopAUC を Minimax AUC の対照にするときは、同じデータ・抽出・
 - **HAM10000 の `fg` preset**：best val AUROC、best val 性別 × 年齢の最悪群 AUROC、last の 3 つだけ。gmm8 でも最悪群は
   性別 × 年齢で測るので、学習に使った群の最悪ペアでは選べない。
 - PopAUC は全体 AUC の代理なので、原論文の AUCMax に合わせるなら val の全体 AUROC（公式は val の全体損失）で選ぶ。
-- 予測は `analysis/common/predictions.py`。全 epoch を残した run では `--checkpoint` を必ず渡す。
+- 予測は `analysis/common/predictions.py`。EO の規則など best val AUROC 以外で選んだ epoch は `--checkpoint` は名前で渡す（既定 `best` は run.json に記録された val AUROC の best、`xxx` は `checkpoints/xxx.ckpt`。例 `best_val_auroc_009`、`last`、`swad`）。
 - q の推移は、`q_after` が val で最悪のペアへ寄ったかで確かめる。held-out 版は `held_out_epoch_mean` の `risk` と並べて読む。
 
 ## 2026-10-16 の照合結果

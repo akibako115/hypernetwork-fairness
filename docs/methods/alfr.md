@@ -109,8 +109,8 @@ HAM10000 の preset は無い。HAM10000 には race が無いので、作ると
   この repo の主指標で何を「公平性の差」とするか（Eodds など）は未決。決めてから選ぶ。
 - 既定の `model_checkpoint` は best val AUROC の 1 つと last だけを残す。原論文の選び方をするには、
   `callbacks.model_checkpoint.save_top_k=-1` で全 epoch を残す。
-- 予測は `analysis/common/predictions.py`。net だけを復元し、adversary は読み込まない。全 epoch を残した run では
-  `--checkpoint` を必ず渡す。属性が消えたかは `--features` で表現を書き出し、probe で確かめる（[dann.md](dann.md) の手順）。
+- 予測は `analysis/common/predictions.py`。net だけを復元し、adversary は読み込まない。best val AUROC 以外の epoch は
+  `--checkpoint` は名前で渡す（既定 `best` は run.json に記録された val AUROC の best、`xxx` は `checkpoints/xxx.ckpt`。例 `best_val_auroc_009`、`last`、`swad`）。属性が消えたかは `--features` で表現を書き出し、probe で確かめる（[dann.md](dann.md) の手順）。
 - 学習中の確認：`train/alfr/adversary_loss` が「事前分布だけを答える予測器」の水準に張り付いていないか見る。
   張り付いていれば、adversary が属性を追えていない（旧 DANN の失敗と同じ形）。
 

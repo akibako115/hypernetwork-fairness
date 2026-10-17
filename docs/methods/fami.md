@@ -106,7 +106,7 @@ uv run python -m projects.hypernet_e2e.run experiment=resnet_ham10000_fg_fami_se
   val の性別 × 年齢の最悪群 AUROC（`best_val_worst_sexage_*.ckpt`）、`last.ckpt` を残す。
   他手法と同じ基準で選び、どれを使ったかを run の記録に書く。LHCF のコホートで学習した run を性別 × 年齢で選ぶと、
   属性ラベルを選択に使うことになる。
-- 予測は `analysis/common/predictions.py`。best val AUROC 以外は `--checkpoint` を渡す。
+- 予測は `analysis/common/predictions.py`。best val AUROC 以外は `--checkpoint` は名前で渡す（既定 `best` は run.json に記録された val AUROC の best、`xxx` は `checkpoints/xxx.ckpt`。例 `best_val_auroc_009`、`last`、`swad`）。
 
 ## 2026-10-16 の照合結果
 

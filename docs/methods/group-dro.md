@@ -116,7 +116,7 @@ grid の年齢 × race 8 群の GroupDRO 15 run（5 構成 × seed 42〜44、`an
   `metrics.csv` の val 指標の epoch 推移で、選ばれた epoch と最悪群が最良の epoch がどれだけ離れているかは推測できる。
   `analysis/hypernet_conditioning_grid/README.md` の「GroupDRO は best（val AUROC）と last だけ」は、この grid の run
   （2026-10-12 学習）については正しい。今の strategy は全 epoch を残すので、新しく回す run には当てはまらない。
-- 予測は EO rate と同じく `analysis/common/predictions.py`。全 epoch を残した run では `--checkpoint` を必ず渡す。
+- 予測は EO rate と同じく `analysis/common/predictions.py`。EO の規則など best val AUROC 以外で選んだ epoch は `--checkpoint` は名前で渡す（既定 `best` は run.json に記録された val AUROC の best、`xxx` は `checkpoints/xxx.ckpt`。例 `best_val_auroc_009`、`last`、`swad`）。
 - q の推移は、`metrics.csv` の `train/group_dro/q/g*` で、最悪群（val で FPR が最大の群）に寄ったかを確かめる。
 
 ## 2026-10-16 の照合結果

@@ -121,7 +121,7 @@ uv run python -m projects.hypernet_e2e.run \
   `callbacks.model_checkpoint.save_top_k=-1 callbacks.model_checkpoint.save_weights_only=true` を足して回す
   （GroupDRO の strategy と同じ設定。dry-run で合成できることを確認済み）。
 - 補正版は `metrics/fairness_selection.json` の epoch を使う（[erm.md](erm.md) の抽出補正 ERM と同じ規則）。
-- 予測は `analysis/common/predictions.py`。best val AUROC 以外は `--checkpoint` を渡す。
+- 予測は `analysis/common/predictions.py`。best val AUROC 以外は `--checkpoint` は名前で渡す（既定 `best` は run.json に記録された val AUROC の best、`xxx` は `checkpoints/xxx.ckpt`。例 `best_val_auroc_009`、`last`、`swad`）。
 
 ## 2026-10-16 の照合結果
 

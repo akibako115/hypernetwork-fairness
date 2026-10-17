@@ -7,9 +7,8 @@ SWAD の run を設計・起動・評価するセッションは、先にこれ�
 
 - **SWAD は「学習中の重みを平均したもの」を 1 つ作る手法で、checkpoint を選ばない。** 評価するのは
   `checkpoints/swad.ckpt` だけ。best val AUROC や last は SWAD の成果物ではない。
-- **`analysis/common` の既定の選び方は `swad.ckpt` を選ばない。** `run_artifacts.selected_checkpoint` は
-  `best_val_auroc_*.ckpt` を 1 つ拾うので、何も言わずに SWAD でない重みを評価してしまう。予測を作るときは
-  `--checkpoint checkpoints/swad.ckpt` を必ず渡す（下の「checkpoint の選び方」）。
+- **`analysis/common` の既定（`best`）は `swad.ckpt` を選ばない。** 既定は val AUROC の best なので、SWAD の重みを
+  評価するときは予測を作るときに `--checkpoint swad` を渡す（下の「checkpoint の選び方」）。
 - **平均の単位が epoch で、原論文の 50〜500 step より粗い。** HAM10000 では 1 epoch ≈ 66 step。
 - **これまでの 21 run は、どれも谷の終わり（過学習の始まり）を検出しなかった。** 平均の範囲はほぼ全 epoch（0〜3 から 28〜29）で、
   「過学習に入る前の重みだけを平均する」という SWAD の狙いは効いていない（下の「実 run での谷の判定」）。
@@ -122,16 +121,15 @@ uv run python -m projects.hypernet_e2e.run experiment=resnet_ham10000_fg_swad se
 
 ```bash
 uv run python analysis/common/predictions.py --study <slug> --split test \
-  --run-dir analysis/<slug>/runs/<run-id> --checkpoint checkpoints/swad.ckpt
+  --run-dir analysis/<slug>/runs/<run-id> --checkpoint swad
 ```
 
 - `swad.ckpt` は `state_dict` の key が `net.` 始まりなので、`predictions.py` の読み込み（`net.` を外して strict に読む）に
   そのまま通る。
-- **`--checkpoint` を省くと `best_val_auroc_*.ckpt` が選ばれる。** `run_artifacts.selected_checkpoint`
-  （`analysis/common/run_artifacts.py:135-160`）は `best_val_auroc_*.ckpt` が 1 つなら黙ってそれを返す。SWAD の run は
-  best val AUROC の checkpoint を 1 つ持つので、失敗せずに平均前の重みを評価する。
-- `run.json` の checkpoint の記録にも `swad.ckpt` は載らない（`docs/reviews/20261013_experiment_project_review.md` の R6）。
-  ファイル名で指定するしかない。
+- **`--checkpoint` を省くと既定の `best`（val AUROC の best）が選ばれる。** SWAD の run も best val AUROC の
+  checkpoint を持つので、失敗せずに平均前の重みを評価する。SWAD の結果として読むなら必ず `--checkpoint swad`。
+- `run.json` の checkpoint の記録に `swad.ckpt` は載らない（`docs/reviews/20261013_experiment_project_review.md` の R6）。
+  名前（`swad`）で指定する。
 - 旧分析（`analysis/archive/latent_bias_hypernet/fairness_eval.py:126-130`）は、run 名に `-swad` を含む run では
   どちらの選び方でも `swad.ckpt` の予測を使っていた。予測は `predict_ungrouped.py --swad` で作っていた。
 - `metrics/swad.json` の `averaged_epochs` で、どの epoch を平均したかを必ず確かめる。

@@ -116,7 +116,7 @@ uv run python -m projects.hypernet_e2e.run experiment=resnet_ham10000_fg_wst_lhc
 - **LHCF の前提（学習に属性ラベルを使わない）に合わせるなら、best val AUROC か `swad.ckpt` を使う。** 性別 × 年齢で選ぶと、
   checkpoint の選択で属性ラベルを使うことになる。どちらで比べるかは比較の目的に合わせて決め、run の記録に書く。
 - コホートの最悪 AUROC で選ぶことはできない。val ではコホート 2 と 10 に悪性が 1 件も無く、AUROC が定まらない。
-- 予測は `analysis/common/predictions.py`。best 以外を使うときは `--checkpoint` を渡す。
+- 予測は `analysis/common/predictions.py`。best 以外を使うときは `--checkpoint` は名前で渡す（既定 `best` は run.json に記録された val AUROC の best、`xxx` は `checkpoints/xxx.ckpt`。例 `best_val_auroc_009`、`last`、`swad`）。
 
 ## 2026-10-16 の照合結果
 
