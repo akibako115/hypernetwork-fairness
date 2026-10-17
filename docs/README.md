@@ -16,6 +16,11 @@
   （research_overview の「過去の実験結果の扱い」）。
 - 2026-10-15 に FIS と FaMI を論文の式に合わせた（[reviews/20261015_lhcf_paper_alignment.md](reviews/20261015_lhcf_paper_alignment.md)）。
   それ以前の FIS・FaMI の結果は使わない。
+- 2026-10-16 に全手法を原論文・公式実装と照合し、誤りを直した（[methods/README.md](methods/README.md)、commit `0f2af99`）。
+  各手法の文書の「照合結果」に、それより前の run がどの版で学習したかを書いている。
+- 2026-10-17 に CheXpert の画像の前処理を MEDFAIR に合わせた（縦横比を保たず 256×256 → train はランダム、評価は中央で 224 を切り出す）。
+  それより前の CheXpert の run は、train と評価で画像の形が揃っていない旧前処理で学習している。どれを回し直すかは、
+  既存の分析・run の棚卸しをしながら決める。
 - Q1〜Q3 の区分（[plans/20261011_chexpert_restructure_plan.md](plans/20261011_chexpert_restructure_plan.md)）は柱 A・B に置き換えた。
   結果の一部は上の不具合の影響を受ける。
 

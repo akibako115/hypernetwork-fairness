@@ -49,6 +49,13 @@ FairDRO の run を設計・起動・評価するセッションは、先にこ�
 そのままでは動かない。公開コードで論文の手順に当たるのは `--method fairdro --optim-q smt_ibr --use-01loss`。
 論文の数値をどの設定で出したかは、公開コードからは確定できない。
 
+`arguments.py` の既定 `--optim-q pd` は、q を指数勾配で動かしてから `utils.chi_proj` で χ² 球へ射影する経路で、
+射影に `q >= 0` の制約が入っており、論文の擬似確率（負の重み）を許さない。ただしこの経路は `self.adv_probs_dict` を
+どこでも初期化しておらず、最初の q 更新で止まる（`trainer/fairdro.py:248–256`、2026-10-17 に確認）。動く経路は
+`ibr` と `smt_ibr` で、どちらも閉形式 `_update_mw_margin`（負の重みを許す）を使う。`smt_ibr` の既定 `--q-decay linear` が
+式 10 の η_t = 1 − t/T にあたり、図 4(b) の負の q とも合う。README の `ibr_ip` は `smt_ibr`、`--trueloss` は
+`--use-01loss` のことだと推測する（未確認）。どの経路でも χ² 球の大きさは ‖q − 1/G‖² ≤ 2ρ/G で、ρ の単位は同じ。
+
 ## この repo の実装
 
 `projects/hypernet_e2e/objectives/fair_dro.py` の `FairDROTaskLoss`（`training_strategy=fair_dro`）。
@@ -106,7 +113,7 @@ uv run python -m projects.hypernet_e2e.run experiment=resnet_ham10000_fg_fairdro
   callbacks.model_checkpoint.save_top_k=-1 callbacks.model_checkpoint.save_weights_only=true
 ```
 
-- `model.loss_fn.radius` は公式の単位。公式 README の値はそのまま使える。論文の図の ρ を使うときは 1/2 にする。
+- `model.loss_fn.radius` は公式の単位。公式 README の値を入れると公式コードと同じ重みになるが、README の値がどの設定で論文の数値を出したかは確定できない（上）。ρ は原論文と同じく振って選ぶ。論文の図の ρ を使うときは 1/2 にする。
 - `trainer.max_epochs` を変えると、η_t の T も一緒に変わる。
 
 ## checkpoint の選び方と予測の使い方

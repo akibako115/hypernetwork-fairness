@@ -15,7 +15,7 @@ from projects.hypernet_e2e.data.transform_utils import IMAGENET_FILL, IMAGENET_M
 
 
 def _golden() -> dict:
-    golden_path = Path(__file__).parents[3] / "tests/golden/eval_transform.v1.json"
+    golden_path = Path(__file__).parents[3] / "tests/golden/eval_transform.v2.json"
     return json.loads(golden_path.read_text())
 
 

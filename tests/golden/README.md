@@ -11,7 +11,8 @@
 | ファイル | 固定する対象 |
 | --- | --- |
 | `fairness_metrics.v1.json` | fairness callback を 1 epoch 分駆動したときのログキーと値 |
-| `eval_transform.v1.json` | PNG を読んで eval transform を適用した出力テンソル |
+| `eval_transform.v1.json` | PNG を読んで eval transform を適用した出力テンソル。pad-to-square → 224 の旧前処理（2026-10-17 より前の CheXpert run）。hypernet_iterative の preflight が使う |
+| `eval_transform.v2.json` | 同じ入力 PNG に、MEDFAIR の前処理（縦横比を保たず 256x256 → CenterCrop 224）を適用した出力テンソル。hypernet_e2e の preflight が使う |
 
 ## 形式
 
@@ -50,8 +51,9 @@ train 側の transform は乱数を含むので**出力を固定しない**。`t
 各段の型と主要パラメータだけを記録する。seed を固定して出力を固定すると、torchvision の
 内部 RNG 消費が変わっただけで落ちる脆い golden になる。
 
-pad を通らない case（正方形・224x224）は pad の変更を検出しない。これは仕様で、
+v1 では、pad を通らない case（正方形・224x224）は pad の変更を検出しない。これは仕様で、
 pad の挙動は `landscape_pad_remainder_bottom` と `portrait_pad_remainder_right` が担当する。
+v2 は pad をしないので、この 2 つの case は縦横比を保たずに引き伸ばす経路を担当する（名前は v1 から引き継ぐ）。
 
-`checkerboard_downscaled` だけが縮小経路を踏む。実データは必ず縮小されるが、他の case は
+`checkerboard_downscaled` だけが縮小経路を踏む（v1・v2 とも）。実データは必ず縮小されるが、他の case は
 すべて拡大か恒等になるため。市松模様なのは、PNG で強く圧縮できて縮小時の折り返しに敏感だから。
