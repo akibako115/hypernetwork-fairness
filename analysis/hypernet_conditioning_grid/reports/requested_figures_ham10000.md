@@ -4,13 +4,13 @@
 
 **GroupDRO は、Spatial LoRA で Eopp1 を下げて worst-TPR を上げる向きに動く。ただし同じ seed どうしの差は seed 間で大きく揺れ、偽陽性の増加も伴う。** 3 seed の記述的な比較で、効果を確定したものではない。EO rate は回し直し中なので、この報告には含めていない。
 
-- [再実行用 notebook](../requested_figures.ipynb)／[集計 module](../requested_analysis.py)
-- 図：`figures/requested_figures/`（`index.html` に全図、`all_requested_figures.pdf` にまとめ）。図は再生成物なので Git で追跡しない
-- 数値：[条件ごとの平均・SD](../results/requested_figures/test_mean_sd.csv)、[同 seed 差](../results/requested_figures/paired_deltas_mean_sd.csv)、[群別](../results/requested_figures/test_groups_mean_sd.csv)
+- [再実行用 notebook](../requested_figures_ham10000.ipynb)／[集計 module](../requested_analysis_ham10000.py)
+- 図：`figures/requested_figures_ham10000/`（`index.html` に全図、`all_requested_figures.pdf` にまとめ）。図は再生成物なので Git で追跡しない
+- 数値：[条件ごとの平均・SD](../results/requested_figures_ham10000/test_mean_sd.csv)、[同 seed 差](../results/requested_figures_ham10000/paired_deltas_mean_sd.csv)、[群別](../results/requested_figures_ham10000/test_groups_mean_sd.csv)
 
 ## 何を比べたか
 
-CheXpert の [requested_figures](../../hypernet_conditioning_grid/reports/requested_figures.md) と同じ図を、HAM10000 で作った。比べたのは 10 条件 × 3 seed（42・43・44）の 30 run で、モデルは ResNet-50、Spatial LoRA（S3–4＋fc）、Spatial LoRA（fc のみ）。それぞれに 1-stage と、同じ seed の ResNet ERM を凍結した 2-stage があり（ResNet は 1-stage のみ）、目的関数は ERM と GroupDRO の 2 つ。図 1〜4 は各 run の best val AUROC checkpoint で test を評価した値、図 6 は validation の全 30 epoch の推移。
+CheXpert の [requested_figures](requested_figures.md) と同じ図を、HAM10000 で作った。比べたのは 10 条件 × 3 seed（42・43・44）の 30 run で、モデルは ResNet-50、Spatial LoRA（S3–4＋fc）、Spatial LoRA（fc のみ）。それぞれに 1-stage と、同じ seed の ResNet ERM を凍結した 2-stage があり（ResNet は 1-stage のみ）、目的関数は ERM と GroupDRO の 2 つ。図 1〜4 は各 run の best val AUROC checkpoint で test を評価した値、図 6 は validation の全 30 epoch の推移。
 
 CheXpert との違いは次の 3 点。
 
@@ -74,7 +74,7 @@ q は train の損失に対する重みにあたる。**train の損失が大き
 
 - 予測 cache は、checkpoint と split CSV の SHA256、画像の行順、target が一致することを確かめてから読んだ。run.json の best は val AUROC の最大値と一致し、30 epoch がそろい、q の和は 1。
 - 学習ログから復元した global TPR/FPR は、整数件数から 0.01 件以内に収まった。
-- **学習ログと cache の差は、CheXpert より大きい。** best epoch での最大の絶対差は、全体 AUROC 0.0106（2-stage で目立ち、ログのほうが低い）、群の AUROC 0.0045、Eopp1 0.056（val の陽性 33 件の群で 1〜2 件の判定が入れ替わった大きさ）。学習時は bf16-mixed、cache は float32 なので、精度の差が原因の候補。再推論での切り分けはしていない（[差分表](../results/requested_figures/validation_cache_log_errors.csv)）。図 1〜4 は cache、図 6 の線は学習ログに統一した。
+- **学習ログと cache の差は、CheXpert より大きい。** best epoch での最大の絶対差は、全体 AUROC 0.0106（2-stage で目立ち、ログのほうが低い）、群の AUROC 0.0045、Eopp1 0.056（val の陽性 33 件の群で 1〜2 件の判定が入れ替わった大きさ）。学習時は bf16-mixed、cache は float32 なので、精度の差が原因の候補。再推論での切り分けはしていない（[差分表](../results/requested_figures_ham10000/validation_cache_log_errors.csv)）。図 1〜4 は cache、図 6 の線は学習ログに統一した。
 - 属性で条件付けたモデルは、学習中に見ていない欠損用の入力を test の 294 件で受ける。全行の AUROC は条件付けモデルで下がる（例：Spatial S3–4＋fc・1-stage は 1,217 件で 0.927、全行で 0.910）。これは本文の比較から外した。
 
 ## 追加で確認するとよいこと

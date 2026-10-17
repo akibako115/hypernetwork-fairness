@@ -4,7 +4,7 @@ import numpy as np
 import torch
 from sklearn.metrics import roc_auc_score
 
-from analysis.conditioned_subgroup_discovery import delta_probe, rule_tests
+from analysis.archive.conditioned_subgroup_discovery import delta_probe, rule_tests
 from projects.hypernet_e2e.models.spatial_hypernet.blocks import SpatialLoRAConv
 
 

@@ -1,11 +1,11 @@
-"""`analysis/dataset_gain_sources/metrics.py` のうち、落ちずに間違う経路を確かめる。"""
+"""`analysis/conditioning_mechanism/metrics.py` のうち、落ちずに間違う経路を確かめる。"""
 
 from __future__ import annotations
 
 import numpy as np
 from sklearn.metrics import roc_auc_score
 
-from analysis.dataset_gain_sources.metrics import boot_delta, group_members, within_between
+from analysis.conditioning_mechanism.metrics import boot_delta, group_members, within_between
 
 
 def test_within_between_recombines_to_auroc():

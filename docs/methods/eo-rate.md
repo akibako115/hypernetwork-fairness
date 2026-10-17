@@ -131,7 +131,7 @@ val AUROC の best を選ぶ。特定の epoch は `--checkpoint best_val_auroc_
   両方に使うのを避けて val を選んだ。提案：今の方針（val）を正とし、preset のコメントを val に揃える。holdout で選んだ
   結果は補足として並べる。
 
-## 既知の失敗例（2026-10-13、`analysis/latent_group_fairness`）
+## 既知の失敗例（2026-10-13、`analysis/archive/latent_group_fairness`）
 
 run `…dw8-eo-rate-dual-holdout-s42-9bb9`：pairwise・両方の率・ε 0.1・初期 task 重み 0.9・30 epoch。
 

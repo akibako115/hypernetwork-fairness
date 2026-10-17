@@ -1,10 +1,13 @@
 """3 データセット（HAM10000・FairVLMed・CheXpert）の予測 cache と split を、同じ形で読む。
 
-予測は各 package が書いた cache（`analysis/common/predictions.py` の形式）を読み、このパッケージでは推論しない。
+予測は `cache/` の予測 cache（`analysis/common/predictions.py` の形式）を読み、ここでは推論しない。
+2026-10-17 に、それまで各 package（`ham10000_architecture_erm`・`fairvlmed_architecture_erm`・archive の
+`latent_bias_hypernet`・`race_known_architecture_objective_comparison`）に分かれていた cache を、この package の
+`cache/` へ hardlink で集めた。同じ run の cache が 2 か所にあったものは、以前の読み順で後に読んでいた側を残した。
 cache の i 行目は split CSV の i 行目に対応し、`image` 列で検算する。
 
 評価する行:
-- HAM10000：test は施設が既知で sex・age が揃う行（`ham10000_architecture_erm` の主比較と同じ方針）。
+- HAM10000：test は施設が既知で sex・age が揃う行（格子の HAM10000 の主比較と同じ方針）。
   external は年齢欠損の符号化で条件付きモデルが崩れるので、ここで問う「属性が効くか」と混ざる
 - FairVLMed・CheXpert：全行
 """
@@ -21,7 +24,7 @@ from sklearn.preprocessing import OneHotEncoder
 
 from analysis.common.paths import ANALYSIS_ROOT, REPOSITORY_ROOT
 
-PACKAGE = ANALYSIS_ROOT / "dataset_gain_sources"
+PACKAGE = ANALYSIS_ROOT / "conditioning_mechanism"
 SEEDS = (42, 43, 44)
 RUN_FILE = re.compile(r"^\d{8}T\d{6}Z-(?P<exp>.+)-s(?P<seed>\d+)-[0-9a-f]{4}_(?P<split>[a-z]+)(?P<suffix>.*)\.npz$")
 
@@ -32,7 +35,6 @@ class Dataset:
 
     name: str
     splits: str
-    caches: tuple[str, ...]
     models: dict[str, str]
     categorical: tuple[str, ...]
     continuous: tuple[str, ...]
@@ -42,7 +44,6 @@ DATASETS = {
     "ham10000": Dataset(
         "ham10000",
         "data/ham10000/splits_latent",
-        ("ham10000_architecture_erm", "latent_bias_hypernet"),
         {
             "resnet": "resnet-ham10000",
             "meta": "spatial-lora-ham10000",
@@ -57,7 +58,6 @@ DATASETS = {
     "fairvlmed": Dataset(
         "fairvlmed",
         "data/fairvlmed/splits",
-        ("fairvlmed_architecture_erm", "latent_bias_hypernet"),
         {
             "resnet": "resnet-fairvlmed",
             "meta": "spatial-lora-fairvlmed",
@@ -71,7 +71,6 @@ DATASETS = {
     "chexpert": Dataset(
         "chexpert",
         "data/chexpert/splits_race_known",
-        ("race_known_architecture_objective_comparison",),
         {
             "resnet": "resnet-chexpert-race-known",
             "meta": "spatial-lora-chexpert-race-known",
@@ -107,13 +106,12 @@ def cache_files(dataset: Dataset, split: str, suffix: str = "") -> dict[str, dic
     """model 名 → seed → cache file。`suffix` は `_features` や `_cf-constant_typical`。"""
     found: dict[str, dict[int, Path]] = {}
     experiments = {experiment: model for model, experiment in dataset.models.items()}
-    for package in dataset.caches:
-        for path in sorted((ANALYSIS_ROOT / package / "cache").glob(f"*_{split}{suffix}.npz")):
-            match = RUN_FILE.match(path.name)
-            if match is None or match["suffix"] != suffix or match["exp"] not in experiments:
-                continue
-            if int(match["seed"]) in SEEDS:
-                found.setdefault(experiments[match["exp"]], {})[int(match["seed"])] = path
+    for path in sorted((PACKAGE / "cache").glob(f"*_{split}{suffix}.npz")):
+        match = RUN_FILE.match(path.name)
+        if match is None or match["suffix"] != suffix or match["exp"] not in experiments:
+            continue
+        if int(match["seed"]) in SEEDS:
+            found.setdefault(experiments[match["exp"]], {})[int(match["seed"])] = path
     return found
 
 

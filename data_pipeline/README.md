@@ -191,6 +191,12 @@ localization は評価軸ではなくモデル入力にだけ使うので、欠�
 **test は `dataset=external`（HAM10000 外の施設、316 枚）に欠損が集中し**、age か sex を欠く 294 枚の
 うち 284 枚がここに属する。fairness 指標は実質 HAM10000 と同じ施設の画像に限られる。
 
+**属性で条件付けたモデルは、external の欠損行で崩れる。** 欠損年齢は配布 CSV で 0 歳として入り、標準化すると
+約 −3 SD の値になる。train/val から欠損行を外しているので、モデルはこの入力も、立った欠損フラグも学習中に見ない。
+2026-10-07 の ERM の比較（旧 `ham10000_architecture_erm`）では、external だけの AUROC で Spatial LoRA・HyperAdapt が
+ResNet-50 を下回った（0.822・0.799 対 0.846）。属性を使わない ResNet と比べると、全 1,511 枚の全体 AUROC には
+モデル構成の差と欠損入力の扱いの差が混ざるので、**モデル間の主比較は属性の揃った 1,217 枚で行う**。
+
 **患者単位の分離は保証できない。** 患者 ID が公開されておらず、ISIC archive でも全画像の `patient_id` が
 空である。同一患者の別病変が split をまたぐ可能性は残る。確認できたのは、split 間で `lesion_id` の共有が
 無いこと（archive 側の lesion ID でも同じ）と、dHash で split をまたぐ画像重複が無いこと（距離 10 以下の

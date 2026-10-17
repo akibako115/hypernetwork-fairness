@@ -5,10 +5,10 @@
    65 歳以上のセルは右上がり、65 歳未満のセルは右下がりになる。
 2. `contrasts.png`：セル内 AUROC の差（正しい属性 − 反対・他の属性）と 95% 区間。
 
-入力: `results/age_curve.csv`・`results/contrasts.csv`（`summarize.py` の出力）
+入力: `results/age_curve.csv`・`results/contrasts.csv`（`interaction_summary.py` の出力）
 出力: `figures/age_curve.png`・`figures/contrasts.png`
 
-    uv run python -m analysis.attribute_interaction.figure
+    uv run python -m analysis.conditioning_mechanism.interaction_figure
 """
 
 from __future__ import annotations
@@ -20,8 +20,8 @@ import rootutils
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 
-from analysis.attribute_interaction.counterfactual import AGE_OLD, AGE_YOUNG, PACKAGE  # noqa: E402
 from analysis.common.paths import STYLE_SHEET  # noqa: E402
+from analysis.conditioning_mechanism.interaction_counterfactual import AGE_OLD, AGE_YOUNG, PACKAGE  # noqa: E402
 
 DATASETS = {"ham10000": "HAM10000 (cells: sex × age 65)", "chexpert": "CheXpert (cells: race × age 65)"}
 MODELS = {
@@ -40,21 +40,32 @@ def plot_age_curve(curve: pd.DataFrame) -> plt.Figure:
     curve = curve[curve.variant != "observed"].copy()
     panels = [(d, m) for d in DATASETS for m in MODELS if ((curve.dataset == d) & (curve.model == m)).any()]
     fig, axes = plt.subplots(1, len(panels), figsize=(4.2 * len(panels), 3.8), sharey=True, squeeze=False)
-    for ax, (dataset, model) in zip(axes[0], panels):
+    for ax, (dataset, model) in zip(axes[0], panels, strict=True):
         sub = curve[(curve.dataset == dataset) & (curve.model == model)]
         for cell, rows in sub.groupby("cell"):
             old = cell.endswith("≥65")
             anchor = rows.loc[rows.input_age == (AGE_OLD if old else AGE_YOUNG), "auroc"].iloc[0]
-            ax.plot(rows.input_age, rows.auroc - anchor, marker="o", ms=3, ls="-" if old else "--",
-                    color="#c0392b" if old else "#2471a3", alpha=0.8, label=cell)
+            ax.plot(
+                rows.input_age,
+                rows.auroc - anchor,
+                marker="o",
+                ms=3,
+                ls="-" if old else "--",
+                color="#c0392b" if old else "#2471a3",
+                alpha=0.8,
+                label=cell,
+            )
         ax.axhline(0, color="#888", lw=0.8)
         ax.axvline(65, color="#bbb", lw=0.8, ls=":")
         ax.set_title(f"{DATASETS[dataset].split(' (')[0]}\n{MODELS[model]}", fontsize=9)
         ax.set_xlabel("Age given to the hypernetwork (years)")
         ax.legend(fontsize=6, ncol=2, loc="lower center")
     axes[0][0].set_ylabel("Within-cell AUROC\n(relative to own-group age 45 / 75)")
-    fig.suptitle("Within-cell AUROC when every image in the cell gets the same input age\n"
-                 "Flat = attributes only shift the score; solid = age ≥65 cells, dashed = <65 cells", fontsize=10)
+    fig.suptitle(
+        "Within-cell AUROC when every image in the cell gets the same input age\n"
+        "Flat = attributes only shift the score; solid = age ≥65 cells, dashed = <65 cells",
+        fontsize=10,
+    )
     fig.tight_layout()
     return fig
 
@@ -62,7 +73,7 @@ def plot_age_curve(curve: pd.DataFrame) -> plt.Figure:
 def plot_contrasts(table: pd.DataFrame) -> plt.Figure:
     """対比ごとに、セル × モデルの差と 95% 区間を横棒で描く。"""
     fig, axes = plt.subplots(len(DATASETS), len(CONTRASTS), figsize=(11, 8.5), squeeze=False)
-    colors = dict(zip(MODELS, ["#2a6f97", "#e07a5f", "#6a994e"]))
+    colors = dict(zip(MODELS, ["#2a6f97", "#e07a5f", "#6a994e"], strict=True))
     for i, dataset in enumerate(DATASETS):
         for j, (contrast, title) in enumerate(CONTRASTS.items()):
             ax = axes[i][j]
@@ -72,8 +83,16 @@ def plot_contrasts(table: pd.DataFrame) -> plt.Figure:
             for k, model in enumerate(models):
                 rows = sub[sub.model == model].set_index("cell").loc[cells]
                 y = np.arange(len(cells)) + (k - (len(models) - 1) / 2) * 0.25
-                ax.errorbar(rows.delta, y, xerr=[rows.delta - rows.low, rows.high - rows.delta], fmt="o", ms=3,
-                            color=colors[model], label=MODELS[model], capsize=2)
+                ax.errorbar(
+                    rows.delta,
+                    y,
+                    xerr=[rows.delta - rows.low, rows.high - rows.delta],
+                    fmt="o",
+                    ms=3,
+                    color=colors[model],
+                    label=MODELS[model],
+                    capsize=2,
+                )
             ax.axvline(0, color="#888", lw=0.8)
             ax.set_yticks(np.arange(len(cells)), cells, fontsize=8)
             ax.invert_yaxis()

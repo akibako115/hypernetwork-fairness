@@ -24,7 +24,7 @@ from analysis.archive.latent_bias_hypernet.data import PACKAGE
 from analysis.archive.latent_bias_hypernet.q1_definitions import bootstrap_index
 from analysis.archive.latent_bias_hypernet.q2_fairness_loss import SEEDS, SPLITS, demo8
 from analysis.archive.latent_bias_hypernet.q2_threshold_equivalence import PROCEDURES, scores
-from analysis.dataset_gain_sources.metrics import within_between
+from analysis.conditioning_mechanism.metrics import within_between
 
 LOSSES = ("erm", "eo", "minimax_auc")
 PARTS = ("overall", "within", "between")

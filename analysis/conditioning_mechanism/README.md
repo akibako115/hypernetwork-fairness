@@ -1,17 +1,39 @@
-# dataset_gain_sources
+# conditioning_mechanism
 
+柱 A の機構：属性による条件付けは、どういうときに全体性能を上げ、どう効いているか。
+2026-10-17 に `dataset_gain_sources`（2026-10-12 開始）と `attribute_interaction`（2026-10-15 開始）をまとめた。
+
+## 現状（2026-10-17）
+
+- 2 つの分析で 1 つの主張になる。条件付けが効くのは、属性が画像のスコアに無いラベルの情報を運ぶときだけで（1 節）、
+  効き方はほぼスコアの切片をずらすこと（事前確率の注入）である（2 節）。
+- 入力の CheXpert・HAM10000 の run は旧前処理で学習している。格子（[hypernet_conditioning_grid](../hypernet_conditioning_grid/README.md)）
+  の 1 段の ERM を新しい前処理で回し直したら、その run を推論し直して作り直す。学習を足すのは、条件を定数にした
+  Spatial LoRA（HAM10000 × 3 seed）だけ。FairVLMed は前処理を変えていないので、run をそのまま使う。
+- 作り直しでは HyperAdapt と random8 を外す（格子でも HyperAdapt を外したため）。
+
+| file | 中身 | 出力 |
+| --- | --- | --- |
+| `data.py`・`metrics.py` | 3 データの予測 cache と split の読み方、AUROC の分解と bootstrap | — |
+| `gain_sources.py`・`gain_figure.py` | 1 節の物差し | `results/*.csv`、`figures/gain_vs_attribute_ceiling.png` |
+| `condition_use.py` | 属性を行の間で入れ替えたときの低下（GPU） | `results/<dataset>_condition_use.csv` |
+| `constant_condition.py` | HAM10000 で test 時だけ属性を固定・欠損を埋めた推論（GPU） | `cache/<run-id>_test_cf-<条件>.npz` |
+| `interaction_counterfactual.py` | 評価セル内で属性をそろえ、入力の年齢を動かす推論（GPU） | `cache/<run-id>_test_interaction.npz` |
+| `interaction_summary.py`・`interaction_figure.py` | 2 節の集計と図 | `results/{age_curve,contrasts,rank_change}.csv`、`figures/{age_curve,contrasts}.png` |
+
+# 1. 条件付けで全体性能が上がるのはいつか（旧 dataset_gain_sources、2026-10-12）
 2026-10-12 開始。属性条件付きモデル（Spatial LoRA・HyperAdapt）が ResNet-50 より上がるのは HAM10000 だけで、
 FairVLMed・CheXpert では変わらない。その理由を、3 データセットで同じ物差しを当てて切り分ける。
 hypernetwork が何をしているか（何があれば効き、何が無いと効かないか）を読むための分析。
 
-- 学習・推論はしない。各 package の予測 cache を読む（対象 run は [runs.md](runs.md)）。
-  例外は CheXpert の条件入れ替えだけで、[condition_use_chexpert.py](condition_use_chexpert.py) が推論する。
+- 学習・推論はしない。`cache/` の予測 cache を読む（対象 run は [runs.md](runs.md)）。
+  例外は条件の入れ替え（[condition_use.py](condition_use.py)）と、HAM の属性の固定（[constant_condition.py](constant_condition.py)）で、これらは推論する。
 - 主比較は test。HAM は施設が既知で sex・age が揃う 1,185 行（external は年齢欠損の符号化で崩れるので外す。
-  [ham10000_architecture_erm](../ham10000_architecture_erm/README.md)）。区間は患者（病変）単位の対応のある bootstrap。
-- 実行：`uv run python -m analysis.dataset_gain_sources.gain_sources` → `results/*.csv`、
-  `uv run python -m analysis.dataset_gain_sources.figure` → `figures/gain_vs_attribute_ceiling.png`
+  [data_pipeline/README.md](../../data_pipeline/README.md) の HAM10000 の節）。区間は患者（病変）単位の対応のある bootstrap。
+- 実行：`uv run python -m analysis.conditioning_mechanism.gain_sources` → `results/*.csv`、
+  `uv run python -m analysis.conditioning_mechanism.gain_figure` → `figures/gain_vs_attribute_ceiling.png`
 
-## 物差し
+### 物差し
 
 | 量 | 何を見るか | 出力 |
 | --- | --- | --- |
@@ -20,14 +42,14 @@ hypernetwork が何をしているか（何があれば効き、何が無いと�
 | 属性だけの予測力 | 属性だけのロジスティック回帰（train で学習）の AUROC | `attribute_information.csv` |
 | 読み取りやすさ | ResNet の特徴から属性を当てる精度（val で学習・test で評価） | `readability.csv` |
 | セル内・セル間 | AUROC を、属性の事前確率（属性だけのモデルの十分位）が同じ組と違う組に分ける。後付けの事前確率はセル間の組しか動かさない | `within_between.csv` |
-| 条件の使用量 | test の属性を行の間で入れ替えたときの AUROC の低下 | `results/chexpert_condition_use.csv`、HAM・FairVLMed は `latent_bias_hypernet` |
+| 条件の使用量 | test の属性を行の間で入れ替えたときの AUROC の低下 | `results/<dataset>_condition_use.csv` |
 | HAM の機構 | dx の組ごとの AUROC、test 時だけ属性を固定した出力（`meta_fixed`）、良性内のスコアと年齢の相関 | `ham_pairs.csv`・`ham_age_coupling.csv` |
 
-## 結果（2026-10-12）
+### 結果（2026-10-12）
 
 ![](figures/gain_vs_attribute_ceiling.png)
 
-### 3 データセットの比較（test、seed 平均）
+#### 3 データセットの比較（test、seed 平均）
 
 | | HAM10000 | FairVLMed | CheXpert |
 | --- | --- | --- | --- |
@@ -44,7 +66,7 @@ hypernetwork が何をしているか（何があれば効き、何が無いと�
 | test の標本誤差（SE、meta − ResNet） | 0.007 | 0.005 | 0.001 |
 | val での meta − ResNet | +0.005 | −0.001 | +0.002 |
 
-### 読み
+#### 読み
 
 1. **条件付けの効果は「属性が画像のスコアに無いラベルの情報を運ぶか」で上限が決まる。** 属性だけの予測力は
    3 データセットとも 0.68〜0.80 あるが、ResNet の出力に後から足したときの上がり幅は HAM +0.009〜0.013、
@@ -77,7 +99,7 @@ hypernetwork が何をしているか（何があれば効き、何が無いと�
    ランダム 8 区分の条件も const と変わらない（HAM +0.002、FairVLMed +0.004）。adapter を足したことや、条件の種類
    の数が増えたことで上がるのではない。
 
-### hypernetwork の作用としてのまとめ
+#### hypernetwork の作用としてのまとめ
 
 - 条件付けが効くのは、**条件が画像に無いラベルの情報を運ぶとき**に限られ、その幅は「出力に属性を後から足す」こと
   でおおむね上限が分かる。CheXpert はこの上限が 0、FairVLMed は標本誤差と同程度だった。
@@ -85,21 +107,79 @@ hypernetwork が何をしているか（何があれば効き、何が無いと�
 - それに加えて、学習時に条件が近道（ここでは年齢）を受け持つことで画像側の特徴が変わる作用が HAM で見えた。
   これは後付けでは得られない、条件付きで学習したことに固有の効果で、分布のずれのある test でだけ大きく現れた。
 
-## 限界
+### 限界
 
 - データセットは 3 つで、データの量（HAM 8.5 千枚、FairVLMed 7 千枚、CheXpert 15.8 万枚）・タスク・属性の種類が
   同時に違う。FairVLMed は HAM と同程度の量なのに上がらないので、量だけでは説明できないが、(b) の作用が小さい
   データでだけ出るかどうかは、CheXpert を間引いた学習でないと確かめられない。
 - 後付けの上がり幅は点推定で、区間を付けていない。val で学習する版は val が checkpoint 選択に使われた split である点に注意。
 - (b) の `meta_fixed` は、学習時に見た属性の組（典型値）を全行に入れた出力で、属性を「取り除いた」ものではない。
-  典型値の選び方で値が少し動く（`constant_face` でも同じ向き。[counterfactual](../ham10000_architecture_erm/README.md)）。
+  典型値の選び方で値が少し動く（`constant_face` でも同じ向き。[constant_condition.py](constant_condition.py)）。
 - 年齢の肩代わりは相関の証拠で、因果の確認には年齢だけで条件付ける・年齢だけ外して条件付ける学習が要る。
 - 特徴からの読み取りやすさは、No Finding などのタスクで学習した ResNet の特徴を probe したもので、画像に含まれる
   属性の情報の下限にすぎない（CheXpert の年齢 R² 0.32 は、年齢が画像から読めないことを意味しない）。
 
-## 次に確かめるなら
+### 次に確かめるなら
 
 1. HAM を年齢だけで条件付ける学習と、年齢だけ外す学習（(a)・(b) が年齢によるかの因果の確認）。
 2. CheXpert の train を 8 千枚に間引いて、ResNet・const・meta を学習する（(b) がデータの量に依存するか）。
 3. 属性（臨床情報）が画像に無い情報を多く運ぶデータでの再現（例：PAD-UFES-20 のような臨床メタデータの豊富な
    皮膚画像）。上の 1. の読みが正しければ、後付けの上限が大きいほど条件付けの上がり幅も大きくなるはず。
+
+# 2. 属性は切片をずらすだけか、画像の読み方も変えるか（旧 attribute_interaction、2026-10-15）
+2026-10-15 開始。柱 A（hypernetwork による条件付けは、いつ効いて、いつ効かないか）の機構の確認。
+
+### 問い
+
+属性条件付きモデルは、属性を「スコアの切片をずらす」（陽性率の注入）だけに使っているのか、
+「属性によって画像の読み方を変える」（属性と画像特徴の交互作用。例：80 歳ならこの程度の変化は正常と読む）
+ことにも使っているのか。後者だけが、群別しきい値では代わりの利かない効果（群内 AUROC の改善）を生む。
+
+既存の属性入れ替え推論（1 節の `condition_use.py`）は、モデルが属性を使っていることは
+示したが、行の間で属性を混ぜるので、切片だけの使い方でも AUROC が下がり、両者を区別しない。
+
+### 方法
+
+学習済みの ERM の run（[runs.md](runs.md)、修正の影響を受けない）を、test で推論し直す（[interaction_counterfactual.py](interaction_counterfactual.py)）。
+
+- 評価セル（HAM10000 は sex × 65 歳の 4 群、CheXpert は race × 65 歳の 8 群）の中では、全員に**同じ属性**を入れる。
+  評価セルを決めない属性（HAM の localization、CheXpert の sex・ethnicity・正面側面・AP/PA）は train の最頻値に固定する。
+- そのうえで、入力の年齢を 25〜85 歳で動かす。race（CheXpert）・sex（HAM）も差し替える。
+- 属性が切片（と傾き）だけに効くなら、セル内のスコアの並びは変わらず、セル内 AUROC は入力によらず一定になる。
+
+指標（[interaction_summary.py](interaction_summary.py)、図は [interaction_figure.py](interaction_figure.py)）:
+
+- セル内スコアの順位相関（入力 45 歳と 75 歳）。切片だけなら 1。
+- セル内 AUROC の差：セルの年齢群の代表値（45・75 歳）を入れたとき − 反対の年齢群の代表値。sex・race も同様に、自分の値 − 他の値の平均。
+- 区間は患者（皮膚は病変）単位の cluster bootstrap 95%（1,000 回）。**test の標本の揺れだけ**を表す。seed は 3 本の平均で、学習の揺れは含まない。
+
+### 結果（2026-10-15）
+
+![](figures/age_curve.png)
+
+1. **画像の並びは、入力属性でほとんど変わらない。** セル内の順位相関（45 歳 vs 75 歳）は、CheXpert 0.987〜0.999、
+   HAM10000 0.982〜0.998。fc だけの条件付けは 0.998 で、ほぼ切片だけの使い方になっている。
+2. **正しい年齢・属性を入れても、セル内 AUROC は上がらない。** 全セル平均の「自分の年齢群 − 反対の年齢群」は
+   CheXpert +0.0005〜+0.0007、HAM10000 +0.0017〜+0.0028 で、区間はどれも 0 を含む。sex・race の差し替えも
+   −0.003〜+0.0002 で 0 を含む。セル単位で 0 を含まないのは CheXpert の White <65（+0.001〜+0.002）と
+   HyperAdapt の Others <65 の race（+0.0004）だけで、大きさは無視できる。
+3. **HAM10000 で見える年齢曲線は「正しい年齢で読む」形ではない。** 入力年齢を 25〜35 歳にすると、
+   セルの実年齢によらず全セルでセル内 AUROC が下がる（Spatial LoRA で最大 −0.03）。45 歳以上ではほぼ平ら。
+   65 歳未満のセルでも若い年齢を入れたほうが悪いので、年齢に合わせた読み替えではなく、
+   若い年齢の入力でスコアの並びが崩れる一般的な作用と見るのが自然。
+4. **属性をそのまま入れたときのセル内 AUROC は、一定の属性より高い**（HAM10000 の 65 歳未満で +0.016〜+0.035）。
+   これはセルの中での年齢（0〜64 歳）と部位のばらつきが、行ごとに違う事前確率として効いた分で、切片の作用である。
+
+#### 読み
+
+ERM で学習した属性条件付きモデル（Spatial LoRA・HyperAdapt・fc のみ）は、CheXpert と HAM10000 のどちらでも、
+属性をほぼ切片（事前確率の注入）として使っている。「属性によって画像の読み方を変える」作用は、測れる大きさでは
+起きていない。
+
+### 限界
+
+- ERM の run だけ。公平性損失で学習したモデルは見ていない。
+- 評価セルを決めない属性は最頻値に固定した。HAM の localization・CheXpert の AP/PA との組み合わせで読み方が
+  変わる効果は、この設計では見えない。
+- 交互作用が「データに無い」のか「ERM が学ばない」のかは、この結果だけでは分けられない。分けるには、固定特徴量で
+  特徴 × 年齢の交互作用項が効くかを見る（データ側）、または交互作用を植え込んだデータで回収できるかを見る。

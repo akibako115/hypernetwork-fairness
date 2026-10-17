@@ -13,8 +13,8 @@
 属性の差し替えは標準化済みの frame の上で行う。年齢の「平均で埋める」は標準化後の 0 になる。
 
 使い方:
-    uv run python analysis/ham10000_architecture_erm/counterfactual.py --device cuda:0 \
-        --run-dir analysis/ham10000_architecture_erm/runs/<run-id> ...
+    uv run python analysis/conditioning_mechanism/constant_condition.py --device cuda:0 \
+        --run-dir analysis/conditioning_mechanism/runs/<run-id> ...
 """
 
 from __future__ import annotations

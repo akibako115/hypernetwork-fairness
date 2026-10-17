@@ -21,9 +21,11 @@ uv run python -m analysis.latent_subgroup_spaces.extract --device cuda:0 \
   --run-dir analysis/latent_subgroup_spaces/runs/<上の 3 run>
 ```
 
-## 読み取り専用で使う他 package の cache
+## run 以外の入力
 
-- `analysis/archive/latent_bias_hypernet/cache/embed/raddino/{val,test}.npz`：RAD-DINO の埋め込み（`probes/embed.py`）
-- `analysis/archive/latent_bias_hypernet/cache/context/{val,test}.csv`：報告書由来の文脈ラベル（`context_labels.py`）
+- `cache/raddino/{val,test}.npz`：RAD-DINO の埋め込み（[embed.py](embed.py)）
+- `cache/context/{val,test}.csv`：報告書由来の文脈ラベル（[context_labels.py](context_labels.py)）
 
 どちらも race-known の val・test と同じ行順であることを `subgroups.load_split` が検算する。
+2026-10-17 まで archive の `latent_bias_hypernet/cache/` から読んでいたものを、同じ file の hardlink としてここへ移した。
+画像の前処理は RAD-DINO 自身のもの（短辺 518 に bicubic → CenterCrop）で、学習側の前処理の変更（MEDFAIR への統一）の影響を受けない。

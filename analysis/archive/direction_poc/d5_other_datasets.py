@@ -3,7 +3,8 @@
 方向 5（CheXpert の年齢差はラベルの付け方の違い）を報告するときの補足。ほかのデータセットでも、
 順位の差は動作点の差より小さいかを確かめる。新しい学習・推論はしない。
 
-- 予測：各 package の既存 cache（seed 42・43・44 の logit 平均）。run の選択と検算は各 package の comparison.py に任せる。
+- 予測：各 package の既存 cache（seed 42・43・44 の logit 平均）。
+  run の選択と検算は各 package の comparison.py に任せる。
 - しきい値：各 package の群別指標と同じ 0.5（HAM は class weight つき、FairVLMed は陽性率 50%）。
 - 区間：HAM は病変単位、FairVLMed は画像（= 患者）単位の bootstrap 1,000 回の 95%。
 - 評価集合：HAM は性別・年齢の揃う 1,217 件（package の主比較と同じ）、FairVLMed は test 全 2,000 件。
@@ -20,15 +21,20 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import roc_auc_score
 
-from analysis.fairvlmed_architecture_erm import comparison as fv
-from analysis.ham10000_architecture_erm import comparison as ham
+from analysis.archive.fairvlmed_architecture_erm import comparison as fv
+from analysis.archive.ham10000_architecture_erm import comparison as ham
 
 # analysis/。この file は analysis/archive/direction_poc/ にある
 ROOT = Path(__file__).resolve().parents[2]
 OUT = Path(__file__).parent / "results/d5/other_datasets.csv"
 BOOT = 1000
 # 符号つきの差を取る 2 群（前 − 後）。race は群別 AUROC が最も低い Black を White と比べる
-PAIRS = {"age_group_65": ("<65", "≥65"), "sex": ("female", "male"), "gender": ("female", "male"), "race": ("White", "Black")}
+PAIRS = {
+    "age_group_65": ("<65", "≥65"),
+    "sex": ("female", "male"),
+    "gender": ("female", "male"),
+    "race": ("White", "Black"),
+}
 
 
 def seed_mean(scores: dict) -> np.ndarray:
@@ -85,7 +91,9 @@ def main() -> None:
     mask = ~(frame["sex_missing"].astype(bool) | frame["age_missing"].astype(bool)).to_numpy()
     ids = ham.group_ids(frame)
     groups = {axis: (ids[axis][mask], ham.AXES[axis][1], PAIRS[axis]) for axis in ("age_group_65", "sex")}
-    rows += summarize("HAM10000", frame["target"].to_numpy()[mask], z[mask], groups, frame["lesion_id"].to_numpy()[mask])
+    rows += summarize(
+        "HAM10000", frame["target"].to_numpy()[mask], z[mask], groups, frame["lesion_id"].to_numpy()[mask]
+    )
 
     package = ROOT / "fairvlmed_architecture_erm"
     _, frame, directories = fv.select_runs(package)
@@ -97,7 +105,20 @@ def main() -> None:
     out = pd.DataFrame(rows)
     OUT.parent.mkdir(parents=True, exist_ok=True)
     out.to_csv(OUT, index=False)
-    cols = ["dataset", "axis", "gap", "auroc gap", "auroc gap_lo", "auroc gap_hi", "tpr gap", "tpr gap_lo", "tpr gap_hi", "fpr gap", "fpr gap_lo", "fpr gap_hi"]
+    cols = [
+        "dataset",
+        "axis",
+        "gap",
+        "auroc gap",
+        "auroc gap_lo",
+        "auroc gap_hi",
+        "tpr gap",
+        "tpr gap_lo",
+        "tpr gap_hi",
+        "fpr gap",
+        "fpr gap_lo",
+        "fpr gap_hi",
+    ]
     print(out[cols].round(3).to_string(index=False))
 
 

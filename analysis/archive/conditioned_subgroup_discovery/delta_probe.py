@@ -13,7 +13,7 @@
 差し替えで変わるなら、それは ΔW が画像の特徴の使い方（規則）を変えたためである。
 
 使い方:
-    uv run python -m analysis.conditioned_subgroup_discovery.delta_probe --device cuda:0 \
+    uv run python -m analysis.archive.conditioned_subgroup_discovery.delta_probe --device cuda:0 \
         --run-dir analysis/conditioned_subgroup_discovery/runs/<run-id> ...
 """
 

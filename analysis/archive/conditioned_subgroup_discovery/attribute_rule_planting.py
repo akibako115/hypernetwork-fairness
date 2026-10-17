@@ -21,7 +21,7 @@ JPEG の再圧縮が手がかりにならないよう、全画像を同じ品質
 入力: `data/ham10000/images/`、`data/ham10000/splits/{train,val,test}.csv`
 出力: `data/ham10000/images_attr_rule/`（`--variant lower` は `images_attr_rule_lower/`）
 
-    uv run python -m analysis.conditioned_subgroup_discovery.attribute_rule_planting [--variant lower]
+    uv run python -m analysis.archive.conditioned_subgroup_discovery.attribute_rule_planting [--variant lower]
 """
 
 from __future__ import annotations
@@ -41,7 +41,10 @@ from analysis.archive.latent_bias_hypernet.planting import _uniform, stamp  # no
 HIGH, LOW = 0.9, 0.1
 QUALITY = 95
 SOURCE = ROOT / "data" / "ham10000" / "images"
-DESTS = {"cells": ROOT / "data" / "ham10000" / "images_attr_rule", "lower": ROOT / "data" / "ham10000" / "images_attr_rule_lower"}
+DESTS = {
+    "cells": ROOT / "data" / "ham10000" / "images_attr_rule",
+    "lower": ROOT / "data" / "ham10000" / "images_attr_rule_lower",
+}
 FEMALE, MALE = 0, 1
 LIMBS = (9, 13)  # lower extremity、upper extremity
 BACK = 2

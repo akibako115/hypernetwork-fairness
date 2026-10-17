@@ -18,10 +18,10 @@
 どの条件でも、評価セル（HAM は sex × 65 歳、CheXpert は race_group × 65 歳）の中では全行が同じ属性になる。
 画像は 1 度だけ読み、同じ batch に全条件の属性を当てて推論する。
 
-入力: `analysis/attribute_interaction/runs/<run-id>/`
-出力: `analysis/attribute_interaction/cache/<run-id>_test_interaction.npz`
+入力: `analysis/conditioning_mechanism/runs/<run-id>/`
+出力: `analysis/conditioning_mechanism/cache/<run-id>_test_interaction.npz`
 
-    uv run python -m analysis.attribute_interaction.counterfactual --device cuda:0
+    uv run python -m analysis.conditioning_mechanism.interaction_counterfactual --device cuda:0
 """
 
 from __future__ import annotations
@@ -76,7 +76,9 @@ def _age_scaler(datamodule) -> tuple[float, float]:
     return float(ages.mean()), float(ages.std(ddof=0))
 
 
-def _constant_frame(frame: pd.DataFrame, dataset: str, cell_values: dict[str, np.ndarray], age: np.ndarray, scaler) -> pd.DataFrame:
+def _constant_frame(
+    frame: pd.DataFrame, dataset: str, cell_values: dict[str, np.ndarray], age: np.ndarray, scaler
+) -> pd.DataFrame:
     """評価セルを決める属性を cell_values、年齢を age（歳）、残りを最頻値にした frame を返す。"""
     out = frame.copy()
     for column, value in MODE[dataset].items():

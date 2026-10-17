@@ -3,7 +3,7 @@
 入力:
 - analysis/archive/latent_bias_hypernet/results/q1_definitions.csv（q1_definitions.py の出力）
 - analysis/archive/latent_bias_hypernet/results/q2_fairness_loss.csv・q2_threshold_equivalence.csv・q2_auroc_decomposition.csv
-- analysis/dataset_gain_sources/results/gains.csv・attribute_information.csv
+- analysis/conditioning_mechanism/results/gains.csv・attribute_information.csv
 出力: figures/*.png（図のラベル・凡例・タイトルは英語）
 実行例: uv run python docs/slides/chexpert-q1/figures.py
 """
@@ -19,7 +19,7 @@ import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[3]
 RES = ROOT / "analysis/archive/latent_bias_hypernet/results"
-GAIN = ROOT / "analysis/dataset_gain_sources/results"
+GAIN = ROOT / "analysis/conditioning_mechanism/results"
 OUT = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).parent / "figures"
 OUT.mkdir(exist_ok=True)
 
@@ -94,8 +94,7 @@ def value_forest(dataset: str, height: float) -> None:
             r = table.loc[key]
             if pd.isna(r[metric]):
                 # GEORGE は群が片方のクラスだけなので、群の AUROC を定義できない
-                ax.text(0.5, yi, "n/a (single-class groups)", transform=ax.get_yaxis_transform(), ha="center",
-                        va="center", fontsize=7.5, color="#888888")
+                ax.text(0.5, yi, "n/a (single-class groups)", transform=ax.get_yaxis_transform(), ha="center", va="center", fontsize=7.5, color="#888888")
                 continue
             differs = r[f"{metric}_diff_lo"] > 0 or r[f"{metric}_diff_hi"] < 0
             color = INK if key == base else THEME if differs else GREY
@@ -198,8 +197,7 @@ def q2_threshold() -> None:
         ("eo", "EO", THEME),
         ("minimax_auc", "minimax AUC", THEME),
     ]
-    panels = [("overall_auroc", "Overall AUROC", "← worse"), ("eopp1", "Eopp1 (TPR gap)", "worse →"),
-              ("eopp0", "Eopp0 (FPR gap)", "worse →")]
+    panels = [("overall_auroc", "Overall AUROC", "← worse"), ("eopp1", "Eopp1 (TPR gap)", "worse →"), ("eopp0", "Eopp0 (FPR gap)", "worse →")]
     fig, axes = plt.subplots(1, 3, figsize=(10, 3.1), sharey=True)
     labels, y = [], 0.0
     for p_index, (procedure, name) in enumerate(PROCS):
@@ -261,8 +259,7 @@ def q3_datasets() -> None:
         for j, (dataset, _) in enumerate(datasets):
             x = j + (i - 1) * width
             if key == "ceiling":
-                ax.bar(x, info.loc[(dataset, "late_fusion_valfit_gain_resnet"), "value"], width * 0.9, color=color,
-                       label=label if j == 0 else None)
+                ax.bar(x, info.loc[(dataset, "late_fusion_valfit_gain_resnet"), "value"], width * 0.9, color=color, label=label if j == 0 else None)
                 continue
             if (dataset, key) not in gains.index:
                 ax.text(x, 0.001, "no run", ha="center", va="bottom", fontsize=7, color="#888888", rotation=90)

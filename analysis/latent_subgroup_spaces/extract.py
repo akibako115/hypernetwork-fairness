@@ -7,7 +7,7 @@
    属性の組み合わせ（セル）の番号。特徴と logit は同じ forward から取る。
 2. `<run-id>_cells.npz`：train・val・test に現れる、モデル入力の属性の組み合わせ（セル）ごとの condition と、
    stage ごとの生成 ΔW の Gram 行列。ΔW = (α/r)·A(c)B(c) は低ランクなので、内積は r×r の積で計算し、
-   ΔW を実体化しない（`conditioned_subgroup_discovery/delta_probe.py` と同じ計算）。層ごとに元重みの
+   ΔW を実体化しない（archive の `conditioned_subgroup_discovery/delta_probe.py` と同じ計算）。層ごとに元重みの
    二乗ノルムで割ってから足し、stage4 の 1 層が全体を支配しないようにする。
 
 condition と ΔW は属性だけの関数なので、同じセルの行は必ず同じ点に写る。行ごとに ΔW を持たず、
@@ -33,17 +33,41 @@ from omegaconf import OmegaConf
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 
-from analysis.archive.race_known_architecture_objective_comparison.spatial_lora_inspection import (  # noqa: E402
-    adapter_layers,
-)
 from analysis.common.paths import local_data_path  # noqa: E402
 from analysis.common.predictions import checkpoint_reference, load_network  # noqa: E402
 from projects.hypernet_e2e.data.attribute_utils import attribute_tensors  # noqa: E402
+from projects.hypernet_e2e.models.spatial_hypernet.modulation import HyperLinearLayer  # noqa: E402
 
 PACKAGE = Path(__file__).resolve().parent
 SCHEMA_VERSION = 1
 SPLITS = ("val", "test")
 STAGES = ("stage3", "stage4", "fc")
+STAGE_LAYERS = {"stage1": "layer1", "stage2": "layer2", "stage3": "layer3", "stage4": "layer4"}
+
+
+def adapter_layers(network):
+    """生成 ΔW を持つ層を、forward 順の名前・adapter・元重みで返す。
+
+    2026-10-17 に `archive/race_known_architecture_objective_comparison/spatial_lora_inspection.py` から移した。
+
+    Args:
+        network: SpatialLoRAResNet。
+
+    Returns:
+        list: (`stage3.0.conv2` 形式の名前, adapter, 凍結された元重み)。fc は `fc`。
+    """
+    layers = []
+    for stage, layer_name in STAGE_LAYERS.items():
+        if stage not in network.spatial_adapters:
+            continue
+        blocks = getattr(network.backbone, layer_name)
+        for index, adapter in enumerate(network.spatial_adapters[stage]):
+            for conv_name in adapter.adapted_convs:
+                conv = getattr(blocks[index], conv_name)
+                layers.append((f"{stage}.{index}.{conv_name}", getattr(adapter, f"{conv_name}_adapter"), conv.weight))
+    if isinstance(network.fc, HyperLinearLayer):
+        layers.append(("fc", network.fc, network.fc.base_linear.weight))
+    return layers
 
 
 def load_datamodule(run_dir: Path):

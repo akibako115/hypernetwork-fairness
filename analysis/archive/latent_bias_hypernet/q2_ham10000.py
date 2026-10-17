@@ -51,7 +51,7 @@ from analysis.archive.latent_bias_hypernet.q1_definitions import (
     summarize,
     youden,
 )
-from analysis.dataset_gain_sources.metrics import within_between
+from analysis.conditioning_mechanism.metrics import within_between
 
 RUNS = PACKAGE / "cache" / "ham10000_q2"
 SPLITS = ROOT / "data" / "ham10000" / "splits_dual_holdout"

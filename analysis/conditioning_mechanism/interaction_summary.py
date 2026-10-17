@@ -1,6 +1,6 @@
 """セル内で一定の属性を入れた推論から、属性が画像の読み方を変えているかを集計する。
 
-`counterfactual.py` の cache を読み、評価セル（HAM10000 は sex × 65 歳、CheXpert は race × 65 歳）ごとに
+`interaction_counterfactual.py` の cache を読み、評価セル（HAM10000 は sex × 65 歳、CheXpert は race × 65 歳）ごとに
 次を出す。属性が切片だけに効くモデルなら、どれも「差 0・順位相関 1」になる。
 
 - `age_curve.csv`：入力年齢 t ごとのセル内 AUROC（seed 平均）
@@ -14,7 +14,7 @@
 入力: `cache/<run-id>_test_interaction.npz`、`data/<dataset>/splits*/test.csv`
 出力: `results/{age_curve,contrasts,rank_change}.csv`
 
-    uv run python -m analysis.attribute_interaction.summarize
+    uv run python -m analysis.conditioning_mechanism.interaction_summary
 """
 
 from __future__ import annotations
@@ -29,7 +29,8 @@ from scipy.stats import rankdata, spearmanr
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 
-from analysis.attribute_interaction.counterfactual import (  # noqa: E402
+from analysis.common.paths import REPOSITORY_ROOT as ROOT  # noqa: E402
+from analysis.conditioning_mechanism.interaction_counterfactual import (  # noqa: E402
     AGE_BOUNDARY,
     AGE_GRID,
     AGE_OLD,
@@ -38,9 +39,11 @@ from analysis.attribute_interaction.counterfactual import (  # noqa: E402
     RACE_CODE,
     SEX_CODES,
 )
-from analysis.common.paths import REPOSITORY_ROOT as ROOT  # noqa: E402
 
-SPLITS = {"ham10000": ROOT / "data/ham10000/splits/test.csv", "chexpert": ROOT / "data/chexpert/splits_race_known/test.csv"}
+SPLITS = {
+    "ham10000": ROOT / "data/ham10000/splits/test.csv",
+    "chexpert": ROOT / "data/chexpert/splits_race_known/test.csv",
+}
 CELL_ATTRIBUTE = {"ham10000": "sex", "chexpert": "race_group"}
 CELL_LABELS = {
     "sex": {0: "female", 1: "male"},
@@ -128,7 +131,9 @@ def _cluster_resamples(cell: pd.DataFrame, rng: np.random.Generator) -> list[np.
     return draws
 
 
-def _difference(scores: dict[int, pd.DataFrame], rows: np.ndarray, target: np.ndarray, base: str, others: list[str]) -> float:
+def _difference(
+    scores: dict[int, pd.DataFrame], rows: np.ndarray, target: np.ndarray, base: str, others: list[str]
+) -> float:
     """seed 平均の AUROC(base) − mean AUROC(others)。"""
     values = []
     for table in scores.values():
@@ -148,7 +153,11 @@ def contrasts(dataset: str, model: str, scores: dict[int, pd.DataFrame], rows: p
         for contrast, (base, others) in contrast_columns(dataset, cell).items():
             point = _difference(scores, row_index, target, base, others)
             boot = np.array(
-                [_difference(scores, row_index[d], target[d], base, others) for d in draws if 0 < target[d].sum() < len(d)]
+                [
+                    _difference(scores, row_index[d], target[d], base, others)
+                    for d in draws
+                    if 0 < target[d].sum() < len(d)
+                ]
             )
             replicates.setdefault(contrast, []).append(boot[:N_BOOTSTRAP])
             records.append(_record(dataset, model, name, contrast, point, boot, cell))
@@ -183,8 +192,17 @@ def age_curve(dataset: str, model: str, scores: dict[int, pd.DataFrame], rows: p
         for variant in [*(f"age_{t}" for t in AGE_GRID), "observed"]:
             values = [auroc(target, table[variant].to_numpy()[index]) for table in scores.values()]
             age = np.nan if variant == "observed" else int(variant.split("_")[1])
-            records.append({"dataset": dataset, "model": model, "cell": name, "variant": variant, "input_age": age,
-                            "auroc": float(np.mean(values)), "auroc_sd_seed": float(np.std(values, ddof=1))})
+            records.append(
+                {
+                    "dataset": dataset,
+                    "model": model,
+                    "cell": name,
+                    "variant": variant,
+                    "input_age": age,
+                    "auroc": float(np.mean(values)),
+                    "auroc_sd_seed": float(np.std(values, ddof=1)),
+                }
+            )
     return records
 
 

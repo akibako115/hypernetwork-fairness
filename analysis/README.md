@@ -68,28 +68,17 @@ checkpoint 選択・予測 cache）までとする。**群の切り方・指標�
 
 ## package の索引
 
-2026-10-14 時点。いまの問い（柱 A・B）との対応は [docs/README.md](../docs/README.md) の「現在地」を正本とし、
-ここでは各 package が何を扱ったかだけを書く。
+2026-10-17 時点。いまの問い（柱 A・B）との対応は [docs/README.md](../docs/README.md) の「現在地」を正本とし、
+ここでは各 package が何を扱ったかだけを書く。2026-10-17 に、残す分析を次の 3 つに絞った。どれも入力の
+CheXpert・HAM10000 の run は旧前処理で、回し直した run で作り直す（各 README の「現状」）。
 
 ### 現役（直下）
 
-柱 A（条件付けのモデル構成と目的関数）
-
-| package | 扱ったこと |
-| --- | --- |
-| `hypernet_conditioning_grid/` | 柱 A の主実験。条件付けの有無（ResNet-50 / Spatial LoRA）× 目的関数 × 学習手順の格子を CheXpert で回す。条件のそろう過去の ERM は再利用し、公平性損失は修正後の実装で回し直す |
-| `hypernet_conditioning_grid_ham10000/` | 上の格子をデータだけ HAM10000（sex × 年齢 65 歳の 4 群）に替えて回す。条件付けの効きがデータに依存するかを見る |
-| `ham10000_architecture_erm/` | 主比較の ERM 3 構成を HAM10000 で回す |
-| `fairvlmed_architecture_erm/` | 主比較の ERM 3 構成を FairVLMed で回す |
-| `dataset_gain_sources/` | 条件付けが HAM10000 でだけ全体性能を上げる理由を、3 データセットで切り分ける |
-
-柱 B（潜在サブグループ）
-
-| package | 扱ったこと |
-| --- | --- |
-| `latent_group_fairness/` | 柱 B の「改善」側。生成 ΔW のクラスタに公平性損失をかけ、評価の 8 群（年齢 × race）の動作点が良くなるかを、属性を直接 k-means した群と比べる |
-| `latent_subgroup_spaces/` | 1 段・ERM の Spatial LoRA（CheXpert）で、属性・metadata encoder の c・生成 ΔW・モデル自身の特徴・RAD-DINO の 5 空間 × クラスタリング／見落としの監査器で潜在サブグループを探し、同じ物差し（0.5 の FPR、val で作り test で測る）で並べる。小さな部分集団（細かい群・k 近傍の走査）も扱う |
-| `conditioned_subgroup_discovery/` | 属性条件付き Spatial LoRA の生成 ΔW を属性セルで読み、規則の反転を植え込んで回収できるかを見る（README なし。`attribute_rule_planting.py`・`delta_probe.py` の docstring が説明） |
+| package | 柱 | 扱ったこと |
+| --- | --- | --- |
+| `hypernet_conditioning_grid/` | A 主実験 | 条件付けの有無（ResNet-50 / Spatial LoRA）× 目的関数（ERM・GroupDRO・EO rate）× 学習手順の格子を、CheXpert（年齢 × race の 8 群）と HAM10000（sex × 年齢の 4 群）で回す。2026-10-17 に HAM10000 版の package をまとめた |
+| `conditioning_mechanism/` | A 機構 | 条件付けが全体性能を上げるのはいつか（3 データでの切り分け）と、属性が切片をずらすだけか画像の読み方も変えるか。2026-10-17 に `dataset_gain_sources` と `attribute_interaction` をまとめた |
+| `latent_subgroup_spaces/` | B 捕捉 | 1 段・ERM の Spatial LoRA（CheXpert）で、属性・metadata encoder の c・生成 ΔW・モデル自身の特徴・RAD-DINO の 5 空間 × クラスタリング／見落としの監査器で潜在サブグループを探し、同じ物差し（0.5 の FPR、val で作り test で測る）で並べる。小さな部分集団（細かい群・k 近傍の走査）も扱う |
 
 その他
 
@@ -118,6 +107,10 @@ research_overview の「過去の実験結果の扱い」に従う。
 | `archive/adversary_strength/` ✱ | DANN の adversary の強さと、属性が消えるまでの水準 |
 | `archive/latent_bias_hypernet/` ✱ | 1 段目を凍結して hypernetwork の補正にバイアスを溜め、潜在サブグループを発見・改善する設計。部分群の定義の比較（Q1）、公平性手法 11 種の比較、Q2 の損失比較もここにある |
 | `archive/direction_poc/` | `latent_bias_hypernet` を受けた次の方向 5 案を、凍結特徴と既存予測で当たり付けする PoC |
+| `archive/ham10000_architecture_erm/` | 主比較の ERM 3 構成を HAM10000 で回す（2026-10-07）。結論は格子の ERM の列と重なり、external の注意は data_pipeline/README.md へ移した |
+| `archive/fairvlmed_architecture_erm/` | 主比較の ERM 3 構成を FairVLMed で回す（2026-10-07）。run は `conditioning_mechanism` が入力に使う |
+| `archive/latent_group_fairness/` ✱ | 柱 B の「改善」側。生成 ΔW のクラスタに公平性損失をかける。試した 2 run は旧前処理・修正前の EO。捕捉の結論を待つため 2026-10-17 に止めた |
+| `archive/conditioned_subgroup_discovery/` | 生成 ΔW を属性セルで読み、規則の反転を植え込んで回収できるかを見る（HAM10000）。README・結論の記録が無い |
 
 仮説が終わった package は、同じ要領で `archive/` へ移す。移すときは `analysis.<slug>` の import と
 `analysis/<slug>` の path を repo 全体で書き換え、package 内の `../` で始まる相対リンクを 1 段深くする。

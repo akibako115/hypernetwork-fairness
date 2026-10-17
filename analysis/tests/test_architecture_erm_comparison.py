@@ -4,8 +4,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from analysis.fairvlmed_architecture_erm import comparison as fairvlmed
-from analysis.ham10000_architecture_erm import comparison as ham
+from analysis.archive.fairvlmed_architecture_erm import comparison as fairvlmed
+from analysis.archive.ham10000_architecture_erm import comparison as ham
 
 
 def _cell(n_pos: int, n_neg: int, tp: int, tn: int) -> tuple[np.ndarray, np.ndarray]:

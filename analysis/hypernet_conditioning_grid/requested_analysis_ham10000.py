@@ -1,6 +1,6 @@
 """HAM10000 の格子で、CheXpert と同じ 6 種類の図を作るための入力検証と集計。
 
-図と比較条件は requested_figures.ipynb に置く。CheXpert 側（`analysis/hypernet_conditioning_grid/`）との
+図と比較条件は requested_figures_ham10000.ipynb に置く。CheXpert 側（`requested_analysis.py`）との
 違いは評価の向きと群だけで、ここにはその判断を置く。
 
 - 群は sex × 年齢 65 歳の 4 群。番号は `sex × 2 + (age ≥ 65)` で、学習側の GroupDRO の q と同じ並び。
@@ -49,7 +49,10 @@ def condition(experiment: str) -> dict[str, str]:
         model = "spatial_lora"
     else:
         model = "resnet"
-    if "eo-rate" in experiment:
+    # Cotter et al. の形（各群の FPR を全体と比べる）で回し直した EO。全ペアの eo_rate とは別の目的関数として扱う。
+    if "eo-fpr-overall" in experiment:
+        objective = "eo_fpr_overall"
+    elif "eo-rate" in experiment:
         objective = "eo_rate"
     elif "group-dro" in experiment:
         objective = "group_dro"
@@ -59,7 +62,9 @@ def condition(experiment: str) -> dict[str, str]:
 
 
 def runs(package: Path, objectives: tuple[str, ...]) -> pd.DataFrame:
-    """package に取り込んだ run のうち、指定した目的関数のものを条件の列つきで返す。
+    """package に取り込んだ HAM10000 の run のうち、指定した目的関数のものを条件の列つきで返す。
+
+    `runs/` には CheXpert の run も並ぶので、experiment 名で HAM10000 の run だけを拾う。
 
     Args:
         package: study directory
@@ -71,6 +76,8 @@ def runs(package: Path, objectives: tuple[str, ...]) -> pd.DataFrame:
     rows = []
     for run_dir in sorted((package / "runs").iterdir()):
         experiment = read_config(run_dir / "config.yaml")["experiment_name"]
+        if "-ham10000" not in experiment:
+            continue
         rows.append(
             {
                 "run_id": run_dir.name,
@@ -200,7 +207,11 @@ def validated_probability(package: Path, run_id: str, split: str, frame: pd.Data
         raise ValueError(f"cache 来歴の不一致: {path.name}")
     if not (cached["target"] == frame["target"].to_numpy()).all():
         raise ValueError(f"{path.name} の target が split CSV と一致しない")
-    return cached["probabilities"][:, 1], {"cache": path.name, "selected_checkpoint": Path(best["path"]).name, **metadata}
+    return cached["probabilities"][:, 1], {
+        "cache": path.name,
+        "selected_checkpoint": Path(best["path"]).name,
+        **metadata,
+    }
 
 
 def prediction_tables(table: pd.DataFrame, package: Path, split: str) -> tuple[pd.DataFrame, ...]:

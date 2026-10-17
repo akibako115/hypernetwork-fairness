@@ -7,7 +7,7 @@ CheXpert は上限が 0 で、条件付けで得られるものが無い。
 入力: `results/gains.csv`・`results/attribute_information.csv`（`gain_sources.py` の出力）
 出力: `figures/gain_vs_attribute_ceiling.png`
 
-    uv run python -m analysis.dataset_gain_sources.figure
+    uv run python -m analysis.conditioning_mechanism.gain_figure
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ import rootutils
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 
 from analysis.common.paths import STYLE_SHEET  # noqa: E402
-from analysis.dataset_gain_sources.data import PACKAGE  # noqa: E402
+from analysis.conditioning_mechanism.data import PACKAGE  # noqa: E402
 
 DATASETS = {"ham10000": "HAM10000", "fairvlmed": "FairVLMed", "chexpert": "CheXpert"}
 BARS = [

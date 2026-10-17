@@ -67,7 +67,9 @@ def condition(experiment: str) -> dict[str, str]:
 
 
 def runs() -> pd.DataFrame:
-    """`runs.md` に載せた run を、条件の列つきで返す。
+    """`runs.md` に載せた CheXpert の run を、条件の列つきで返す。
+
+    `runs.md` には HAM10000 の run も載るので、run ID の experiment 名で CheXpert の run だけを拾う。
 
     Args:
         なし
@@ -79,6 +81,7 @@ def runs() -> pd.DataFrame:
     rows = [
         {"run_id": run_id, "seed": int(seed), **condition(experiment)}
         for run_id, experiment, seed in RUN_ID.findall(text)
+        if "-chexpert-" in experiment
     ]
     return pd.DataFrame(rows).drop_duplicates("run_id")
 

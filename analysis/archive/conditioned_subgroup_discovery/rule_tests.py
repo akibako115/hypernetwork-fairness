@@ -26,7 +26,9 @@ CELL_KEYS = ["sex", "localization", "raw_age"]
 def load_cells(run_id: str) -> tuple[pd.DataFrame, dict[str, np.ndarray]]:
     """セル表と stage ごとの Gram を読む。"""
     with np.load(PACKAGE / "cache" / f"{run_id}_cells.npz") as cached:
-        table = pd.DataFrame({key.removeprefix("cell_"): cached[key] for key in cached.files if key.startswith("cell_")})
+        table = pd.DataFrame(
+            {key.removeprefix("cell_"): cached[key] for key in cached.files if key.startswith("cell_")}
+        )
         grams = {key.removeprefix("gram_"): cached[key] for key in cached.files if key.startswith("gram_")}
     return table, grams
 
@@ -232,7 +234,9 @@ def response_clusters(swapped: np.ndarray, k: int) -> np.ndarray:
     return cluster_ward(dist, k)
 
 
-def source_labels(table: pd.DataFrame, swap: dict[str, np.ndarray], cells: np.ndarray, labels: np.ndarray) -> np.ndarray:
+def source_labels(
+    table: pd.DataFrame, swap: dict[str, np.ndarray], cells: np.ndarray, labels: np.ndarray
+) -> np.ndarray:
     """評価のセル番号ごとに、セル表の上で付けたラベルを引く。セル表に無いセルは −1。
 
     Args:
@@ -275,18 +279,20 @@ def interaction_test(swap, table, labels, k, n_boot=300, seed=0) -> dict[str, fl
 
 def planted_minority(table: pd.DataFrame, variant: str) -> np.ndarray:
     """セル表の各セルが、植え込みの少数側 B に入るか（`attribute_rule_planting.minority` と同じ規則）。"""
-    from analysis.conditioned_subgroup_discovery.attribute_rule_planting import minority
+    from analysis.archive.conditioned_subgroup_discovery.attribute_rule_planting import minority
 
     frame = table.rename(columns={"raw_age": "age"}).assign(sex_missing=0, localization_missing=0, age_missing=0)
     return minority(frame, variant)
 
 
 def marker_effect(swap: dict[str, np.ndarray], variant: str) -> np.ndarray:
-    """差し替え先の condition ごとの、マーカーの効果（付いた画像 − 付かない画像の logit 差の平均。クラス内で取って平均）。
+    """差し替え先の condition ごとの、マーカーの効果。
+
+    付いた画像 − 付かない画像の logit 差の平均を、クラス内で取って平均する。
 
     植え込みの答えを使う診断で、発見の手順には入れない。モデルが B の規則をどこまで学んだかを見る。
     """
-    from analysis.conditioned_subgroup_discovery.attribute_rule_planting import marker_mask
+    from analysis.archive.conditioned_subgroup_discovery.attribute_rule_planting import marker_mask
 
     frame = pd.DataFrame(
         {

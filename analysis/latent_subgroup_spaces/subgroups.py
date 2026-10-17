@@ -1,7 +1,7 @@
 """潜在サブグループを、空間 × 群の作り方ごとに作り、同じ物差しで測る関数群。
 
-3 本の notebook（`01_initial_spaces`・`02_space_comparison`・`03_calibration_bias`）が共有する。どの空間・K・閾値を使うかの判断は
-notebook が持ち、ここは計算だけを置く。
+3 本の notebook（`01_initial_spaces`・`02_space_comparison`・`03_calibration_bias`）が共有する。
+どの空間・K・閾値を使うかの判断は notebook が持ち、ここは計算だけを置く。
 
 群は val で作り（クラスタの当てはめ、監査器の学習、最悪群の選択）、test で評価する。同じデータで作って
 測ると、最悪の群を選んだことだけで値が悪く出る（勝者の呪い）。
@@ -34,10 +34,10 @@ ROOT = rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True
 PACKAGE = Path(__file__).resolve().parent
 CACHE = PACKAGE / "cache"
 SPLITS_DIR = ROOT / "data" / "chexpert" / "splits_race_known"
-# 文脈ラベルと RAD-DINO は latent_bias_hypernet が作った cache を読み取り専用で使う。
+# 文脈ラベルは context_labels.py、RAD-DINO は embed.py が書く。
 # val・test は race-known と同じ行順（load_split が検算する）。
-CONTEXT_DIR = ROOT / "analysis" / "archive" / "latent_bias_hypernet" / "cache" / "context"
-RADDINO_DIR = ROOT / "analysis" / "archive" / "latent_bias_hypernet" / "cache" / "embed" / "raddino"
+CONTEXT_DIR = CACHE / "context"
+RADDINO_DIR = CACHE / "raddino"
 # 病種は impression から CheXbert で付けたラベル。target（No Finding）と 98% 一致するのはこの file だけ。
 DISEASE_LABELS = ROOT / "data" / "chexpert" / "label" / "impression_fixed.json"
 DISEASES = (

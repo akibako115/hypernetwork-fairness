@@ -11,12 +11,12 @@
 5. `readability.csv`：ResNet の特徴から属性を当てる精度（val で学習、test で評価）。属性が画像から読めるか
 6. `ham_pairs.csv`・`ham_age_coupling.csv`：HAM の dx の組ごとの AUROC と、良性内のスコアと年齢の順位相関。
    `meta_fixed` は属性条件付きモデルに test 時だけ全行同じ属性を入れたもの
-   （`ham10000_architecture_erm/counterfactual.py`）
+   （`constant_condition.py`）
 
 入力: 各 package の `cache/<run-id>_{val,test}[_features|_cf-constant_typical].npz`、`data/<dataset>/<splits>/*.csv`
-出力: `analysis/dataset_gain_sources/results/*.csv`
+出力: `analysis/conditioning_mechanism/results/*.csv`
 
-    uv run python -m analysis.dataset_gain_sources.gain_sources
+    uv run python -m analysis.conditioning_mechanism.gain_sources
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ from sklearn.metrics import r2_score, roc_auc_score
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 
-from analysis.dataset_gain_sources.data import (  # noqa: E402
+from analysis.conditioning_mechanism.data import (  # noqa: E402
     DATASETS,
     PACKAGE,
     AttributeDesign,
@@ -43,7 +43,7 @@ from analysis.dataset_gain_sources.data import (  # noqa: E402
     patients,
     read_split,
 )
-from analysis.dataset_gain_sources.metrics import boot_delta, cv_auc, standardize, within_between  # noqa: E402
+from analysis.conditioning_mechanism.metrics import boot_delta, cv_auc, standardize, within_between  # noqa: E402
 
 RESULTS = PACKAGE / "results"
 CONTRASTS = [

@@ -1,14 +1,21 @@
-# 対象run
+# runs
 
-このパッケージは学習も推論もしない。下の run の予測 cache（`analysis/<package>/cache/<run-id>_{val,test}*.npz`）を、
-それを書いた package から読む。run の来歴（W&B・checkpoint・SHA256）は各 package の `runs.md` が正本。
+この package が読む run。どれも 1 段の ERM で、`runs/` に hardlink で取り込んである（2026-10-17 に
+`dataset_gain_sources`・`attribute_interaction`・`ham10000_architecture_erm`・`fairvlmed_architecture_erm`・archive の
+package から集めた）。来歴（W&B・config・checkpoint の SHA256）は各 run の artifact が正本。
 
-- 予測 cache は `analysis/common/predictions.py` の形式で、行は split CSV と `image` 列で検算する。
-- 同じ run の cache が 2 つの package にある場合は、`data.py` の `caches` で後に並べた package のものを読む
-  （同じ checkpoint の推論なので値は同じ）。
+- 予測 cache は `cache/` にあり、`analysis/common/predictions.py` の形式。行は split CSV と `image` 列で検算する。
+  元は各 package の `cache/` にあったもの。同じ run の cache が 2 か所にあった場合は、以前の読み順で後に読んでいた側
+  （`latent_bias_hypernet`）を残した。同じ checkpoint の推論なので値は同じ。
 - 2026-10-12 に足した cache：FairVLMed ResNet-50 の `val`・`val_features`・`test_features`（3 seed）、
   CheXpert の ResNet-50 s43・s44・Spatial LoRA・HyperAdapt の `val`（計 8 run）。
-- HAM の `meta_fixed`・`hyper_fixed` は `ham10000_architecture_erm/counterfactual.py` の `_test_cf-constant_typical`。
+- HAM の `meta_fixed`・`hyper_fixed` は `constant_condition.py` の `_test_cf-constant_typical`。
+- `results/{ham10000,fairvlmed}_condition_use.csv` は archive の `latent_bias_hypernet/results/<dataset>_e2e/condition_use.csv`
+  の写し（2026-10-09）。`results/chexpert_condition_use.csv` は旧 `condition_use_chexpert.py` の出力。
+
+## 1 節が読む run
+
+最後の列は、cache を書いた元の package。
 
 | データ | 分析上の名前 | seed | run-id | cache の package |
 | --- | --- | --- | --- | --- |
@@ -54,3 +61,25 @@
 | chexpert | meta | 42 | `20261002T125005Z-spatial-lora-chexpert-race-known-s42-a21c` | `race_known_architecture_objective_comparison` |
 | chexpert | meta | 43 | `20261002T145233Z-spatial-lora-chexpert-race-known-s43-424e` | `race_known_architecture_objective_comparison` |
 | chexpert | meta | 44 | `20261002T165551Z-spatial-lora-chexpert-race-known-s44-eb13` | `race_known_architecture_objective_comparison` |
+
+## 2 節が読む run
+
+1 節の run の一部（ERM の属性条件付きモデル）。最後の列は、run を回したときの study。
+
+| データ | モデル | seed | run-id | 元の study |
+| --- | --- | --- | --- | --- |
+| chexpert | HyperAdapt | 42 | `20261002T125004Z-hyperadapt-chexpert-race-known-s42-b901` | `two_stage_vs_e2e_age_race_group_dro` |
+| chexpert | Spatial LoRA | 42 | `20261002T125005Z-spatial-lora-chexpert-race-known-s42-a21c` | `two_stage_vs_e2e_age_race_group_dro` |
+| chexpert | Spatial LoRA | 43 | `20261002T145233Z-spatial-lora-chexpert-race-known-s43-424e` | `two_stage_vs_e2e_age_race_group_dro` |
+| chexpert | Spatial LoRA | 44 | `20261002T165551Z-spatial-lora-chexpert-race-known-s44-eb13` | `two_stage_vs_e2e_age_race_group_dro` |
+| chexpert | HyperAdapt | 43 | `20261002T181025Z-hyperadapt-chexpert-race-known-s43-4ab0` | `two_stage_vs_e2e_age_race_group_dro` |
+| chexpert | HyperAdapt | 44 | `20261002T233012Z-hyperadapt-chexpert-race-known-s44-a7ba` | `two_stage_vs_e2e_age_race_group_dro` |
+| ham10000 | HyperAdapt | 42 | `20261006T155759Z-hyperadapt-ham10000-s42-f78c` | `ham10000_architecture_erm` |
+| ham10000 | Spatial LoRA | 42 | `20261006T155802Z-spatial-lora-ham10000-s42-d782` | `ham10000_architecture_erm` |
+| ham10000 | Spatial LoRA | 43 | `20261006T160741Z-spatial-lora-ham10000-s43-bdd1` | `ham10000_architecture_erm` |
+| ham10000 | Spatial LoRA | 44 | `20261006T161713Z-spatial-lora-ham10000-s44-513e` | `ham10000_architecture_erm` |
+| ham10000 | HyperAdapt | 43 | `20261006T161735Z-hyperadapt-ham10000-s43-4db2` | `ham10000_architecture_erm` |
+| ham10000 | HyperAdapt | 44 | `20261006T163711Z-hyperadapt-ham10000-s44-15e7` | `ham10000_architecture_erm` |
+| ham10000 | Spatial LoRA（fc のみ） | 42 | `20261009T104332Z-spatial-lora-ham10000-fc-s42-b253` | `latent_bias_hypernet` |
+| ham10000 | Spatial LoRA（fc のみ） | 43 | `20261009T105230Z-spatial-lora-ham10000-fc-s43-6ded` | `latent_bias_hypernet` |
+| ham10000 | Spatial LoRA（fc のみ） | 44 | `20261009T110118Z-spatial-lora-ham10000-fc-s44-36f3` | `latent_bias_hypernet` |

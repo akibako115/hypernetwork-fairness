@@ -166,7 +166,7 @@ def test_dual_holdout_presets_differ_only_in_the_objective(experiment: str) -> N
     assert instantiate(config.data) is not None
 
 
-# 柱 A の格子の HAM10000 版（analysis/hypernet_conditioning_grid_ham10000）。
+# 柱 A の格子の HAM10000 版（analysis/hypernet_conditioning_grid の HAM10000 側）。
 # (目的関数, train の抽出, split, 変調段, 2 段か)。1 段の ERM は既存の resnet_ham10000・spatial_lora_ham10000・spatial_lora_ham10000_fc。
 S34 = ["stage3", "stage4", "fc"]
 CONDITIONING_GRID = {
