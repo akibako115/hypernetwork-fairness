@@ -4,6 +4,7 @@ defaults:
   - metrics_logger
   - fairness_metrics
   - group_dro_diagnostics
+  - objective_diagnostics
   - _self_
 
 model_summary:

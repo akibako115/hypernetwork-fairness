@@ -57,7 +57,9 @@ FaMI の run を設計・起動・評価するセッションは、先にこれ�
 - **小さい群**：基底の数（1 + 3 × クラス数 = 7）より件数の少ない群は λ = 0。
 - **損失**（L254–259）：CE + μ · mean_i(λ_i · v_i)。λ を detach しているので、罰則の勾配は (1/B) Σ_i J_{v_i}ᵀ λ_i で、Algorithm 1 と同じ。
 - **クラス重み**：HAM10000 の preset は `weighting: inverse` なので、CE に逆頻度の重みが掛かる（罰則には掛からない）。
-- **記録されるもの**：通常の `metrics.csv` と checkpoint だけ。λ の大きさは残らない。
+- **記録されるもの**：通常の `metrics.csv` と checkpoint に加え、`metrics/objective_diagnostics.jsonl`（1 行 = 1 epoch）に
+  罰則 `penalty`（μ を掛ける前）、群ごとの ‖λ‖ の平均 `lambda_norm`、λ を推定できた群 `lambda_active` を残す。
+  依存が無くても ‖λ‖ は推定の揺らぎで 0 にならないので、群の間の差で読む。2026-10-17 から `ObjectiveDiagnosticsRecorder` が既定の callback に入り、全 preset で書き出す。
 
 λ の大きさ（人工データ。2 次元の v、群ごとの件数は一様に割り当て、200 バッチの平均。2026-10-16 に再実行）：
 

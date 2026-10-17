@@ -10,6 +10,3 @@ callbacks:
   model_checkpoint:
     save_top_k: -1
     save_weights_only: true
-  # 双対・群の重みと held-out の群別の率・risk を epoch ごとに残す（重みが悪い群へ寄ったかを後で確かめる）。
-  objective_diagnostics:
-    _target_: projects.hypernet_e2e.callbacks.objective_diagnostics.ObjectiveDiagnosticsRecorder

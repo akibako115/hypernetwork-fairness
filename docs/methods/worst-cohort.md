@@ -47,9 +47,10 @@
 - `training_strategy=worst_cohort`（`configs/training_strategy/worst_cohort.yaml`）で選ぶ。`fairness_weight` が λ。
 - クラス重み：strategy は `class_weight: null` だが、HAM10000 の preset は `weighting: inverse`（`_base_ham10000.yaml`）なので、
   起動時に `training.py:229` が train の逆頻度（陽性 ≈ 2.54、陰性 ≈ 0.62）を入れる。平均 CE と R_k の両方に掛かる。
-- **記録されるもの**：通常の `metrics.csv`（train loss、val の全体・群別指標）と checkpoint だけ。
-  最悪コホートの番号は `_batch_diagnostics` に入るが、`batch_diagnostics()` メソッドが無く、preset に
-  `ObjectiveDiagnosticsRecorder` も無いので、どこにも書き出されない。
+- **記録されるもの**：通常の `metrics.csv`（train loss、val の全体・群別指標）と checkpoint に加え、
+  `metrics/objective_diagnostics.jsonl`（1 行 = 1 epoch）に `group_loss`（群の平均損失、居ない群は 0）・`group_present`・
+  `worst_group`（最悪の群の one-hot）を残す。`epoch_mean` の `worst_group` が各コホートが最悪になった割合、
+  `group_loss / group_present` が居た batch での平均損失。2026-10-17 から `ObjectiveDiagnosticsRecorder` が既定の callback に入り、全 preset で書き出す。既存の 30 本には残っていない。
 
 **コホートの供給**：群は split CSV の列から `GroupImageDataModule` が作る。LHCF のコホートは
 `configs/data/ham10000_lhcf_groups.yaml`（`cv_splits_dir: data/ham10000/splits_lhcf`、列 `lhcf`、11 群）。

@@ -180,7 +180,7 @@ def test_modulation_range_presets_change_only_the_modulated_stages(experiment: s
 def test_default_callbacks_include_metrics_and_fairness_without_text_progress() -> None:
     cfg = _compose("experiment=spatial_lora_chexpert")
 
-    assert set(cfg.callbacks) == {"model_checkpoint", "model_summary", "metrics_logger", "fairness_metrics", "group_dro_diagnostics"}
+    assert set(cfg.callbacks) == {"model_checkpoint", "model_summary", "metrics_logger", "fairness_metrics", "group_dro_diagnostics", "objective_diagnostics"}
     assert cfg.callbacks.model_checkpoint.dirpath is None
     assert cfg.callbacks.model_checkpoint._target_ == "projects.hypernet_e2e.callbacks.checkpoint.LastEpochModelCheckpoint"
 

@@ -68,7 +68,7 @@ Minimax AUC と、その対照の Population AUC（PopAUC）の run を設計・
 診断値（バッチごとに `risk`・`q_before`・`q_after`・`q_entropy`・`q_max`・`cell_count`・`pair_count`）：
 
 - CheXpert 年齢 2 群 preset：`metrics.csv` の `train/conditional/{名前}/{番号}`（epoch 平均）。
-- HAM10000 と dual-holdout preset：`metrics/objective_diagnostics.jsonl`。最後のバッチの値、`epoch_mean`、
+- `metrics/objective_diagnostics.jsonl`（2026-10-17 から全 preset。それより前は HAM10000 と dual-holdout preset のみ）。最後のバッチの値、`epoch_mean`、
   held-out 版では q の更新に実際に使った held-out の損失の平均 `held_out_epoch_mean`。
 
 ### 原論文との違い

@@ -72,7 +72,7 @@ FairDRO の run を設計・起動・評価するセッションは、先にこ�
 | --- | --- |
 | `metrics.csv` | `train/fair_dro/q/y{c}_g{g}`（更新後の q）、`train/fair_dro/error/g{g}_y{c}`（誤り率）、`train/fair_dro/q_min` |
 | `metrics/fair_dro_q.jsonl` | 1 行 = 1 epoch。`eta`・`q_star`・`q`・`error`・`count`・`source`・`q_min` |
-| `metrics/objective_diagnostics.jsonl` | HAM10000 preset のみ。バッチ内のセル別 CE（`risk`）と予測の陽性率（`rates`） |
+| `metrics/objective_diagnostics.jsonl` | バッチ内のセル別 CE（`risk`）と予測の陽性率（`rates`）。2026-10-17 から全 preset（それより前は HAM10000 preset のみ） |
 
 ### 原論文との違い
 

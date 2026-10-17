@@ -1,0 +1,4 @@
+# 目的関数が batch_diagnostics() を持つとき（GroupDRO・FairDRO・minimax AUC・EO rate・LHCF 系など）、
+# 群の重みや群別の損失を epoch ごとに metrics/objective_diagnostics.jsonl へ残す。持たない目的関数（ERM）では何もしない。
+objective_diagnostics:
+  _target_: projects.hypernet_e2e.callbacks.objective_diagnostics.ObjectiveDiagnosticsRecorder

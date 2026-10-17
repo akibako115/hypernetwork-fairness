@@ -76,9 +76,8 @@ uniform group そのものの原論文は無い。参照は次の 2 つ。
 | 何のための条件か | 公平性手法の比較の 1 本 | 条件付き公平性 objective と同じ抽出で比べる対照 |
 
 **記録されるもの**：`uniform_group` に固有の診断値は無い（`group_dro_diagnostics` は q を持つ objective にしか動かない）。
-`SamplingCorrectedGroupTaskLoss` は群のリスクを `_diagnostics["risk"]` に置くが、preset には
-`ObjectiveDiagnosticsRecorder` が無く、`ConditionalFairnessRecorder` は双対を持たない objective の診断を読まないため、
-**ファイルには残らない**（コードで確認。必要なら `callbacks.objective_diagnostics` を足す）。
+`SamplingCorrectedGroupTaskLoss` は群のリスク `risk`（`[num_groups]`）を `metrics/objective_diagnostics.jsonl` に epoch ごとに残す。
+2026-10-17 から `ObjectiveDiagnosticsRecorder` が既定の callback に入り、全 preset で書き出す。それより前の run には残っていない。
 
 ### 原論文との違い
 

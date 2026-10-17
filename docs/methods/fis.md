@@ -56,8 +56,10 @@ FIS の run を設計・起動・評価するセッションは、先にこれ�
   1 step の forward は学習バッチ 128 枚 + 群数 × 64 枚（LHCF の 11 群なら 704 枚）。B^t_a 用に別の worker（`num_workers` 本）が常駐する。
 - **選び方**：`training_strategy=fis`。`fusion` が c、`blur`、`group_sample_size` が B^t_a の件数。
 - **クラス重み**：HAM10000 の preset は `weighting: inverse` なので、B^t と B^t_a の CE の両方に逆頻度の重みが掛かる。
-- **記録されるもの**：通常の `metrics.csv` と checkpoint だけ。s^G と OT 距離は `_batch_diagnostics` に入るが、
-  `batch_diagnostics()` メソッドが無いので書き出されない。
+- **記録されるもの**：通常の `metrics.csv` と checkpoint に加え、`metrics/objective_diagnostics.jsonl`（1 行 = 1 epoch）に
+  s^G（`group_weight`）、OT 距離（`group_distance`）、標本の重みのうち群の項が占める割合（`group_term_share`）を残す。
+  `group_term_share` で、c が実際にどれだけ群の項を効かせたか（上の 0.92〜0.97）を run ごとに確かめられる。
+  2026-10-17 から `ObjectiveDiagnosticsRecorder` が既定の callback に入り、全 preset で書き出す。
 
 ### 原論文との違い
 

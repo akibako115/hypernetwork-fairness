@@ -196,3 +196,78 @@ def test_lightning_passes_group_sample_batches_to_fis(tmp_path) -> None:
         expected(ObjectiveInput(net(x), target, attributes, group_samples=ObjectiveInput(net(sx), starget, sattributes)))
     assert requested == [3]
     assert torch.allclose(objective._batch_diagnostics["group_weight"], expected._batch_diagnostics["group_weight"], atol=1e-6)
+
+
+def test_worst_cohort_diagnostics_keep_the_group_dimension() -> None:
+    logits = torch.tensor([[2.0, 0.0], [0.0, 2.0], [2.0, 0.0], [0.0, 0.0]])
+    inputs = _inputs(logits, [0, 1, 1, 1], [0, 0, 1, 1])
+    objective = WorstCohortTaskLoss(3)
+    objective(inputs)
+    diagnostics = objective.batch_diagnostics()
+    losses = F.cross_entropy(logits, inputs.target, reduction="none")
+    assert torch.allclose(diagnostics["group_loss"], torch.stack([losses[:2].mean(), losses[2:].mean(), torch.tensor(0.0)]))
+    assert diagnostics["group_present"].tolist() == [1.0, 1.0, 0.0]
+    assert diagnostics["worst_group"].tolist() == [0.0, 1.0, 0.0]
+
+
+def test_fis_reports_the_share_of_the_group_term() -> None:
+    torch.manual_seed(0)
+    logits, sample_logits = torch.randn(8, 2), torch.randn(12, 2)
+    groups = [0] * 6 + [1] * 2
+    inputs = _with_group_samples(_inputs(logits, [0, 1] * 4, groups), sample_logits, [0, 1] * 6, [0] * 6 + [1] * 6)
+    objective = FISTaskLoss(2, fusion=0.5)
+    objective(inputs)
+    diagnostics = objective.batch_diagnostics()
+    group_term = 0.5 * diagnostics["group_weight"][torch.tensor(groups)]
+    individual = 0.5 * torch.softmax(F.cross_entropy(logits, inputs.target, reduction="none"), 0)
+    assert torch.isclose(diagnostics["group_term_share"], group_term.sum() / (group_term + individual).sum())
+    # 論文の正規化では、群の項は 1/|A|、個別の項は 1/B の大きさなので、c = 0.5 でも群の項が大半を占める。
+    assert diagnostics["group_term_share"] > 0.7
+
+
+def test_fami_diagnostics_mark_groups_without_an_estimate() -> None:
+    torch.manual_seed(0)
+    logits = torch.randn(20, 2)
+    groups = [0] * 12 + [1] * 8
+    objective = FaMITaskLoss(3)
+    objective(_inputs(logits, [0, 1] * 10, groups))
+    diagnostics = objective.batch_diagnostics()
+    # 基底は 1 + 3·2 = 7 個なので、12 件の群 0 と 8 件の群 1 は推定でき、居ない群 2 は推定しない。
+    assert diagnostics["lambda_active"].tolist() == [1.0, 1.0, 0.0]
+    assert (diagnostics["lambda_norm"][:2] > 0).all() and diagnostics["lambda_norm"][2] == 0
+    assert diagnostics["penalty"].ndim == 0
+
+
+def test_default_recorder_writes_cohort_diagnostics_every_epoch(tmp_path) -> None:
+    """既定の callback に入った ObjectiveDiagnosticsRecorder が、LHCF 系の診断値を epoch ごとに書き出す。"""
+    import json
+
+    import lightning as L
+    from torch.utils.data import DataLoader, TensorDataset
+
+    from projects.hypernet_e2e.callbacks.objective_diagnostics import ObjectiveDiagnosticsRecorder
+    from projects.hypernet_e2e.module import LitModule
+
+    class Data(TensorDataset):
+        def __getitem__(self, index):
+            x, group, target = super().__getitem__(index)
+            return x, {"group_id": group}, int(target)
+
+    train = Data(torch.randn(8, 2), torch.tensor([0, 0, 1, 1] * 2), torch.tensor([0, 1, 0, 1] * 2))
+    module = LitModule(torch.nn.Linear(2, 2), WorstCohortTaskLoss(3), optimizer=lambda params: torch.optim.SGD(params, lr=0.1), scheduler=None)
+    trainer = L.Trainer(
+        accelerator="cpu",
+        max_epochs=2,
+        logger=False,
+        enable_checkpointing=False,
+        enable_model_summary=False,
+        enable_progress_bar=False,
+        limit_val_batches=0,
+        callbacks=[ObjectiveDiagnosticsRecorder()],
+        default_root_dir=tmp_path,
+    )
+    trainer.fit(module, train_dataloaders=DataLoader(train, batch_size=4))
+    rows = [json.loads(line) for line in (tmp_path / "metrics" / "objective_diagnostics.jsonl").read_text().splitlines()]
+    assert [row["epoch"] for row in rows] == [0, 1]
+    assert all(row["batches"] == 2 and len(row["epoch_mean"]["group_loss"]) == 3 for row in rows)
+    assert rows[0]["epoch_mean"]["group_present"] == [1.0, 1.0, 0.0]
