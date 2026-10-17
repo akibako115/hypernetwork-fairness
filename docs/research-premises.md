@@ -5,6 +5,7 @@
 この文書を更新する。
 
 いまの問いの枠組みと、どの計画・記録が正本かは [docs/README.md](README.md) が指す。
+文書中の `analysis/archive/...` は 2026-10-17 に消した。README・コード・notebook は `snapshot/agent-era-20261016` ブランチと commit `c5f7deb` に残っている（[analysis/README.md](../analysis/README.md) の「消した package」）。
 
 ## 研究の動機と新規性の置き所
 

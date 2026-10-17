@@ -1,7 +1,8 @@
 """race-known split の train から、公平性損失の群の重みを測るための held-out を患者単位で切り出す。
 
 公平性損失（EO rate 制約・minimax AUC）は、群の成績を測って悪い群の重みを上げる。その成績を学習に使っている
-画像で測ると、少数セルを記憶して差が消えたように見え、重みが戻ってしまう（`analysis/archive/conditional_fairness_one_stage`）。
+画像で測ると、少数セルを記憶して差が消えたように見え、重みが戻ってしまう（`analysis/archive/conditional_fairness_one_stage`。
+2026-10-17 に消し、snapshot/agent-era-20261016 ブランチに残る）。
 そこで train の患者 20% を held-out に分け、モデルの重みは残り 80% だけで学習し、群の重みは held-out で更新する
 （Cotter et al. 2019 の 2 データセット方式）。ERM の対照も同じ 80% で学習し、データの量をそろえる。
 val / test は `splits_race_known` と同じ行をそのまま複製する。

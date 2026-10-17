@@ -88,11 +88,11 @@ def test_the_run_path_column_points_into_the_package_once_imported(repository: P
     source = _run(repository, "hypernet_e2e", run_id, {"status": "succeeded", "study": "iterative_probe"})
     assert studies.describe(source)["run path"] == ""
 
-    imported = repository / "analysis" / "archive" / "iterative_probe" / "runs" / run_id
+    imported = repository / "analysis" / "iterative_probe" / "runs" / run_id
     imported.mkdir(parents=True)
     (imported / "run.json").write_text("{}", encoding="utf-8")
 
-    assert studies.describe(source)["run path"] == f"`analysis/archive/iterative_probe/runs/{run_id}`"
+    assert studies.describe(source)["run path"] == f"`analysis/iterative_probe/runs/{run_id}`"
 
 
 def test_the_started_at_column_keeps_only_the_timestamp(repository: Path) -> None:

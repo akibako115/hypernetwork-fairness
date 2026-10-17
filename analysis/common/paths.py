@@ -41,7 +41,7 @@ def runs_root(study: str) -> Path:
     """その分析 package が取り込んだ run の置き場を返す。分析コードはここだけを読む。
 
     Args:
-        study: 分析 package 名（`analysis/` 直下か `analysis/archive/` 配下）
+        study: 分析 package 名
 
     Returns:
         Path: `analysis/<study>/runs`
@@ -53,7 +53,7 @@ def run_dir(study: str, run_id: str) -> Path:
     """package に取り込んだ run directory を返す。
 
     Args:
-        study: 分析 package 名（`analysis/` 直下か `analysis/archive/` 配下）
+        study: 分析 package 名
         run_id: run ID
 
     Returns:
@@ -66,18 +66,12 @@ def study_dir(study: str) -> Path:
     """仮説 (study) の分析 package を返す。
 
     Args:
-        study: 分析 package 名（`analysis/` 直下か `analysis/archive/` 配下）。学習側に渡した `study` と同じ値
+        study: 分析 package 名。学習側に渡した `study` と同じ値
 
     Returns:
-        Path: `analysis/<study>`。直下に無く `analysis/archive/<study>` にあればそちら
+        Path: `analysis/<study>`
     """
-    # 終わった仮説は `archive/` へ退避する。slug は学習側の `study` と W&B に残っているので
-    # 名前は変えず、置き場だけを探し分ける。新しい study は直下に作る。
-    current = ANALYSIS_ROOT / study
-    archived = ANALYSIS_ROOT / "archive" / study
-    if not current.is_dir() and archived.is_dir():
-        return archived
-    return current
+    return ANALYSIS_ROOT / study
 
 
 def local_data_path(recorded: str | Path) -> Path:

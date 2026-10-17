@@ -82,12 +82,9 @@ def _imported_path(study: str | None, run_dir: Path) -> Path | None:
     if not study:
         return None
     # `projects/` の走査と同じ root から組み立てる（test が root を差し替えられるように）。
-    # 終わった package は `archive/` に退避しているので、直下の次にそちらを見る（`paths.study_dir` と同じ順）。
-    analysis_root = REPOSITORY_ROOT / "analysis"
-    for package in (analysis_root / study, analysis_root / "archive" / study):
-        destination = package / "runs" / run_dir.name
-        if (destination / "run.json").is_file():
-            return destination.relative_to(REPOSITORY_ROOT)
+    destination = REPOSITORY_ROOT / "analysis" / study / "runs" / run_dir.name
+    if (destination / "run.json").is_file():
+        return destination.relative_to(REPOSITORY_ROOT)
     return None
 
 

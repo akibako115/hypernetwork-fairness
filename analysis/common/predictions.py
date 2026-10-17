@@ -18,12 +18,12 @@ checkpoint の選び方（`run_artifacts.selected_checkpoint`）と、network �
 これを読む。
 
 使い方:
-    uv run python analysis/common/predictions.py --study iterative_probe --split test \
-      --run-dir analysis/archive/iterative_probe/runs/<run-id> \
-      --run-dir analysis/archive/iterative_probe/runs/<run-id>
+    uv run python analysis/common/predictions.py --study hypernet_conditioning_grid --split test \
+      --run-dir analysis/hypernet_conditioning_grid/runs/<run-id> \
+      --run-dir analysis/hypernet_conditioning_grid/runs/<run-id>
 
-    uv run python analysis/common/predictions.py --study initial_resnet_vs_invariant \
-      --split val --features --run-dir analysis/archive/initial_resnet_vs_invariant/runs/<run-id>
+    uv run python analysis/common/predictions.py --study conditioning_mechanism \
+      --split val --features --run-dir analysis/conditioning_mechanism/runs/<run-id>
 
     uv run python analysis/common/predictions.py --study <slug> --split test --checkpoint swad \
       --run-dir analysis/<slug>/runs/<run-id>

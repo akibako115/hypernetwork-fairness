@@ -7,6 +7,8 @@ checkpoint の選び方 → 2026-10-16 の照合結果）。
 2026-10-16 に、全手法を原論文と公式実装に照らして照合し、誤りを直した（commit `0f2af99`）。各文書の
 「照合結果」の節がその記録で、それより前の run がどの版の実装で学習したかもそこに書く。
 
+文書中の `analysis/archive/...` は 2026-10-17 に消した。README・コード・notebook は `snapshot/agent-era-20261016` ブランチと commit `c5f7deb` に残っている（[analysis/README.md](../../analysis/README.md) の「消した package」）。
+
 ## 手法の一覧
 
 | 文書 | 手法 | 原論文 | 選び方（Hydra） |

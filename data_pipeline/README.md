@@ -56,7 +56,7 @@
 `uv run python -m data_pipeline.chexpert_crossfit_splits` で、race-known の train を患者単位で半分ずつに分けた
 `data/chexpert/splits_crossfit/{train_a,train_b,val,test}.csv` を作る（seed 0、train_a 79,493 / train_b 78,359）。
 1 段目を A だけで学習し、2 段目の補正を 1 段目が見ていない B で学習する cross-fit 用である。
-val / test は race-known と同じ行の複製。使っている study は `analysis/archive/latent_bias_hypernet/`。
+val / test は race-known と同じ行の複製。使っていた study は `analysis/archive/latent_bias_hypernet/`（2026-10-17 に消した。snapshot/agent-era-20261016 ブランチに残る）。
 
 ## ISIC 2019
 

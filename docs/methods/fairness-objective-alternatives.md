@@ -2,7 +2,7 @@
 
 2026-10-05。既存の[候補一覧](fairness-baseline-methods.md)、現在の実装、race-known実験、原著を確認した検討メモ。次の目的関数を選ぶための提案であり、新手法の実装・学習・予測cacheの追加分析はまだ行っていない。
 
-2026-10-06、検証する主候補をMinimax AUCとEO rate制約に絞った。[比較計画](../../analysis/archive/minimax_auc_vs_eo/README.md)に、原著と簡易版の区別、陽性率の影響を切り分ける対照、今日追加された機構診断を踏まえた評価方針を記録した。
+2026-10-06、検証する主候補をMinimax AUCとEO rate制約に絞った。比較計画（`analysis/archive/minimax_auc_vs_eo/README.md`。2026-10-17 に消し、snapshot ブランチに残る）に、原著と簡易版の区別、陽性率の影響を切り分ける対照、今日追加された機構診断を踏まえた評価方針を記録した。
 同日の計画更新で、初回の群定義を年齢のみの2群（65歳未満／65歳以上）に変更した。
 Minimaxは4群ペア、EOは4制約で検証し、結果を確認してから年齢×raceのintersectionへ展開する。
 以下の8群に関する記述は既存結果と当初案であり、初回実験の正本は上記の比較計画とする。
@@ -11,7 +11,7 @@ Minimaxは4群ペア、EOは4制約で検証し、結果を確認してから年
 
 ## 現在の結果は「DROで何も改善しない」とまでは示していない
 
-元の候補一覧は手法調査が中心で、失敗原因の実証までは含んでいない。今回の判断には、[ResNet基準の比較レポート](../../analysis/archive/race_known_architecture_objective_comparison/reports/resnet_baselines_vs_groupdro_architectures.md)も使った。以下は同じtest 19,617件を使った3seed平均で、global class weight、best validation AUROC checkpointでの結果。
+元の候補一覧は手法調査が中心で、失敗原因の実証までは含んでいない。今回の判断には、ResNet基準の比較レポート（`analysis/archive/race_known_architecture_objective_comparison/reports/resnet_baselines_vs_groupdro_architectures.md`。2026-10-17 に消し、snapshot ブランチに残る）も使った。以下は同じtest 19,617件を使った3seed平均で、global class weight、best validation AUROC checkpointでの結果。
 
 | 条件 | 全体AUROC | worst AUROC | TPR gap（Eopp1） | TNR gap（Eopp0） |
 | --- | ---: | ---: | ---: | ---: |

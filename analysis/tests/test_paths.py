@@ -2,11 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
-import pytest
-
-from analysis.common import paths
 from analysis.common.paths import (
     ANALYSIS_ROOT,
     REPOSITORY_ROOT,
@@ -38,29 +33,13 @@ def test_run_and_split_paths_follow_the_repository_layout() -> None:
     学習は `projects/<project>/runs/` に書き、分析は package に取り込んだ `analysis/<study>/runs/` を読む。
     """
     assert project_runs_root("hypernet_e2e") == REPOSITORY_ROOT / "projects/hypernet_e2e/runs"
-    assert runs_root("iterative_probe") == REPOSITORY_ROOT / "analysis/archive/iterative_probe/runs"
-    assert run_dir("iterative_probe", "run-id") == REPOSITORY_ROOT / "analysis/archive/iterative_probe/runs/run-id"
-    assert study_dir("iterative_probe") == REPOSITORY_ROOT / "analysis/archive/iterative_probe"
+    assert runs_root("conditioning_mechanism") == REPOSITORY_ROOT / "analysis/conditioning_mechanism/runs"
+    assert (
+        run_dir("conditioning_mechanism", "run-id") == REPOSITORY_ROOT / "analysis/conditioning_mechanism/runs/run-id"
+    )
+    assert study_dir("conditioning_mechanism") == REPOSITORY_ROOT / "analysis/conditioning_mechanism"
     assert split_csv("chexpert", "test") == REPOSITORY_ROOT / "data/chexpert/splits/test.csv"
 
-
-def test_archived_study_is_found_under_archive_but_new_study_goes_to_the_top(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """終わった package は `archive/` に退避しても slug（= 学習側の `study`）で引ける。
-
-    直下と archive の両方にある場合は直下を取る。どちらにも無い study は直下を返し、
-    新しい仮説が archive 側に作られることはない。
-    """
-    monkeypatch.setattr(paths, "ANALYSIS_ROOT", tmp_path)
-    (tmp_path / "archive" / "old_study").mkdir(parents=True)
-    (tmp_path / "archive" / "both").mkdir(parents=True)
-    (tmp_path / "both").mkdir()
-
-    assert study_dir("old_study") == tmp_path / "archive" / "old_study"
-    assert runs_root("old_study") == tmp_path / "archive" / "old_study" / "runs"
-    assert study_dir("both") == tmp_path / "both"
-    assert study_dir("new_study") == tmp_path / "new_study"
 
 def test_no_analysis_directory_name_blocks_import() -> None:
     """study slug は package 名でもあるので、`-` を含めると import できなくなる。"""
