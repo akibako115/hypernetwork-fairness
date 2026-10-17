@@ -2,12 +2,16 @@
 training_strategy:
   name: group_dro_subgroup
   uses_group_id: true
-  class_weight_scope: subgroup
+  # class_weight_scope はモデルの更新、q_class_weight_scope は q の更新に使う逆頻度の単位（docs/methods/group-dro.md）。
+  class_weight_scope: global
+  q_class_weight_scope: subgroup
 model:
   loss_fn:
     _target_: projects.hypernet_e2e.loss.SubgroupClassWeightedGroupDROTaskLoss
     num_groups: ${data.num_groups}
+    # どちらも fit 前に train split から解く（training.py の _resolve_inverse_class_weights）。
     class_weight: null
+    q_class_weight: null
     step_size: 0.01
     group_key: ${data.group_key}
 callbacks:

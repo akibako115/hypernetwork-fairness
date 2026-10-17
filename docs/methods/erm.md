@@ -47,8 +47,8 @@ ERM 側のつまみには、まとまった原論文が無い。次の標準的�
 | つまみ | 選び方 | 実装 | 中身 |
 | --- | --- | --- | --- |
 | ERM | `training_strategy=erm`（base preset の既定） | `objectives/task.py:29-60` `TaskLoss` | `F.cross_entropy(weight=w)`。バッチ内の重みの合計で割る |
-| inverse class weight | `weighting=inverse` | `training.py:229-248, 284-296` | train split から w_c = N/(C·n_c) を出し、平均 1 に正規化して `model.loss_fn.class_weight` に書く |
-| 群ごとのクラス重み | `training_strategy.class_weight_scope=subgroup` | `training.py:251-266` | w_gc = n_g/(C·n_gc)。群の中で陽性と陰性の重みの合計を等しくする。平均 1 には正規化しない。preset で使うのは `group_dro_subgroup` だけ |
+| inverse class weight | `weighting=inverse` | `training.py:229-259, 295-307` | train split から w_c = N/(C·n_c) を出し、平均 1 に正規化して `model.loss_fn.class_weight` に書く |
+| 群ごとのクラス重み | `training_strategy.class_weight_scope=subgroup` | `training.py:246-277` | w_gc = n_g/(C·n_gc)。群の中で陽性と陰性の重みの合計を等しくする。平均 1 には正規化しない。これを使う preset は無い。`group_dro_subgroup` は同じ式を q の更新だけに使う（`q_class_weight_scope`） |
 | クラスの逆頻度抽出 | `data.train_sampling=inverse_frequency` | `data/datamodule.py:164-181` | 重み 1/n_c の `WeightedRandomSampler`、復元抽出、1 epoch = N 回 |
 | 群 × クラスの均等抽出 | `data=*_cells`（`GroupClassImageDataModule`） | `data/group_class_sampler.py:14-111` | 各バッチに各セルから**ちょうど** B/(2G) 件を復元抽出。seed は `sampling_seed + epoch`（`sampling_seed` の既定は `${seed}`）。最後のバッチも満杯で、1 epoch = ⌈N/B⌉ バッチ。B は 2G の倍数が必須 |
 | 抽出補正 ERM | `training_strategy=sampling_corrected_erm` | `objectives/sampling_corrected.py:10-23`、`objectives/conditional.py:63-67` | 各サンプルに ρ = P(g,c)/Q(g,c) = 2G·P(g,c) と w_c を掛け、固定の Z = Σ P(g,c)·w_c で割る |

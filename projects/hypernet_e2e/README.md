@@ -76,7 +76,7 @@ group を使う条件は、`data` と `training_strategy` の組で決まりま�
 | `training_strategy=erm` | 通常の cross-entropy。group ID を読まない |
 | `training_strategy=uniform_group` | 観測された group ごとの平均 loss を等重みで最適化する |
 | `training_strategy=group_dro_global` | global class weight の group loss で adversarial weight を更新する |
-| `training_strategy=group_dro_subgroup` | subgroup-wise class weight の group loss で adversarial weight を更新する |
+| `training_strategy=group_dro_subgroup` | subgroup-wise class weight の group loss で adversarial weight だけを更新し、モデルは global class weight の group loss で更新する |
 
 `_group_dro` 系の experiment はこの 2 つを組にした preset です。目的関数だけを差し替えるときは
 `training_strategy=` を重ねます。
@@ -105,7 +105,7 @@ CheXpert の model 入力は `sex`、`race`、`ethnicity`、連続 `age` と撮�
 2026-10-02の比較計画は[実験計画](../../docs/plans/20261002_experiment.md)を参照してください。
 主比較13条件のpresetと、local / ws11 GPU 2〜8への割り当てを掲載しています。
 HyperAdaptのrace-known条件と、Group DROの`_subgroup_race_known`条件を追加しています。
-subgroup版はtrain splitから8群×2クラスの重みを計算し、それ以外の標準条件はglobal版と共通です。
+subgroup版はtrain splitから8群×2クラスの重みを計算してqの更新だけに使い、それ以外の標準条件（モデル更新のglobal class weightを含む）はglobal版と共通です。
 2-stageはbackboneと元classifierを凍結し、第2段階はGroup DROのみとします。
 
 以下は当初のglobal class weightを使う5条件の起動例です。

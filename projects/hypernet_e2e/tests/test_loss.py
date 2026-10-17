@@ -357,51 +357,57 @@ def test_uniform_group_task_loss_averages_observed_group_losses() -> None:
 
 
 @pytest.mark.parametrize(
-    ("objective_class", "class_weight"),
+    ("objective_class", "weights"),
     [
-        (GlobalClassWeightedGroupDROTaskLoss, [1.0, 2.0]),
-        (SubgroupClassWeightedGroupDROTaskLoss, [[1.0, 2.0], [1.0, 2.0]]),
+        (GlobalClassWeightedGroupDROTaskLoss, {"class_weight": [1.0, 2.0]}),
+        (SubgroupClassWeightedGroupDROTaskLoss, {"class_weight": [1.0, 2.0], "q_class_weight": [[1.0, 2.0], [1.0, 2.0]]}),
     ],
 )
 def test_class_weighted_group_dro_applies_its_required_weight(
     objective_class: type[torch.nn.Module],
-    class_weight: list[float] | list[list[float]],
+    weights: dict[str, list[float] | list[list[float]]],
 ) -> None:
     logits = torch.tensor([[3.0, 0.0], [0.0, 3.0]])
     target = torch.tensor([0, 1])
     inputs = ObjectiveInput(logits=logits, target=target, attributes={"group_id": torch.tensor([0, 1])})
-    objective = objective_class(num_groups=2, class_weight=class_weight)
+    objective = objective_class(num_groups=2, **weights)
     loss = objective(inputs)
     per_sample = F.cross_entropy(logits, target, weight=torch.tensor([1.0, 2.0]), reduction="none")
     assert torch.allclose(loss, torch.dot(torch.softmax(0.01 * per_sample, dim=0), per_sample))
 
 
 @pytest.mark.parametrize(
-    ("objective_class", "class_weight", "message"),
+    ("objective_class", "weights", "message"),
     [
-        (GlobalClassWeightedGroupDROTaskLoss, None, "global Group DRO"),
-        (GlobalClassWeightedGroupDROTaskLoss, [[1.0, 2.0], [1.0, 2.0]], r"\[num_classes\]"),
-        (SubgroupClassWeightedGroupDROTaskLoss, None, "subgroup-wise Group DRO"),
-        (SubgroupClassWeightedGroupDROTaskLoss, [1.0, 2.0], r"\[num_groups, num_classes\]"),
+        (GlobalClassWeightedGroupDROTaskLoss, {"class_weight": None}, "Group DRO には"),
+        (GlobalClassWeightedGroupDROTaskLoss, {"class_weight": [[1.0, 2.0], [1.0, 2.0]]}, r"\[num_classes\]"),
+        (SubgroupClassWeightedGroupDROTaskLoss, {"class_weight": [1.0, 2.0], "q_class_weight": None}, "q_class_weight"),
+        (SubgroupClassWeightedGroupDROTaskLoss, {"class_weight": [1.0, 2.0], "q_class_weight": [1.0, 2.0]}, r"\[num_groups, num_classes\]"),
+        (SubgroupClassWeightedGroupDROTaskLoss, {"class_weight": None, "q_class_weight": [[1.0, 2.0], [1.0, 2.0]]}, "Group DRO には"),
+        (SubgroupClassWeightedGroupDROTaskLoss, {"class_weight": [[1.0, 2.0], [1.0, 2.0]], "q_class_weight": [[1.0, 2.0], [1.0, 2.0]]}, r"\[num_classes\]"),
     ],
 )
 def test_class_weighted_group_dro_rejects_missing_or_wrong_weight_shape(
     objective_class: type[torch.nn.Module],
-    class_weight: list[float] | list[list[float]] | None,
+    weights: dict[str, list[float] | list[list[float]] | None],
     message: str,
 ) -> None:
     with pytest.raises(ValueError, match=message):
-        objective_class(num_groups=2, class_weight=class_weight)
+        objective_class(num_groups=2, **weights)
 
 
-def test_subgroup_class_weighted_group_dro_preserves_groupwise_class_balance() -> None:
+def test_subgroup_class_weighted_group_dro_moves_q_by_groupwise_class_balance() -> None:
+    """群内の陽性・陰性の CE が群をまたいで同じなら、陽性率が違っても q は動かない。"""
     logits = torch.tensor([[3.0, 0.0]] * 2 + [[0.0, 1.0]] * 2 + [[3.0, 0.0]] * 5 + [[0.0, 1.0]])
     target = torch.tensor([0, 0, 1, 1, 0, 0, 0, 0, 0, 1])
     group_id = torch.tensor([0, 0, 0, 0, 1, 1, 1, 1, 1, 1])
     inputs = ObjectiveInput(logits=logits, target=target, attributes={"group_id": group_id})
-    objective = SubgroupClassWeightedGroupDROTaskLoss(num_groups=2, class_weight=[[1.0, 1.0], [0.6, 3.0]], step_size=1.0)
+    objective = SubgroupClassWeightedGroupDROTaskLoss(num_groups=2, class_weight=[1.0, 1.0], q_class_weight=[[1.0, 1.0], [0.6, 3.0]], step_size=1.0)
     objective(inputs)
     assert torch.allclose(objective.adv_probs, torch.full((2,), 0.5))
+    # モデル更新側の群損失は全群共通の重みなので、陽性率の違いで群 0 と群 1 の値が分かれる。
+    model_losses = objective.batch_diagnostics()["loss_sum"] / objective.batch_diagnostics()["count"]
+    assert not torch.allclose(model_losses[0], model_losses[1])
 
 
 def test_global_class_weighted_group_dro_restores_adversarial_state() -> None:
@@ -413,11 +419,17 @@ def test_global_class_weighted_group_dro_restores_adversarial_state() -> None:
     assert torch.allclose(resumed.adv_probs, objective.adv_probs)
 
 
+def _group_means(per_sample: torch.Tensor, group_ids: torch.Tensor, groups: list[int], reference: torch.Tensor) -> torch.Tensor:
+    # バッチに現れない群の損失は、グラフにつながった 0 にする（公式と同じ扱い）。
+    return torch.stack([per_sample[group_ids == g].mean() if g in groups else reference.sum() * 0 for g in range(3)])
+
+
 @pytest.mark.parametrize("subgroup", [False, True])
 @pytest.mark.parametrize("groups", [[0, 1], [0], [0, 1, 2]])
 def test_group_dro_matches_official_update_and_gradient(subgroup: bool, groups: list[int]) -> None:
+    """q は q 用の重みの群損失で公式どおり更新し、勾配は全群共通の重みの群損失を q で重み付けたものになる。"""
     objective = (
-        SubgroupClassWeightedGroupDROTaskLoss(3, class_weight=[[1.0, 2.0], [3.0, 1.0], [2.0, 4.0]], step_size=0.5)
+        SubgroupClassWeightedGroupDROTaskLoss(3, class_weight=[1.0, 2.0], q_class_weight=[[1.0, 2.0], [3.0, 1.0], [2.0, 4.0]], step_size=0.5)
         if subgroup
         else GlobalClassWeightedGroupDROTaskLoss(3, class_weight=[1.0, 2.0], step_size=0.5)
     )
@@ -428,10 +440,11 @@ def test_group_dro_matches_official_update_and_gradient(subgroup: bool, groups: 
         logits = torch.tensor([[2.0 - step, 0.0], [0.0, 1.0], [1.0, 0.0]])[: len(groups)].requires_grad_()
         reference = logits.detach().clone().requires_grad_()
         per_sample = F.cross_entropy(reference, target, reduction="none")
-        weights = torch.tensor([[1.0, 2.0], [3.0, 1.0], [2.0, 4.0]])[group_ids, target] if subgroup else torch.tensor([1.0, 2.0])[target]
-        per_sample = per_sample * weights
-        risks = torch.stack([per_sample[group_ids == g].mean() if g in groups else reference.sum() * 0 for g in range(3)])
-        expected_q = expected_q * torch.exp(0.5 * risks.detach())
+        q_weights = torch.tensor([[1.0, 2.0], [3.0, 1.0], [2.0, 4.0]])[group_ids, target] if subgroup else torch.tensor([1.0, 2.0])[target]
+        model_weights = torch.tensor([1.0, 2.0])[target]
+        q_risks = _group_means(per_sample * q_weights, group_ids, groups, reference)
+        risks = _group_means(per_sample * model_weights, group_ids, groups, reference)
+        expected_q = expected_q * torch.exp(0.5 * q_risks.detach())
         expected_q /= expected_q.sum()
         expected = expected_q @ risks
         actual = objective(ObjectiveInput(logits=logits, target=target, attributes={"group_id": group_ids}))

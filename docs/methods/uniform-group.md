@@ -52,7 +52,7 @@ uniform group そのものの原論文は無い。参照は次の 2 つ。
 **`UniformGroupTaskLoss`**
 - 群ごとに per-sample の CE に w_c（全群共通、または `class_weight_scope=subgroup` なら w_gc）を掛け、群内で単純平均する
   （`group.py:55-72`）。バッチに現れた群だけで平均を取る。現れない群があると、残りの群が 1/(現れた群の数) ずつになる。
-- クラス重みは `weighting=inverse` のとき `training.py:229-248` が入れる。strategy の config では `class_weight: null` だが、
+- クラス重みは `weighting=inverse` のとき `training.py:229-259` が入れる。strategy の config では `class_weight: null` だが、
   HAM10000 の base が `weighting: inverse` なので、preset では全群共通の inverse 重みが入る（dry-run で確認：[0.29, 1.71]）。
 - 実効重みはサンプル 1 件あたり w_c/(G·n_g)。ERM + inverse（w_c/N）に比べ、群の件数に反比例して上げ重みされる。
   群の中の陽性:陰性の比は ERM + inverse と同じ。
@@ -110,7 +110,7 @@ uv run python -m projects.hypernet_e2e.run \
   study=<slug> model.backbone_checkpoint_path=<親 ERM run>/checkpoints/<ckpt>
 ```
 
-`class_weight_scope=subgroup` の override は、群 × クラスのセルに空きがあると止まる（`training.py:262-263`）。
+`class_weight_scope=subgroup` の override は、群 × クラスのセルに空きがあると止まる（`training.py:273-274`）。
 起動前に `dry_run=true` で class_weight の形（`[G, 2]` か `[2]`）を確かめる。
 
 ## checkpoint の選び方と予測の使い方

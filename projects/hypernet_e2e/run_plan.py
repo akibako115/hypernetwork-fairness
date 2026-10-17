@@ -87,7 +87,10 @@ def format_run_plan(config: DictConfig, class_weight_path: str) -> str:
         sections.append((title, present))
     weighting = _value(config, "weighting")
     class_weight = _value(config, class_weight_path)
-    sections.insert(3, ("クラス重み", [("weighting", weighting), ("class_weight", class_weight)]))
+    weight_rows = [("weighting", weighting), ("class_weight", class_weight)]
+    if _select(config, "model.loss_fn.q_class_weight") is not _MISSING:
+        weight_rows.append(("q_class_weight", _value(config, "model.loss_fn.q_class_weight")))
+    sections.insert(3, ("クラス重み", weight_rows))
     sections.insert(4, ("目的関数", _objective_rows(config)))
     sections.append(("callbacks", [("callbacks", ", ".join(config.get("callbacks") or []) or "(なし)")]))
     sections.append(("明示指定", _override_rows()))
@@ -118,7 +121,7 @@ def _objective_rows(config: DictConfig) -> list[tuple[str, str]]:
         for key, value in loss_fn.items():
             # class weight と群別件数は別の行が持ち、dict は表の 1 行に収まらない。null と scalar の list
             # （EO の rates など）は条件そのものなので出す。null を落とすと既定値と見分けられない。
-            if key in ("_target_", "class_weight", "population_cell_counts") or not _is_plain(value):
+            if key in ("_target_", "class_weight", "q_class_weight", "population_cell_counts") or not _is_plain(value):
                 continue
             rows.append((f"loss_fn.{key}", _format(value)))
     counts = _select(config, "model.loss_fn.population_cell_counts")

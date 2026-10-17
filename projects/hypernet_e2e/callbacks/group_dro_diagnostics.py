@@ -9,7 +9,7 @@ import torch
 
 
 class GroupDRODiagnostics(L.Callback):
-    """更新後qの終端値・batch平均と、標本平均の群loss・件数を記録する。"""
+    """更新後qの終端値・batch平均と、標本平均の群loss（モデル更新用・q更新用）・件数を記録する。"""
 
     def __init__(self, group_labels: Sequence[str] | None = None) -> None:
         """群IDに対応する表示ラベルを受け取る。
@@ -52,7 +52,8 @@ class GroupDRODiagnostics(L.Callback):
             "group_cardinalities": list(data.get("group_cardinalities", [])),
             "initial_q": objective.adv_probs.detach().cpu().tolist(),
             "q_mean_definition": "batch平均（各train forwardの更新後q、batchは等重み）",
-            "loss_definition": "class weight適用後のper-sample CEを群内標本数で平均",
+            "loss_definition": "モデル更新に使うclass weight適用後のper-sample CEを群内標本数で平均",
+            "q_loss_definition": "q更新に使うclass weight適用後のper-sample CEを群内標本数で平均（原典の形ではlossと同じ）",
             "missing_group_loss": "epoch全体で未観測の群はNaN、countは0",
         }
         path = Path(trainer.default_root_dir) / "metrics" / "group_dro_groups.json"
@@ -73,6 +74,7 @@ class GroupDRODiagnostics(L.Callback):
             return
         self._q_sum = torch.zeros(self._num_groups, dtype=torch.float64, device=pl_module.device)
         self._loss_sum = torch.zeros_like(self._q_sum)
+        self._q_loss_sum = torch.zeros_like(self._q_sum)
         self._counts = torch.zeros_like(self._q_sum)
         self._num_batches = 0
 
@@ -95,6 +97,7 @@ class GroupDRODiagnostics(L.Callback):
         self._q_end = diagnostics["q"].detach().clone()
         self._q_sum += self._q_end
         self._loss_sum += diagnostics["loss_sum"]
+        self._q_loss_sum += diagnostics["q_loss_sum"]
         self._counts += diagnostics["count"]
         self._num_batches += 1
 
@@ -111,7 +114,8 @@ class GroupDRODiagnostics(L.Callback):
         if not self._active or not self._num_batches:
             return
         losses = torch.where(self._counts > 0, self._loss_sum / self._counts, float("nan"))
-        values = {"q_end": self._q_end, "q_mean": self._q_sum / self._num_batches, "loss": losses, "count": self._counts}
+        q_losses = torch.where(self._counts > 0, self._q_loss_sum / self._counts, float("nan"))
+        values = {"q_end": self._q_end, "q_mean": self._q_sum / self._num_batches, "loss": losses, "q_loss": q_losses, "count": self._counts}
         for metric, vector in values.items():
             for group_id, value in enumerate(vector):
                 pl_module.log(f"train/group_dro/{metric}/g{group_id}", value, on_step=False, on_epoch=True, batch_size=1, sync_dist=False)

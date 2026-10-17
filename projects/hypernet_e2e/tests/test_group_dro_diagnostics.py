@@ -31,7 +31,7 @@ class _Module(L.LightningModule):
 
 @pytest.mark.parametrize("subgroup", [False, True])
 def test_two_epochs_emit_actual_q_and_sample_weighted_loss(tmp_path, subgroup):
-    objective = SubgroupClassWeightedGroupDROTaskLoss(3, [[1.0, 2.0], [2.0, 1.0], [1.0, 1.0]]) if subgroup else GlobalClassWeightedGroupDROTaskLoss(3, [1.0, 2.0])
+    objective = SubgroupClassWeightedGroupDROTaskLoss(3, [1.0, 2.0], [[1.0, 2.0], [2.0, 1.0], [1.0, 1.0]]) if subgroup else GlobalClassWeightedGroupDROTaskLoss(3, [1.0, 2.0])
     module = _Module(objective)
     data = TensorDataset(torch.tensor([[1.0, 0.0], [0.0, 1.0], [1.0, 1.0]]), torch.tensor([0, 1, 0]), torch.tensor([0, 1, 0]))
     logger = CSVLogger(str(tmp_path), name="", version="")
@@ -66,10 +66,12 @@ def test_two_epochs_emit_actual_q_and_sample_weighted_loss(tmp_path, subgroup):
             count = sum(s["count"][group].item() for s in snapshots)
             assert float(row[f"train/group_dro/count/g{group}"]) == count
             if count:
-                expected = sum(s["loss_sum"][group].item() for s in snapshots) / count
-                assert float(row[f"train/group_dro/loss/g{group}"]) == pytest.approx(expected)
+                for metric in ("loss", "q_loss"):
+                    expected = sum(s[f"{metric}_sum"][group].item() for s in snapshots) / count
+                    assert float(row[f"train/group_dro/{metric}/g{group}"]) == pytest.approx(expected)
             else:
                 assert row[f"train/group_dro/loss/g{group}"].lower() == "nan"
+                assert row[f"train/group_dro/q_loss/g{group}"].lower() == "nan"
     metadata = json.loads((tmp_path / "metrics/group_dro_groups.json").read_text())
     assert metadata["groups"] == [{"id": i, "label": label} for i, label in enumerate(["a", "b", "c"])]
     assert list(objective.state_dict()) == ["adv_probs"]

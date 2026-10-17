@@ -227,25 +227,36 @@ def _validate_group_dro_weighting(config: DictConfig) -> None:
 
 
 def _resolve_inverse_class_weights(config: DictConfig) -> None:
-    """inverse weighting 時に train split から class weight を設定する。"""
+    """inverse weighting 時に train split から class weight を設定する。
+
+    モデルの更新に使う `class_weight` は strategy の `class_weight_scope`（既定 global）で決める。
+    `q_class_weight_scope` を持つ strategy（`group_dro_subgroup`）は、q の更新だけに使う重みを `q_class_weight` にも書く。
+    """
     if config.get("weighting", "none") != "inverse":
         return
     frame = pd.read_csv(Path(str(config.data.cv_splits_dir)) / "train.csv")
-    num_classes = int(config.data.num_classes)
-    strategy = config.get("training_strategy")
-    if strategy is not None and strategy.get("class_weight_scope") == "subgroup":
-        frame = add_age_groups(frame, config.data.get("fairness_age_groups"))
-        group_ids = demographic_group_ids(
-            frame,
-            config.data.group_attribute_names,
-            config.data.group_cardinalities,
-            group_key=config.data.group_key,
-            missing_values=config.data.get("group_missing_values"),
-        )
-        weights = _group_inverse_frequency_weights(frame["target"].tolist(), group_ids.tolist(), int(config.data.num_groups), num_classes)
-    else:
-        weights = _inverse_frequency_weights([int(value) for value in frame["target"]], num_classes)
+    strategy = config.get("training_strategy") or {}
+    weights = _scoped_inverse_weights(config, frame, strategy.get("class_weight_scope", "global"))
     OmegaConf.update(config, class_weight_path(config), weights, merge=False)
+    q_scope = strategy.get("q_class_weight_scope")
+    if q_scope is not None:
+        OmegaConf.update(config, "model.loss_fn.q_class_weight", _scoped_inverse_weights(config, frame, q_scope), merge=False)
+
+
+def _scoped_inverse_weights(config: DictConfig, frame: pd.DataFrame, scope: str) -> list[float] | list[list[float]]:
+    """scope が subgroup なら群 × クラスの、それ以外なら全群共通の逆頻度 class weight を返す。"""
+    num_classes = int(config.data.num_classes)
+    if scope != "subgroup":
+        return _inverse_frequency_weights([int(value) for value in frame["target"]], num_classes)
+    frame = add_age_groups(frame, config.data.get("fairness_age_groups"))
+    group_ids = demographic_group_ids(
+        frame,
+        config.data.group_attribute_names,
+        config.data.group_cardinalities,
+        group_key=config.data.group_key,
+        missing_values=config.data.get("group_missing_values"),
+    )
+    return _group_inverse_frequency_weights(frame["target"].tolist(), group_ids.tolist(), int(config.data.num_groups), num_classes)
 
 
 def _group_inverse_frequency_weights(labels: list[int], group_ids: list[int], num_groups: int, num_classes: int) -> list[list[float]]:

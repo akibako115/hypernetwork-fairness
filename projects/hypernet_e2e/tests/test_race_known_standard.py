@@ -64,7 +64,8 @@ def test_standard_config(preset, tmp_path):
     assert isinstance(instantiate(config.callbacks.fairness_metrics), FairnessMetricsCallback)
     assert config.callbacks.model_checkpoint.monitor == "val/auroc"
     if "group_dro" in preset:
-        assert config.training_strategy.class_weight_scope == ("subgroup" if "subgroup" in preset else "global")
+        assert config.training_strategy.class_weight_scope == "global"
+        assert config.training_strategy.get("q_class_weight_scope") == ("subgroup" if "subgroup" in preset else None)
         assert config.model.loss_fn.step_size == 0.01
         assert config.data.num_groups == 8
         assert list(config.data.group_attribute_names) == ["age_group_65", "race_group"]
@@ -81,10 +82,12 @@ def test_standard_config(preset, tmp_path):
     )
     config.data.cv_splits_dir = str(tmp_path)
     _resolve_inverse_class_weights(config)
+    # モデルの更新はどちらも全群共通の重み。subgroup の strategy だけが q 用の群ごとの重みを持つ。
+    assert list(config.model.loss_fn.class_weight) == [0.5, 1.5]
     if "subgroup" in preset:
-        assert [list(row) for row in config.model.loss_fn.class_weight] == [[0.666667, 2.0]] * 8
+        assert [list(row) for row in config.model.loss_fn.q_class_weight] == [[0.666667, 2.0]] * 8
     else:
-        assert list(config.model.loss_fn.class_weight) == [0.5, 1.5]
+        assert "q_class_weight" not in config.model.loss_fn
 
 
 class _Module:
@@ -138,3 +141,17 @@ def test_intersectional_logging_rejects_unknown_or_out_of_range_attributes():
 def test_intersectional_logging_rejects_invalid_definition(definition):
     with pytest.raises(ValueError):
         FairnessMetricsCallback({"group": definition})
+
+
+def test_class_weight_scope_still_puts_subgroup_weights_into_the_model_loss(tmp_path):
+    """`class_weight_scope=subgroup` はモデルの更新の重みを群ごとにする knob で、q 用の重みとは別に残す。"""
+    overrides = ["experiment=resnet_chexpert_age_race_group_dro_race_known", "training_strategy=uniform_group", "+training_strategy.class_weight_scope=subgroup"]
+    with initialize_config_dir(version_base="1.3", config_dir=str(Path(__file__).parents[1] / "configs")):
+        config = compose(config_name="train", overrides=overrides)
+    rows = [{"target": target, "age": age, "age_missing": False, "race_group": race, "race_group_missing": False} for age in [40, 70] for race in range(4) for target in [0, 0, 0, 1]]
+    pd.DataFrame(rows).to_csv(tmp_path / "train.csv", index=False)
+    config.data.cv_splits_dir = str(tmp_path)
+    _resolve_inverse_class_weights(config)
+    assert [list(row) for row in config.model.loss_fn.class_weight] == [[0.666667, 2.0]] * 8
+    assert "q_class_weight" not in config.model.loss_fn
+    instantiate(config.model.loss_fn)

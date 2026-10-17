@@ -136,9 +136,9 @@ def test_group_dro_reaches_its_group_ids_through_one_lightning_fit(tmp_path: Pat
             return self.fc(image.mean(dim=(2, 3)))
 
     dm = _datamodule(*_all_four_groups(tmp_path))
-    # 画像はどれも同じなので、群ごとに class weight を変えて、群 ID が届いたときだけ群の損失に差が出るようにする。
+    # 画像はどれも同じなので、q 用の class weight を群ごとに変えて、群 ID が届いたときだけ群の損失に差が出るようにする。
     # 損失が等しい群どうしでは、Group DRO の q は動かない。
-    objective = SubgroupClassWeightedGroupDROTaskLoss(num_groups=4, class_weight=[[1.0, 1.0], [2.0, 2.0], [3.0, 3.0], [4.0, 4.0]], step_size=1.0)
+    objective = SubgroupClassWeightedGroupDROTaskLoss(num_groups=4, class_weight=[1.0, 1.0], q_class_weight=[[1.0, 1.0], [2.0, 2.0], [3.0, 3.0], [4.0, 4.0]], step_size=1.0)
     module = LitModule(net=_Net(), loss_fn=objective, optimizer=lambda params: torch.optim.SGD(params, lr=0.1), scheduler=None)
 
     L.Trainer(max_epochs=1, accelerator="cpu", logger=False, enable_checkpointing=False, enable_progress_bar=False).fit(module, datamodule=dm)

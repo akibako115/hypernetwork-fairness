@@ -1,6 +1,6 @@
 # GroupDRO（Sagawa et al.）：原論文・実装・使い方
 
-2026-10-14 作成、2026-10-16 更新（HEAD `0f2af99` のコードと照合）。原論文の本文と公式実装を読み直し、この repo の実装と
+2026-10-14 作成、2026-10-16 更新（HEAD `0f2af99` のコードと照合）、2026-10-17 に `group_dro_subgroup` の重みの使い方を変更。原論文の本文と公式実装を読み直し、この repo の実装と
 突き合わせた結果をまとめる。GroupDRO の run を設計・起動・評価するセッションは、先にこれを読む。
 
 ## 先に押さえること
@@ -13,7 +13,8 @@
   2026-10-14 から GroupDRO の strategy は全 epoch の重みを残す。それより前の run は best val AUROC と last しか無い。
 - 属性だけの群では、**q は陽性率の高い群（CheXpert では若年群）に集まる**。陽性のクラス重みが陰性の約 8.7 倍なので、
   陽性率の高い群ほどクラス重み付きの群損失が大きくなるため（下の「q が向く群」）。最悪 AUROC・最小 TPR の群
-  （高齢群）には向かない。公平性損失の代表として結論に使わない（ユーザー方針）。
+  （高齢群）には向かない。公平性損失の代表として結論に使わない（ユーザー方針）。これは原典の形（`group_dro_global`）の
+  性質で、`group_dro_subgroup` は q の更新にだけ群ごとのクラス重みを使ってこれを避ける（下の「2 つの版」）。
 - **q の更新は公式実装と同じ**（2026-10-16 に照合）。原論文と違うのは、上の群の切り方・クラス重み・抽出・
   checkpoint の選び方で、どれも意図して変えたもの（下の「照合結果」）。
 - **GroupDRO の実装は `objectives/group.py` の 1 つだけ。** 以前あった 2 つ目（`SamplingCorrectedGroupTaskLoss` の
@@ -44,29 +45,32 @@
 
 ## この repo の実装
 
-`projects/hypernet_e2e/objectives/group.py`（共通部分は `_ClassWeightedGroupDROTaskLoss`、`group.py:106-147`）。
+`projects/hypernet_e2e/objectives/group.py`（共通部分は `_ClassWeightedGroupDROTaskLoss`、`group.py:106-160`）。
 
 | class | strategy（`configs/training_strategy/`） | クラス重み |
 | --- | --- | --- |
-| `GlobalClassWeightedGroupDROTaskLoss` | `group_dro_global` | 全群共通の `[num_classes]`（inverse）。preset の既定 |
-| `SubgroupClassWeightedGroupDROTaskLoss` | `group_dro_subgroup` | 群ごとの `[num_groups, num_classes]` |
+| `GlobalClassWeightedGroupDROTaskLoss` | `group_dro_global` | q もモデルも全群共通の `[num_classes]`（inverse）。原典の形。preset の既定 |
+| `SubgroupClassWeightedGroupDROTaskLoss` | `group_dro_subgroup` | q は群ごとの `[num_groups, num_classes]`（`q_class_weight`）、モデルは全群共通の `[num_classes]`（`class_weight`）。2026-10-17 から |
 
-- **q の更新**（`group.py:75-82`、`:123-135`）：train の forward ごとに、公式と同じく先に
+- **q の更新**（`group.py:75-82`、`:133-147`）：train の forward ごとに、公式と同じく先に
   `q *= exp(step_size * group_loss); q /= q.sum()` で q を更新し、更新後の q で群損失を重み付けして返す。
   バッチに現れない群の損失は 0 として扱い、全群で正規化する（公式と同じ。2026-10-13 にいったん入れた独自補正は撤回済み）。
   `step_size` の既定は 0.01（公式の `--robust_step_size` の既定と同じ）。
 - **群損失**（`group.py:55-72`）：クラス重み付き CE の群内の単純平均（群内のクラス重みの和では割らない）。
   クラス重みはこの repo の追加で、原論文には無い。
-  - `group_dro_global`：`[num_classes]` の逆頻度を平均 1 に正規化したもの（`training.py:284-296`）。
-  - `group_dro_subgroup`：群ごとに `n_g / (C · n_{g,c})`（`training.py:249-266`）。群の中で陽性と陰性が半分ずつ効くので、
-    群損失は「陽性の平均 CE と陰性の平均 CE の平均」になり、群の陽性率によらない。
-  - どちらも `weighting=inverse` が必須（`training.py:220-224`）。
+  - `group_dro_global`：`[num_classes]` の逆頻度を平均 1 に正規化したもの（`training.py:295-307`）。
+  - `group_dro_subgroup`：q の更新にだけ、群ごとの `n_g / (C · n_{g,c})` を掛けた群損失を使う（`q_class_weight`、
+    strategy の `q_class_weight_scope: subgroup`）。群の中で陽性と陰性が半分ずつ効くので、この群損失は
+    「陽性の平均 CE と陰性の平均 CE の平均」になり、群の陽性率によらない。モデルの更新には `group_dro_global` と
+    同じ全群共通の重みの群損失を使う。
+  - どちらも `weighting=inverse` が必須（`training.py:222-226`）。
 - **抽出**：preset（`*_group_dro_race_known`）は `train_sampling: uniform`（自然抽出）。
   B = 128 では、少数群がバッチに 1 件も入らないことがある（≥65 × Black は約 10% のバッチで欠ける）。
 - **checkpoint**：2026-10-14 から `group_dro_global`・`group_dro_subgroup` の strategy が `save_top_k: -1`・
   `save_weights_only: true` を持ち、全 epoch を残す。それより前の run は
   `configs/callbacks/model_checkpoint.yaml` の既定どおり best val AUROC の 1 つと last だけ。
-- **診断値**：`metrics.csv` の `train/group_dro/{metric}/g{id}`（epoch ごとの q と群損失）、
+- **診断値**：`metrics.csv` の `train/group_dro/{metric}/g{id}`（epoch ごとの q、モデルの更新に使った群損失 `loss`、
+  q の更新に使った群損失 `q_loss`。`group_dro_global` では `loss` と `q_loss` は同じ）、
   群番号とラベルの対応は `metrics/group_dro_groups.json`。
 
 ### 原論文との違い
@@ -97,6 +101,32 @@ grid の年齢 × race 8 群の GroupDRO 15 run（5 構成 × seed 42〜44、`an
   （0.23〜0.26）、TPR と AUROC が低い（TPR 0.58〜0.76、AUROC 0.77〜0.83）。
 - したがって q は「FPR の高い側」には向いているが、群ごとの最悪 FPR の群を選んでいるわけではない。
   最小 TPR・最悪 AUROC の側（高齢群）には向かない。陽性率で決まる損失の大小を追っているだけと読める。
+
+### 2 つの版（2026-10-17）
+
+| 版 | q の更新に使う群損失 | モデルの更新に使う群損失 |
+| --- | --- | --- |
+| `group_dro_global`（原典の形） | 全群共通のクラス重み | 全群共通のクラス重み |
+| `group_dro_subgroup` | 群ごとのクラス重み（群の中で陽性・陰性を半分ずつ） | 全群共通のクラス重み |
+
+2 つの違いは「q をどちらの群損失で更新するか」だけで、モデルの更新は ERM（全群共通の inverse）と同じ重みになる。
+
+**モデルの更新に群ごとの重みを使わない理由。** 2026-10-17 より前の `group_dro_subgroup` は、q とモデルの両方を群ごとの
+重みの群損失で更新していた。群ごとの重みでは陽性と陰性の重みの比 n_{g,0}/n_{g,1} が群ごとに違うので、画像から群を
+見分けられるモデルでは、最適な logit が群ごとに log(n_{g,0}/n_{g,1}) だけずれる（式からの導出で、run では未測定）。
+全群共通の重みなら、ずれは全群で同じ量になる。train の陽性率から見積もった、全群共通の重みに対する群ごとのずれは
+次のとおり（2026-10-17）。
+
+| データ | 群 | train の陽性率 | logit のずれ |
+| --- | --- | --- | --- |
+| CheXpert（race-known） | 65 歳以上 × race 4 群 | 0.053〜0.064 | +0.52〜+0.71 |
+| | 65 歳未満 × race 4 群 | 0.135〜0.159 | −0.30〜−0.50 |
+| HAM10000 | 65 歳以上 × sex 2 群 | 0.246〜0.280 | −0.65〜−0.83 |
+| | 65 歳未満 × sex 2 群 | 0.087〜0.106 | +0.36〜+0.58 |
+
+しきい値 0.5 の群別 TPR・FPR はこのずれで直接動く。CheXpert では、ERM で FPR が高い若年群の logit を下げ、TPR が低い
+高齢群の logit を上げる向きなので、Eopp・Eodds の改善に「群ごとにしきい値を変える」のと同じ効果が混ざる。群の中の
+AUROC はずれでは変わらない。
 
 ## 起動
 
@@ -135,6 +165,8 @@ HEAD `0f2af99` の `objectives/group.py` と突き合わせた。
 ### 意図して変えたこと（確認済み）
 
 - 群は属性だけ（原論文は属性 × ラベル）。
+- `group_dro_subgroup` は q とモデルを別の群損失で更新する（上の「2 つの版」）。原論文の「1 つの損失の min-max」の
+  形からは外れる。
 - クラス重みを足した。
 - 自然抽出（原論文の例は群を均等に引く `--reweight_groups`）。
 - group adjustment（C/√n_g）は無い（C = 0 相当）。
@@ -145,8 +177,8 @@ HEAD `0f2af99` の `objectives/group.py` と突き合わせた。
 - **global のクラス重みでは、q は群の陽性率を追う。** 群損失を群内の件数で割るだけで、群内のクラス重みの和では
   割らない。陽性の重みが陰性より大きいので、予測の質が同じでも陽性率の高い群ほど群損失が大きくなる。照合時の計算例では、
   陽性・陰性とも 1 件あたりの CE が同じとき、陽性率 15% の群の群損失は 0.31、6% の群は 0.21（約 1.5 倍）。上の
-  「q が向く群」で見た偏り（q が <65 の群に集まる）はこれで説明できる。subgroup のクラス重み
-  （`group_dro_subgroup`）なら群損失が陽性率によらないので、この偏りは出ない。
+  「q が向く群」で見た偏り（q が <65 の群に集まる）はこれで説明できる。`group_dro_subgroup` は q を陽性率によらない
+  群損失で更新するので、この偏りは出ない。
 - **複数 GPU への備えが無い。** q は GPU ごとに別々に更新され、揃える処理が無い。今の preset は単一 GPU なので
   問題にならないが、`trainer.devices` を増やすと GPU ごとに q がずれる。
 - **2 つ目の実装は削除済み。** 2026-10-16 より前の文書や run に `sampling_corrected_group_dro`（`SamplingCorrectedGroupTaskLoss`

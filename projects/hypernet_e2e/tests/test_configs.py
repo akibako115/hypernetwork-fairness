@@ -344,6 +344,7 @@ def test_training_strategy_is_selectable_without_changing_the_experiment(strateg
     assert cfg.training_strategy.uses_group_id is (strategy != "erm")
     if strategy in {"group_dro_global", "group_dro_subgroup"}:
         assert cfg.model.loss_fn.class_weight is None
+        assert cfg.model.loss_fn.get("q_class_weight") is None
     else:
         assert instantiate(cfg.model) is not None
 
