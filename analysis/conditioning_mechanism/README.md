@@ -7,9 +7,11 @@
 
 - 2 つの分析で 1 つの主張になる。条件付けが効くのは、属性が画像のスコアに無いラベルの情報を運ぶときだけで（1 節）、
   効き方はほぼスコアの切片をずらすこと（事前確率の注入）である（2 節）。
-- 入力の CheXpert・HAM10000 の run は旧前処理で学習している。格子（[hypernet_conditioning_grid](../hypernet_conditioning_grid/README.md)）
-  の 1 段の ERM を新しい前処理で回し直したら、その run を推論し直して作り直す。学習を足すのは、条件を定数にした
-  Spatial LoRA（HAM10000 × 3 seed）だけ。FairVLMed は前処理を変えていないので、run をそのまま使う。
+- 入力の run はすべて旧前処理で学習している。CheXpert・HAM10000 は前処理を MEDFAIR に、FairVLMed は学習の回転を
+  ±10° から FairMedFM と同じ ±15° に変えた（2026-10-17）。CheXpert・HAM10000 は、格子
+  （[hypernet_conditioning_grid](../hypernet_conditioning_grid/README.md)）の 1 段の ERM を回し直したら、その run を推論し直して
+  作り直す。格子に無い run として、条件を定数にした Spatial LoRA（HAM10000 × 3 seed）と、FairVLMed の ResNet-50・
+  Spatial LoRA・定数の Spatial LoRA（各 3 seed）を回す。
 - 作り直しでは HyperAdapt と random8 を外す（格子でも HyperAdapt を外したため）。
 
 | file | 中身 | 出力 |
