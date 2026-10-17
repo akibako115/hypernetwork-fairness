@@ -19,6 +19,7 @@
 - 2026-10-16 に全手法を原論文・公式実装と照合し、誤りを直した（[methods/README.md](methods/README.md)、commit `0f2af99`）。
   各手法の文書の「照合結果」に、それより前の run がどの版で学習したかを書いている。
 - 2026-10-17 に CheXpert と HAM10000 の画像の前処理を MEDFAIR に合わせた（縦横比を保たず 256×256 → train はランダム、評価は中央で 224 を切り出す）。
+  256×256 への縮小も MEDFAIR の cv2 と同じくアンチエイリアスなしにし、MEDFAIR の経路との差は全画素で ±1 階調以内になった。
   それより前の CheXpert の run は train と評価で画像の形が揃っていない旧前処理、HAM10000 の run は短辺 256 の旧前処理で学習している。どれを回し直すかは、
   既存の分析・run の棚卸しをしながら決める。
 - Q1〜Q3 の区分（[plans/20261011_chexpert_restructure_plan.md](plans/20261011_chexpert_restructure_plan.md)）は柱 A・B に置き換えた。
