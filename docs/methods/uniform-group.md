@@ -1,132 +1,180 @@
-# Uniform group（群を等重みにする学習）：原論文・実装・使い方
+# Uniform group
 
-2026-10-16 作成。群の平均損失を等重みで足す 2 つの実装を、コードと参照文献（Sagawa et al. 2020 の upweighting、
-Idrissi et al. 2022 の RWG）で突き合わせた。uniform group の run を設計・起動・評価するセッションは、先にこれを読む。
+群ごとの平均損失を、どの群も同じ重みで足して学習する手法。単一の原論文は無く、Sagawa et al. ICLR 2020 の
+upweighting（UW）と Idrissi et al. CLeaR 2022 の RWG が同じ考え方をとる。この repo では strategy `uniform_group`
+（自然抽出のバッチで計算）と `sampling_corrected_uniform_group`（群 × クラスの均等抽出のバッチから補正して計算）の 2 つ。
 
-## 先に押さえること
+## 1. 手法のロジック
 
-- **目的は「群ごとの平均損失を 1/G ずつ足したもの」**。どの群も同じ重みで効くので、小さい群が相対的に上げ重みされる。
-  重みは固定で、GroupDRO のように損失の大きい群へ寄っていくことはない。
-- **実装は 2 つあり、期待値では同じ目的を最小化する**（合成データで数値一致を確認済み）。違うのは抽出とばらつき。
-  - `uniform_group`：自然抽出のバッチで、群ごとにクラス重み付き CE を平均し、バッチに現れた群で等重み平均。
-  - `sampling_corrected_uniform_group`：セル均等抽出のバッチで、セル平均 CE に train の群内クラス比 π(c|g) を掛けて
-    群のリスクに戻し、1/G で平均。
-- **この repo の群は属性だけ（または潜在クラスタ）で、群の中の陽性率は変えない**。原論文の upweighting の群は
-  属性 × ラベルのセルで、群ごとに陽性:陰性を 1:1 にする。この repo でそれに当たるのは uniform group ではなく
-  ERM + セル均等抽出（`fg_resample_*`、[erm.md](erm.md)）。
-- **クラス重みは各群の損失の中で正規化されない**。陽性の重みが大きいので、陽性率の高い群ほど群損失の値が大きく、
-  その群の勾配も大きく効く（GroupDRO の「q が向く群」と同じ構造。[group-dro.md](group-dro.md)）。
-- **checkpoint は val の最悪群の成績で選ぶ**のが原論文の手順。HAM10000 の preset は best val AUROC に加え、
-  val の性別 × 年齢の最悪群 AUROC 最大も残す。
+### 解く問題
 
-## 原論文と公式実装
+ERM は全サンプルの平均損失を下げるので、件数の少ない群は平均への寄与が小さく、成績が悪くても放置されやすい。
+uniform group は、群 g = 1, …, G の平均損失を 1/G ずつ足したものを下げる。件数によらずどの群も同じだけ効くので、
+小さい群が相対的に重くなる。
 
-uniform group そのものの原論文は無い。参照は次の 2 つ。
+```
+min_θ  (1/G) Σ_g L_g(θ)          L_g(θ)：群 g に属するサンプルの平均損失
+```
 
-- Sagawa, Koh, Hashimoto, Liang. ICLR 2020（[arXiv:1911.08731](https://arxiv.org/abs/1911.08731)）の 4 節
-  「Comparison between DRO and importance weighting」の upweighting（UW）。公式 [kohpangwei/group_DRO](https://github.com/kohpangwei/group_DRO)
-  の `--reweight_groups`（`--robust` なし）。
-- Idrissi, Arjovsky, Pezeshki, Lopez-Paz. CLeaR 2022（[arXiv:2110.14503](https://arxiv.org/abs/2110.14503)）の RWG・SUBG。
-  公式 [facebookresearch/BalancingGroups](https://github.com/facebookresearch/BalancingGroups)。条件は [erm.md](erm.md) の表。
+サンプル 1 件あたりで見ると、群 g のサンプルに 1/(G · n_g) を掛けた重み付き ERM と同じ（n_g は群 g の train の件数）。
+「群の頻度が均等な分布」での損失を最小化することに当たる。
 
-### 原論文の条件（Sagawa et al. の UW。本文と公式実装で確認済み）
+GroupDRO（[group-dro.md](group-dro.md)）との違いは重みが固定であること。GroupDRO は損失の大きい群へ重み q を動かすが、
+uniform group の重みは学習の間ずっと 1/G のまま。群によって学習のしやすさが違うと、train の損失は群ごとにそろわない。
 
-| 項目 | 原論文・公式実装 | 出典 |
-| --- | --- | --- |
-| 目的 | 群の頻度の逆数 w_g = 1/P̂(g) で重み付けした ERM。群の頻度が均等な test 分布を狙う | 4 節 式 (6) |
-| 群 | 属性 × ラベル（m = \|A\| × \|Y\|） | 2 節 |
-| 実装 | 損失は重み付けせず、**各群を等確率で抽出**する（`WeightedRandomSampler`、重み N/n_g、復元抽出、1 epoch = N 回）。公式コードのコメントは「各 (y, c) 群が等重みの reweighted ERM」 | 4 節、`data/dro_dataset.py`（`get_loader`） |
-| 抽出を選んだ理由 | 損失の重み付けより抽出のほうが効く、という Buda et al. 2018 の結果に従う | 4 節 |
-| データ・モデル | Waterbirds、CelebA、MultiNLI。画像は ImageNet 事前学習の ResNet50、SGD momentum 0.9、batch 128、拡張なし | 4 節、付録 C.2（[group-dro.md](group-dro.md)） |
-| 正則化 | DRO と同じ ℓ2 の grid | 4 節 |
-| checkpoint | **val 最悪群 accuracy が最大の epoch**（early stopping） | 4 節、表 3 |
-| 結果 | Waterbirds・CelebA では ERM より大きく良く、DRO よりわずかに悪い。MultiNLI では ERM より悪い（少数群を過度に強調） | 表 3 |
+### 群の作り方で何が変わるか
 
-## この repo の実装
+- **群 = 予測ラベル × 属性**（原論文の形）：各群に 1 つのクラスしか入らないので、群を等重みにすると、各属性の中で
+  陽性と陰性も等重みになる。
+- **群 = 属性だけ**（または潜在クラスタ）：群の中のクラス比は train のまま残る。クラスの偏りを補うにはクラス重み w_c を
+  群の損失の中で掛ける：`L_g = (1/n_g) Σ_{i∈g} w_{y_i} · ℓ_i`。
 
-| class | strategy | data | 抽出 | 群のリスク |
-| --- | --- | --- | --- | --- |
-| `UniformGroupTaskLoss`（`objectives/group.py:85-103`） | `uniform_group` | `*_groups`（`GroupImageDataModule`） | 自然抽出 | バッチの群 g の中で w_c·CE を平均 |
-| `SamplingCorrectedGroupTaskLoss`（`objectives/sampling_corrected.py:26-48`） | `sampling_corrected_uniform_group` | `*_cells`（`GroupClassImageDataModule`） | セル均等（各セル B/(2G) 件） | Σ_c w_c·π(c\|g)·（セル平均 CE） |
+後者でクラス重みを全群共通にすると、群 g が目的関数に占める重みの合計は (1/G) · Σ_c π(c|g) · w_c になる
+（π(c|g) は群 g の中でのクラス c の割合）。陽性の重みが大きいので、陽性率の高い群ほど重く効き、群は厳密には等重みにならない。
+群ごとのクラス重み w_gc = n_g / (C · n_gc)（C はクラス数、n_gc は群 g・クラス c の件数）にすると合計は全群で 1/G にそろい、
+各群の中で陽性:陰性も 1:1 になる。これは「予測ラベル × 属性」を群にした場合と同じ目的で、群 × クラスの均等抽出とも
+期待値で一致する。各条件の 1 サンプルあたりの実効重みは [erm.md](erm.md) の 1 節の表にまとめた。
 
-**`UniformGroupTaskLoss`**
-- 群ごとに per-sample の CE に w_c（全群共通、または `class_weight_scope=subgroup` なら w_gc）を掛け、群内で単純平均する
-  （`group.py:55-72`）。バッチに現れた群だけで平均を取る。現れない群があると、残りの群が 1/(現れた群の数) ずつになる。
-- クラス重みは `weighting=inverse` のとき `training.py:229-259` が入れる。strategy の config では `class_weight: null` だが、
-  HAM10000 の base が `weighting: inverse` なので、preset では全群共通の inverse 重みが入る（dry-run で確認：[0.29, 1.71]）。
-- 実効重みはサンプル 1 件あたり w_c/(G·n_g)。ERM + inverse（w_c/N）に比べ、群の件数に反比例して上げ重みされる。
-  群の中の陽性:陰性の比は ERM + inverse と同じ。
+### ミニバッチでの推定
 
-**`SamplingCorrectedGroupTaskLoss`**
-- π(c|g) は train の件数（`population_cell_counts`、`training.py:149-167` が train.csv から入れる）から出す。
-  セル均等のバッチでもクラス比を母集団に戻すので、群の中の陽性:陰性の比は `uniform_group` と同じになる。
-- 群の重みは 1/G で固定。2026-10-16（commit 0f2af99）に GroupDRO 版（`mode=dro`）を削除し、双対状態も持たなくなった。
-- バッチに全セルが必要（`conditional.py:50-61`）。セル均等抽出なので常に満たす。2 クラス専用。
-- 小さいセルは同じ画像を何度も引く。`ConditionalFairnessRecorder` は sampler の重複率を
-  `train/conditional/sampler_duplicate_fraction/cell*` に出す。
+L_g は train 全体での平均なので、ミニバッチからの推定の仕方が 2 通りある。
 
-**2 つの違い**
+1. **自然抽出のバッチから**：バッチに入った群 g のサンプルの重み付き平均で L_g を推定し、群の間で平均する。
+   小さい群は 1 件も入らないバッチがあり、そのバッチでは残りの群だけで平均する。
+2. **群 × クラスの均等抽出のバッチから**：各セル (g, c) から同じ数を引き、セルの平均損失 m_gc を出す。
+   抽出でクラス比が 1:1 に変わっているので、train の群内のクラス比で戻す：`L_g = Σ_c w_c · π(c|g) · m_gc`。
+   全セルが毎バッチ入る代わりに、小さいセルは同じサンプルを何度も引く。
 
-| 項目 | `uniform_group` | `sampling_corrected_uniform_group` |
-| --- | --- | --- |
-| 期待値で最小化するもの | (1/G) Σ_g Σ_c w_c·π(c\|g)·CE_gc | 同じ |
-| クラス比の出どころ | バッチの中の比（揺れる） | train 全体の比（固定） |
-| 小さい群・セル | バッチに入らない・数件しか入らないことがある（推測。件数は未計測） | 毎バッチ B/(2G) 件。代わりに重複抽出が多い |
-| 対応する群・preset | 任意の G（HAM10000 の性別 × 年齢 4 群、潜在クラスタ 8 群） | CheXpert の年齢 2 群、親 ERM からの継続学習だけ（recorder が 2 群専用） |
-| 何のための条件か | 公平性手法の比較の 1 本 | 条件付き公平性 objective と同じ抽出で比べる対照 |
+どちらも期待値では同じ目的になる。違いはバッチごとのばらつきと、どの抽出を前提にするかにある。
 
-**記録されるもの**：`uniform_group` に固有の診断値は無い（`group_dro_diagnostics` は q を持つ objective にしか動かない）。
-`SamplingCorrectedGroupTaskLoss` は群のリスク `risk`（`[num_groups]`）を `metrics/objective_diagnostics.jsonl` に epoch ごとに残す。
-2026-10-17 から `ObjectiveDiagnosticsRecorder` が既定の callback に入り、全 preset で書き出す。それより前の run には残っていない。
+## 2. 原論文の設定
+
+### Sagawa et al. の upweighting（UW）
+
+- Sagawa, Koh, Hashimoto, Liang. *Distributionally Robust Neural Networks for Group Shifts: On the Importance of
+  Regularization for Worst-Case Generalization.* ICLR 2020（[arXiv:1911.08731](https://arxiv.org/abs/1911.08731)）の 4 節
+  「Comparison between DRO and importance weighting」
+- 公式実装：[kohpangwei/group_DRO](https://github.com/kohpangwei/group_DRO)。`--reweight_groups` を付け、`--robust` を付けない
+
+4 節は、群の重み w_g を train での群の頻度の逆数 1/P̂(g) にした重み付き ERM（式 (6)）を UW と呼ぶ。実際の学習では損失に
+重みを掛けず、**各群を等確率で抽出する**。損失の重み付けより抽出のほうが効くという Buda et al.（2018）の結果に従った。
+公式実装 `data/dro_dataset.py` の `get_loader` は、重み `len(self) / group_counts` の
+`WeightedRandomSampler(weights, len(self), replacement=True)` を train だけに使う。コード中のコメントは、これを
+「各 (y, c) 群が等しい重みを持つ reweighted ERM」と説明している。
+
+データセットとタスクは GroupDRO と同じ（Waterbirds・CelebA が 2 クラスで 4 群、MultiNLI が 3 クラスで 6 群。
+群は予測ラベル × 属性）。表は [group-dro.md](group-dro.md) の 2 節にある。評価は群ごとの accuracy の最小値（最悪群 accuracy）と平均 accuracy。
+
+#### ハイパーパラメータ
+
+モデル・optimizer は GroupDRO と共通で、画像は ImageNet 事前学習の ResNet50、SGD（momentum 0.9）、固定 lr、batch 128、
+データ拡張なし（付録 C.2。詳しくは [group-dro.md](group-dro.md)）。UW に関わるのは次の点。
+
+| 項目 | 値 |
+| --- | --- |
+| ℓ2 の強さ λ | ERM・DRO と同じ grid を探索する。Waterbirds {1e-4, 0.1, 1.0}、CelebA {1e-4, 0.01, 0.1}（付録 C.2） |
+| lr | λ ごとに決めた値。λ = 1e-4 で Waterbirds 1e-3・CelebA 1e-4、最も強い λ（Waterbirds 1.0・CelebA 0.1）で 1e-5、中間の λ で 1e-4。中間の値について本文は「Waterbirds and CelebA at λ = 0.1」と書いており、CelebA の 0.01 を指すのかは読み取れない |
+| epoch | grid に含めて選ぶ。学習させた総 epoch 数は 4 節の本文に無く未確認 |
+| 抽出 | 群を等確率に復元抽出、1 epoch = N 回（公式実装） |
+| 文章（MultiNLI） | BERT base、AdamW、lr 2e-5 から線形に減衰、ℓ2 なし、batch 32 |
+
+#### モデルの選び方
+
+ℓ2 の強さと epoch を grid search し、**val の最悪群 accuracy が最大のモデル**を報告する（4 節、表 3）。
+UW は Waterbirds・CelebA では ERM より大きく良く DRO よりわずかに悪いが、MultiNLI では ERM より悪い。
+少数の群を強調しすぎ、その群の train accuracy がごく低くなった、と論文は説明している。
+
+### Idrissi et al. の RWG
+
+RWG は「ミニバッチが群で期待値として釣り合うよう、各サンプルの抽出確率を変える」方法で、群は予測ラベル × 属性。
+UW と同じ操作になる。データセット・ハイパーパラメータ・選び方は [erm.md](erm.md) の 2 節に書いた。
+
+## 3. この repo の実装
+
+### ファイルと設定
+
+| 役割 | 場所 |
+| --- | --- |
+| 損失（自然抽出） | [objectives/group.py](../../projects/hypernet_e2e/objectives/group.py) の `UniformGroupTaskLoss`（`_per_sample_loss`・`_group_losses` は GroupDRO と共有） |
+| 損失（均等抽出 + 補正） | [objectives/sampling_corrected.py](../../projects/hypernet_e2e/objectives/sampling_corrected.py) の `SamplingCorrectedGroupTaskLoss`、親 class は [objectives/conditional.py](../../projects/hypernet_e2e/objectives/conditional.py) の `ConditionalObjective` |
+| strategy | [configs/training_strategy/uniform_group.yaml](../../projects/hypernet_e2e/configs/training_strategy/uniform_group.yaml)、[sampling_corrected_uniform_group.yaml](../../projects/hypernet_e2e/configs/training_strategy/sampling_corrected_uniform_group.yaml) |
+| クラス重みの計算 | [training.py](../../projects/hypernet_e2e/training.py) の `_resolve_inverse_class_weights`・`_scoped_inverse_weights` |
+| 群の定義 | data config の `*_groups.yaml`（例 [ham10000_sex_age_groups.yaml](../../projects/hypernet_e2e/configs/data/ham10000_sex_age_groups.yaml)：性別 × 65 歳未満/以上 = 4 群。`ham10000_gmm8_groups`・`ham10000_he8_groups` は潜在クラスタ 8 群） |
+| 均等抽出 | [data/group_class_sampler.py](../../projects/hypernet_e2e/data/group_class_sampler.py) の `GroupClassBatchSampler`（data config `chexpert_age_known_cells`）。仕組みは [erm.md](erm.md) の 3 節 |
+| 記録 | [callbacks/objective_diagnostics.py](../../projects/hypernet_e2e/callbacks/objective_diagnostics.py) の `ObjectiveDiagnosticsRecorder`、[callbacks/conditional_fairness.py](../../projects/hypernet_e2e/callbacks/conditional_fairness.py) の `ConditionalFairnessRecorder` |
+| 代表的な preset | `resnet_ham10000_fg_ug_sex_age`、`resnet_ham10000_fg_ug_gmm8`、`resnet_chexpert_from_resnet_age_sampling_corrected_uniform_group_race_known` |
+
+### 処理の流れ
+
+**起動時（fit の前）。**
+
+- `_resolve_inverse_class_weights`：`weighting=inverse` なら `model.loss_fn.class_weight` にクラス重みを書く。strategy の config は
+  `class_weight: null` だが、`_base_ham10000`・`_base_chexpert` が `weighting: inverse` なので、preset では全群共通の重み
+  （w_c = N / (C · n_c) を平均 1 に正規化した `[2]`）が入る。
+  `+training_strategy.class_weight_scope=subgroup` を足すと群ごとの重み w_gc = n_g / (C · n_gc)（`[G, 2]`、平均 1 に正規化しない）
+  になる。空のセルがあると止まる。この override を使う preset は無い。
+- `sampling_corrected_uniform_group` は、`_resolve_conditional_population` が train のセルの件数 `[G, 2]` を
+  `population_cell_counts` に書き、single device・`accumulate_grad_batches=1`・bf16 か fp32・セル均等抽出の DataModule を
+  確かめる。継続学習の preset なので、`_prepare_age_continuation` が同じ seed の親 ERM の checkpoint を求める。
+  `class_weight_scope` は `global` 固定（`ConditionalObjective` が `[2]` の重みしか受けない）。
+
+**学習の各ステップ（`uniform_group`、`UniformGroupTaskLoss.forward`）。**
+
+1. `attributes[group_key]` から群番号を取る。
+2. `_per_sample_loss`：サンプルごとの CE にクラス重みを掛ける（`[2]` ならラベルで、`[G, 2]` なら群とラベルで引く）。
+   重みが無ければ CE のまま。
+3. `_group_losses`：群ごとに、2 の和を群の件数で割る（群内の重みの合計では割らない）。バッチに 1 件もない群は外す。
+4. バッチに現れた群の損失を単純平均して返す。現れない群があれば、残りの群が 1/(現れた群の数) ずつになる。
+
+**学習の各ステップ（`sampling_corrected_uniform_group`、`SamplingCorrectedGroupTaskLoss.forward`）。**
+
+1. `ConditionalObjective._cells`：logits が `[B, 2]`、ラベルが 2 値で、全セルがバッチにあることを確かめる。
+   セル均等抽出なので常に満たす。
+2. CE を fp32 で計算し、セルごとに平均して m_gc を出す。
+3. 群のリスク `risk_g = Σ_c w_c · π(c|g) · m_gc`。π(c|g) は `population_cell_counts` から出す train の群内クラス比で、
+   バッチの中の比（1:1）ではない。
+4. G 群のリスクを単純平均して返す。群の重みは 1/G で固定で、双対変数などの状態は持たない。
+
+**2 つの版がある理由。** 期待値では同じ目的なので、主に使うのは任意の群数で動く `uniform_group`。
+`sampling_corrected_uniform_group` は、FairDRO・minimax AUC・EO rate など群 × クラスの均等抽出を前提にする目的関数と、
+同じ抽出・同じ親 ERM からの継続学習で比べるための対照として置いている。
+
+**記録と checkpoint。**
+
+- `uniform_group` に固有の診断値は無い。`UniformGroupTaskLoss` は `batch_diagnostics` を持たないので、
+  `ObjectiveDiagnosticsRecorder` も `GroupDRODiagnostics`（q を持つ目的関数だけ）も何も書かない。
+- `sampling_corrected_uniform_group` は群のリスク `risk`（`[G]`）を `ObjectiveDiagnosticsRecorder` が
+  `metrics/objective_diagnostics.jsonl` に epoch ごとに書く。`ConditionalFairnessRecorder` の候補 checkpoint と
+  epoch の選び方は抽出補正 ERM と同じ（[erm.md](erm.md) の 3 節）。このコールバックは年齢 2 群専用。
+- `uniform_group` の HAM10000 preset は `best_val_auroc_{epoch}`・`last` に加え、`_fairness_ham10000` の
+  `best_val_worst_sexage_{epoch}`（val の性別 × 年齢の最悪群 AUROC 最大）を残す。この群は学習に使った群と関係なく
+  常に性別 × 年齢で、GMM8・HE8 の run では学習に使った群での選び方にならない。全 epoch を残すには
+  `callbacks.model_checkpoint.save_top_k=-1 callbacks.model_checkpoint.save_weights_only=true` を足す。
 
 ### 原論文との違い
 
-| 項目 | 原論文（Sagawa UW・Idrissi RWG） | この repo |
+| 項目 | 原論文（Sagawa の UW・Idrissi の RWG） | この repo |
 | --- | --- | --- |
-| 群 | 属性 × ラベル | 属性だけ、または潜在クラスタ。陽性と陰性が同じ群に入る |
-| 等重みの作り方 | 抽出（群を等確率で引く） | `uniform_group` は損失の重み。補正版はセル均等抽出 + 群内クラス比の補正 |
-| クラス重み | なし（群 = セルなので不要） | 全群共通の inverse |
-| optimizer・正則化 | SGD、ℓ2 の grid | AdamW lr 1e-4、weight decay 0.01、30 epoch |
-| データ拡張 | なし | あり |
-| checkpoint | val 最悪群 accuracy | best val AUROC、last、HAM10000 は val 性別 × 年齢の最悪群 AUROC 最大 |
+| 群 | 予測ラベル × 属性 | 属性だけ、または潜在クラスタ。陽性と陰性が同じ群に入る |
+| 等重みの作り方 | 抽出（群を等確率に復元抽出） | `uniform_group` は損失の重み。補正版はセル均等抽出 + 群内クラス比での戻し |
+| クラス重み | なし（群がラベルを含むので要らない） | 全群共通の inverse（群は厳密には等重みにならない） |
+| optimizer・正則化 | SGD、ℓ2 の grid | AdamW lr 1e-4、weight decay 0.01、30 epoch。探索なし |
+| データ拡張 | なし | あり（`train_transforms_medfair`） |
+| モデルの選び方 | val の最悪群 accuracy が最大の epoch | best val AUROC と last。HAM10000 は val の性別 × 年齢の最悪群 AUROC 最大も残す |
+| 評価 | 最悪群 accuracy | しきい値 0.5 の群別 TPR・FPR（[research-premises.md](../research-premises.md)） |
 
-## 起動
+原論文の「予測ラベル × 属性」の群に揃えるなら、`+training_strategy.class_weight_scope=subgroup` で群ごとのクラス重みにする
+（期待値で群 × クラスの均等抽出と同じ）。ただし [research-premises.md](../research-premises.md) は群ごとのクラス重みを使わない
+としている。正則化と選び方を揃えるなら、epoch を短くするか weight decay を上げ、学習に使った群の val 成績で epoch を選ぶ。
 
-| preset | 群 | run 数（inventory、2026-10-16 時点） |
-| --- | --- | --- |
-| `resnet_ham10000_fg_ug_sex_age` | 性別 × 年齢（<65 / ≥65）の 4 群 | 3 |
-| `resnet_ham10000_fg_ug_gmm8` | DINOv2 の GMM 8 クラスタ | 3 |
-| `resnet_ham10000_fg_ug_he8` | ERM 特徴 + DINOv2 の k-means 8 | 0 |
-| `resnet_chexpert_from_resnet_age_sampling_corrected_uniform_group_race_known` | CheXpert の年齢 2 群（race 既知の subset） | 0 |
+### 起動例
 
 ```bash
 uv run python -m projects.hypernet_e2e.run experiment=resnet_ham10000_fg_ug_sex_age study=<slug> seed=42
-# 原論文の群（属性 × ラベル）に近づけるなら、群ごとのクラス重みを使う（期待値でセル均等抽出と同じ）
-uv run python -m projects.hypernet_e2e.run experiment=resnet_ham10000_fg_ug_sex_age study=<slug> \
-  +training_strategy.class_weight_scope=subgroup
-# 補正版は親 ERM の checkpoint（同じ seed）が必須
+# 補正版は、同じ seed の親 ERM の checkpoint が要る
 uv run python -m projects.hypernet_e2e.run \
   experiment=resnet_chexpert_from_resnet_age_sampling_corrected_uniform_group_race_known \
-  study=<slug> model.backbone_checkpoint_path=<親 ERM run>/checkpoints/<ckpt>
+  study=<slug> seed=42 model.backbone_checkpoint_path=<親 ERM の run>/checkpoints/<ckpt>
 ```
 
-`class_weight_scope=subgroup` の override は、群 × クラスのセルに空きがあると止まる（`training.py:273-274`）。
-起動前に `dry_run=true` で class_weight の形（`[G, 2]` か `[2]`）を確かめる。
-
-## checkpoint の選び方と予測の使い方
-
-- 原論文どおりなら **val の最悪群の成績が最大の epoch**。HAM10000 の preset では `best_val_worst_sexage_*` がそれに近い
-  （ただし群は常に性別 × 年齢で、GMM8・HE8 で学習した run でも学習に使った群ではない）。
-- 全 epoch は残らない（best val AUROC、last、上の 1 つだけ）。学習に使った群で選び直したいときは
-  `callbacks.model_checkpoint.save_top_k=-1 callbacks.model_checkpoint.save_weights_only=true` を足して回す
-  （GroupDRO の strategy と同じ設定。dry-run で合成できることを確認済み）。
-- 補正版は `metrics/fairness_selection.json` の epoch を使う（[erm.md](erm.md) の抽出補正 ERM と同じ規則）。
-- 予測は `analysis/common/predictions.py`。best val AUROC 以外は `--checkpoint` は名前で渡す（既定 `best` は run.json に記録された val AUROC の best、`xxx` は `checkpoints/xxx.ckpt`。例 `best_val_auroc_009`、`last`、`swad`）。
-
-## 2026-10-16 の照合結果
-
-- `UniformGroupTaskLoss`：正しい。バッチに現れた群の平均損失を等重みで平均する。
-- `SamplingCorrectedGroupTaskLoss`：正しい。群のリスクは Σ_c w_c·π(c|g)·（セル平均 CE）で、セル均等抽出の下で母集団の
-  群リスクの不偏推定になる。群の重みは 1/G 固定。以前の `mode=dro`（GroupDRO 版）は commit 0f2af99 で削除済み。
-- 追加で確かめたこと：同じセル別 CE の下で、`uniform_group`（自然分布の全件）と補正版（セル均等のバッチ）の損失は
-  数値で一致した。また、セル均等抽出 + 重みなし CE は、`uniform_group` + 群ごとのクラス重み n_g/(2·n_gc) と一致した。
+起動前に `dry_run=true` で class_weight の形（`[2]` か `[G, 2]`）を確かめる。

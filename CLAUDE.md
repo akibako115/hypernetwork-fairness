@@ -10,7 +10,7 @@
 | --- | --- |
 | 研究の現在地（いまの問い・どの文書が正本か） | [docs/README.md](docs/README.md) |
 | 研究の前提・評価の定義・手法選定・結論の書き方 | [docs/research-premises.md](docs/research-premises.md) |
-| 学習手法（ERM・GroupDRO・FairDRO・EO rate・DANN など）の run の設計・起動・checkpoint の選び方 | [docs/methods/README.md](docs/methods/README.md) から手法ごとの文書へ。原論文の条件との違いと、2026-10-16 の照合結果 |
+| 学習手法（ERM・GroupDRO・FairDRO・EO rate・DANN など）の run の設計・起動・checkpoint の選び方 | [docs/methods/README.md](docs/methods/README.md) から手法ごとの文書へ。手法のロジック・原論文の設定・この repo の実装と原論文との違い |
 | 学習コード | `projects/<project>/AGENTS.md`（`CLAUDE.md` は同じ file への symlink）と `README.md` |
 | 分析コード・notebook | [analysis/AGENTS.md](analysis/AGENTS.md)、[analysis/README.md](analysis/README.md) |
 | データ split・群別指標の最小セル | [data_pipeline/README.md](data_pipeline/README.md) |

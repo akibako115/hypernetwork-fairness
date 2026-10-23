@@ -17,7 +17,8 @@
 - 2026-10-15 に FIS と FaMI を論文の式に合わせた（[reviews/20261015_lhcf_paper_alignment.md](reviews/20261015_lhcf_paper_alignment.md)）。
   それ以前の FIS・FaMI の結果は使わない。
 - 2026-10-16 に全手法を原論文・公式実装と照合し、誤りを直した（[methods/README.md](methods/README.md)、commit `0f2af99`）。
-  各手法の文書の「照合結果」に、それより前の run がどの版で学習したかを書いている。
+  照合の記録（それより前の run がどの版で学習したか）は、手法文書を 3 節構成に書き直す前の版（commit `e693e02` の
+  `docs/methods/`）に残っている。
 - 2026-10-17 に CheXpert と HAM10000 の画像の前処理を MEDFAIR に合わせた（縦横比を保たず 256×256 → train はランダム、評価は中央で 224 を切り出す）。
   256×256 への縮小も MEDFAIR の cv2 と同じくアンチエイリアスなしにし、MEDFAIR の経路との差は全画素で ±1 階調以内になった。
   それより前の CheXpert の run は train と評価で画像の形が揃っていない旧前処理、HAM10000 の run は短辺 256 の旧前処理で学習している。どれを回し直すかは、
@@ -32,7 +33,7 @@
 | [research-premises.md](research-premises.md) | 研究の前提と評価の定義。計画・手法選定・結論の書き方はこれに反しない形で進める |
 | [experiment-workflow.md](experiment-workflow.md) | 実験 1 本を仮説から結論まで進める手順 |
 | [plans/](plans/) | 日付つきの実験計画と実行記録。どれが現役かは上の「現在地」が決める。いまある 2 本（10-02 の主比較の実行記録、10-11 の Q1〜Q3）はどちらも過去の記録 |
-| [methods/](methods/README.md) | 学習手法ごとの文書（原論文の条件・この repo の実装・違い・checkpoint の選び方・2026-10-16 の照合結果）。一覧は [methods/README.md](methods/README.md) |
+| [methods/](methods/README.md) | 学習手法ごとの文書（手法のロジック・原論文の設定・この repo の実装）。一覧は [methods/README.md](methods/README.md) |
 | [reviews/](reviews/) | 実装・実験基盤のレビューと修正記録 |
 | [meetings/](meetings/) | ミーティング用メモ。`<YYYYMMDD>/` ごとに置く |
 | [slides/](slides/) | スライド。`<name>/` に図を作る `figures.py`、pptx を組む `build.js`、生成物を置く |

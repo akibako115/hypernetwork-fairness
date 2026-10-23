@@ -1,185 +1,232 @@
-# EO rate（Cotter et al. の proxy-Lagrangian）：原論文・実装・使い方
+# EO rate
 
-2026-10-14 作成、2026-10-16 更新（HEAD `0f2af99` のコードと TFCO に照合）。原論文 2 本の本文を読み直し、この repo の実装と
-突き合わせた結果をまとめる。EO rate の run を設計・起動・評価するセッションは、先にこれを読む。
+群ごとの TPR・FPR の差を「率の制約」として課し、制約つき最適化を 2 人のゲームとして解く手法。
+Cotter et al. の proxy-Lagrangian（JMLR 2019）と、制約側を別データで測る 2 データセット方式（ICML 2019）による。
+この repo では strategy `equalized_odds_rate`。2 データセット方式は `*_dual_holdout` の preset で使う。
 
-## 先に押さえること
+## 1. 手法のロジック
 
-- **学習して、checkpoint を 1 つ選んで終わり。** 原論文の理論は「学習中の iterate を確率で混ぜた分類器」に
-  しか保証を与えないが、実用上は途中の 1 点（best iterate）で十分という結果が同じ論文に載っている。
-  混合分類器（shrinking）は作らない。
-- **best val AUROC でも last でも選ばない。** best val AUROC は制約が効く前の epoch 0 を選びうる。
-  last は過学習が進んだ末の 1 点で、原論文も危ないと書いている。下の「checkpoint の選び方」に従う。
-- **既定の制約（全ペア・TPR と FPR の両方）は原論文の実験の形ではない。** 原論文に揃えるなら
-  `constraint_form=overall` と `rates=[fpr]`（Communities の形）を明示する。preset `*_eo_fpr_overall_dual_holdout` がこの形。
-  `rates=[tpr]` も選べるが、TPR の向きは原論文の COMPAS と逆（低すぎないことを求める）なので、COMPAS の再現にはならない。
-- **代理制約は hinge だけ。** smoothstep と `proxy` 引数は 2026-10-16 に削除した。
-- **最適化の本体（λ の更新・hinge の上下界・しきい値）は原論文・TFCO と合っている**（2026-10-16 に照合）。
-  違いは、制約の形・multiplier の下限・step の規則・出力の作り方で、下の「照合結果」にまとめる。
+### 解く問題
 
-## 原論文
+普通の学習（ERM）は平均の誤りだけを下げるので、群によって陽性の見落とし（TPR の低さ）や偽陽性（FPR の高さ）が
+偏っても止める仕組みがない。Equalized Odds（EO）は、群 g ごとの TPR_g = P(ŷ=1 | y=1, g) と
+FPR_g = P(ŷ=1 | y=0, g) が群の間で等しいことを求める。この手法は EO を許容値 ε つきの制約として書き、
+制約を守る範囲で誤りを最小にする。
 
-| 論文 | 中身 | この repo との関係 |
+```
+min_θ  g_0(θ)   s.t.  g_i(θ) ≤ 0   (i = 1, …, m)
+g_0：目的関数（誤り率）
+g_i：率の一次結合 − 許容値。例 FPR_g(θ) − FPR_全体(θ) − ε
+```
+
+率は「陽性と予測した件数の割合」なので、指示関数 1(s > 0)（s はモデルの score）の平均になる。
+指示関数の勾配はほとんどの点で 0 なので、g_i をそのまま勾配法で下げることはできない。
+
+### proxy-Lagrangian
+
+制約の重み λ（m+1 個の非負の値で合計 1、先頭が目的関数の重み）を持ち、θ と λ が別々の目的を持つゲームにする。
+
+```
+θ 側が最小化：  L_θ(θ, λ) = λ_1 · g_0(θ) + Σ_i λ_{i+1} · g̃_i(θ)
+λ 側が最大化：  L_λ(θ, λ) = Σ_i λ_{i+1} · g_i(θ)
+g̃_i：g_i の微分できる上界（代理制約、proxy）
+```
+
+θ の更新には勾配が必要なので代理制約 g̃_i を使う。λ の更新には制約の値だけあればよいので、元の 0-1 の率で測った
+g_i を使う。両方に代理を使う普通の方法では、代理の上で制約を満たす解に落ち着き、元の率では制約がきつくなりすぎる。
+proxy-Lagrangian は元の率での制約を狙う点が違う。
+
+代理には hinge を使う。率に正の係数がかかる項は 1(s > 0) の上界 U = max(0, 1 + s) で、負の係数がかかる項は
+下界 D = 1 − max(0, 1 − s) で置き換える。こうすると全体が g_i の上界になる。
+
+### λ の更新（swap regret）
+
+ゲームが零和でないので、λ 側は普通の勾配上昇ではなく swap regret を小さくする更新を使う。
+(m+1)×(m+1) の行列 M（各列が合計 1 の分布）を持ち、λ は M の定常分布（Mλ = λ を満たす分布）とする。
+
+```
+M ← M ⊙ exp(η_λ · Δ_λ λᵀ)        Δ_λ = (0, g_1, …, g_m)：L_λ の λ についての勾配
+M の各列を合計 1 に正規化
+```
+
+違反している制約（g_i > 0）の行が増え、その制約の重みが上がる。M は全要素 1/(m+1) で初期化する。
+
+### 学習の手順（JMLR Algorithm 3、ICML Algorithm 3）
+
+ミニバッチごとに次を行う。θ と λ は同時に 1 歩ずつ動く。
+
+1. λ = M の定常分布。
+2. L_θ の確率的勾配で θ を 1 歩更新する。
+3. 元の率で測った制約の値 g_i から M を更新する。
+
+### 2 データセット方式（ICML 2019）
+
+λ 側が θ と同じ train データで制約を測ると、θ が train に過学習しただけで制約が満たされたように見え、test では
+制約が破れる。そこで train を 2 つに分け、θ は一方（S_train）で L_θ を、λ は他方（S_val）で L_λ を計算する。
+ハイパーパラメータを validation で選ぶのと同じ考え方で、制約の汎化が良くなる代わりに誤り率は少し上がる。
+
+### 出力
+
+理論の保証は、学習中の iterate θ^(1), …, θ^(T) を確率的に混ぜた分類器に対して与えられる。shrinking は、
+iterate の上の分布を線形計画で選び直し、高々 m+1 個の iterate の混合にする手順である。実用上は、iterate を 1 つだけ選ぶ
+（best iterate）ことでもほぼ同じ結果になると JMLR 版は報告している。
+
+## 2. 原論文の設定
+
+- Cotter, Jiang, Gupta, Wang, Narayan, You, Sridharan. *Optimization with Non-Differentiable Constraints with Applications
+  to Fairness, Recall, Churn, and Other Goals.* JMLR 20, 2019（[jmlr.org/papers/v20/18-616](https://jmlr.org/papers/v20/18-616.html)）
+- Cotter, Gupta, Jiang, Srebro, Sridharan, Wang, Woodworth, You. *Training Well-Generalizing Classifiers for Fairness Metrics
+  and Other Data-Dependent Constraints.* ICML 2019（[arXiv:1807.00028](https://arxiv.org/abs/1807.00028)）
+- 公式実装：[TensorFlow Constrained Optimization（TFCO）](https://github.com/google-research/tensorflow_constrained_optimization)
+  （`train/proxy_lagrangian_optimizer.py`、`rates/loss.py` の `HingeLoss`）
+
+### データセットとタスク
+
+どちらの論文も表形式データの **2 値分類**。制約はすべて「各群の率を全体の率と比べる片側の制約」で、かける率は 1 種類。
+群は重なってよい（人種の群と性別の群に同じ人が入る）。
+
+| 論文 | データセット | 入力 | 予測ラベル（クラス数） | 群（群数） | 制約（本数） |
+| --- | --- | --- | --- | --- | --- |
+| JMLR | Bank Marketing | 表形式 60 特徴 | 商品に加入するか（2 クラス） | 年齢の 5 分位（5） | 陽性予測率の統計的パリティ、許容 2%（5） |
+| JMLR | Adult | 表形式 122 特徴 | 年収 5 万ドル超か（2 クラス） | Black・White・Female・Male（4） | TPR_g ≥ 0.95 · TPR_全体（4） |
+| JMLR | COMPAS | 表形式 31 特徴 | 再犯するか（2 クラス） | 同じ 4 群（4） | TPR_g ≤ TPR_全体 + 0.05（4） |
+| JMLR | Business Entity Resolution（Google 内部） | 表形式 37 特徴 | 同じ事業者か（2 クラス） | 国 16・チェーンか否か | 最小 recall（18）と精度の差（1） |
+| ICML | Communities and Crime | 表形式 140 特徴 | 犯罪率が上位 30% か（2 クラス） | 人種 4 種の割合をそれぞれ中央値で二分（8） | FPR_g ≤ FPR_全体（8、ε = 0） |
+| ICML | Adult・COMPAS・Business Entity Resolution | 同上 | 同上 | 同上 | Adult は陽性予測率の 80% ルール、COMPAS は上と同じ |
+
+JMLR にはほかに Google 内部の 3 データ（Thresholding・Map Intent・Filtering）がある。ICML には過学習しやすい合成データ
+（recall ≥ 97% の制約）もある。
+
+### ハイパーパラメータ
+
+| 項目 | JMLR 2019 | ICML 2019 |
 | --- | --- | --- |
-| Cotter et al. *Optimization with Non-Differentiable Constraints with Applications to Fairness, Recall, Churn, and Other Goals.* JMLR 20, 2019（[link](https://jmlr.org/papers/v20/18-616.html)） | proxy-Lagrangian。モデル側は微分可能な代理制約、λ 側は元の 0-1 の率で更新する。λ 側は swap regret を最小化する | 最適化の本体 |
-| Cotter et al. *Training Well-Generalizing Classifiers for Fairness Metrics and Other Data-Dependent Constraints.* ICML 2019（[arXiv:1807.00028](https://arxiv.org/abs/1807.00028)） | λ を train と別のデータで更新する 2 データセット方式（dual holdout） | `*_dual_holdout` preset |
+| モデル | 線形、2 層の ReLU NN（隠れ unit 10〜32）、lattice の ensemble | 線形、隠れ層 1 層の ReLU NN（50 unit）、lattice |
+| optimizer | θ・λ とも ADAM。lr は θ 用と λ 用を別々に、0.001 の前後を 10 倍刻みで validation で選ぶ | θ・λ とも ADAM の既定値（ハイパーパラメータ探索を避けるため） |
+| 目的関数と代理制約 | どちらも hinge 上界 | どちらも hinge 上界 |
+| M の初期値 | 全要素 1/(m+1)（Algorithm 3） | 同じ（Algorithm 3） |
+| 学習の長さ | 制約なしで性能が良い反復回数に、先に固定する | 未確認 |
+| batch size・正則化・データ拡張 | 本文に記載なし | 本文に記載なし |
+| 2 データセットの分け方 | — | train を半分に分け、S_train と S_val にする。100 回の乱数分割の平均 |
+| 許容値 ε | 上の表のとおり制約ごとに決める | 同じ |
 
-### 原論文の実験条件（本文で確認済み）
+TFCO の既定は論文と 2 点違う。M の初期値は目的関数側にほぼ全部の重みを置き、各制約の重みを 1e-3/(m+1) にする。
+また、M の要素を `minimum_multiplier_radius / (m+1)`（既定 1e-3）以上に保つ。hinge は margin 1 で、上の U・D と同じ形。
 
-| 項目 | 原論文 | 出典 |
-| --- | --- | --- |
-| アルゴリズム | θ と λ を同時に確率的に更新。M は M_ij = 1/(m+1) の一様で初期化し、λ は M の定常分布 | ICML Algorithm 3 |
-| 目的関数と代理制約 | どちらも hinge の上界 | ICML 5 節、JMLR 5 節 |
-| 制約の形 | **各群の率を全体の率と比べる片側の制約。かける率は 1 種類** | JMLR 5.6、ICML 5.2 |
-| 例 | COMPAS：TPR_g ≤ TPR_全体 + 0.05（4 群：Black・White・Female・Male、重なりあり）。Communities：FPR_g ≤ FPR_全体（8 群、ε = 0） | 同上 |
-| 制約の本数 | 1〜19 本（単調性制約は別） | JMLR 表 5 |
-| モデル | 線形モデル、隠れ層 1 層の小さな NN（5〜100 unit）、lattice。表データで数千〜約 130 万件 | JMLR 表 4、ICML 表 3 |
-| dual holdout の分け方 | train を半分に分け、片方を λ 側に使う | ICML 5.2 |
-| optimizer | θ は Adam の既定値（hyperparameter search を避けるため） | ICML 5 節 |
-| 学習の長さ | 制約なしで性能が良い反復回数に固定 | JMLR 5.2 |
-| 出力 | ICML：100 個の iterate から LP（shrinking）で m+1 個以下を混ぜた確率的分類器。JMLR：T-stoch・m-stoch・Last・Best の 4 種を比較 | ICML 5 節・付録 B、JMLR 5.3 |
-| Best iterate の規則 | 目的関数の順位と最大違反の順位のうち、悪いほうが最小の iterate（式 18、同順位は損失で決める） | JMLR 5.2・5.3 |
-| Best と混合の比較 | 「much of the time the best iterate works just as well in practice」。last は 7 つのうち 4 つで best より test が悪い。Bank の Hinge Last は常に多数クラスを出す退化解 | JMLR 6.3.3・6.3.4・5.4 |
-| 代償 | test 誤差の増分は多くて数ポイント（例：COMPAS 0.311 → 0.313〜0.32）。dual holdout では Communities 0.142 → 0.199 | JMLR 表 8、ICML 表 4 |
+### モデルの選び方と評価
 
-## この repo の実装
+- JMLR：ハイパーパラメータは validation で選ぶ。validation 損失の順位と最大違反の順位のうち悪いほうが最小のものを採り、
+  同順位は validation 損失で決める（式 18）。出力は 4 種を比べる。iterate 全体の一様混合（T-stoch）、shrinking で
+  m+1 個に絞った混合（m-stoch）、最後の iterate（Last）、式 18 を train で当てて選んだ iterate（Best）。
+  best iterate は多くの場合混合と同程度で、last は 7 データのうち 4 つで best より test が悪かった。
+- ICML：100 個の等間隔の iterate を残し、shrinking で確率的分類器を作る。shrinking の線形計画は、目的関数を S_train で、
+  制約を S_val で測る。
+- 評価は test の 0-1 誤り率と、制約の最大違反。
 
-`projects/hypernet_e2e/objectives/equalized_odds.py` の `EqualizedOddsRateTaskLoss`。
-既定値は `configs/training_strategy/equalized_odds_rate.yaml`。
+## 3. この repo の実装
+
+### ファイルと設定
+
+| 役割 | 場所 |
+| --- | --- |
+| 損失（λ の更新を含む） | [objectives/equalized_odds.py](../../projects/hypernet_e2e/objectives/equalized_odds.py) の `EqualizedOddsRateTaskLoss`・`proxy_bounds`。親 class は [objectives/conditional.py](../../projects/hypernet_e2e/objectives/conditional.py) の `ConditionalObjective`（`_cells`・`_task`） |
+| strategy | [configs/training_strategy/equalized_odds_rate.yaml](../../projects/hypernet_e2e/configs/training_strategy/equalized_odds_rate.yaml) |
+| 起動時の準備 | [training.py](../../projects/hypernet_e2e/training.py) の `_resolve_conditional_population`・`_resolve_inverse_class_weights` |
+| λ の更新の時点と held-out | [module.py](../../projects/hypernet_e2e/module.py) の `optimizer_step`・`on_train_start`・`_measure_on_held_out` |
+| セル均等抽出と held-out | [data/group_class_sampler.py](../../projects/hypernet_e2e/data/group_class_sampler.py) の `GroupClassImageDataModule`（`held_out_batches`）。split は [data_pipeline/chexpert_dual_holdout_splits.py](../../data_pipeline/chexpert_dual_holdout_splits.py)・[ham10000_dual_holdout_splits.py](../../data_pipeline/ham10000_dual_holdout_splits.py) |
+| 診断値の記録 | [callbacks/objective_diagnostics.py](../../projects/hypernet_e2e/callbacks/objective_diagnostics.py) の `ObjectiveDiagnosticsRecorder` |
+| 代表的な preset | `resnet_chexpert_age_race_eo_rate_dual_holdout`（全ペア・TPR と FPR）、`resnet_chexpert_age_race_eo_fpr_overall_dual_holdout`（原論文の形）、`resnet_ham10000_sex_age_eo_rate_dual_holdout` |
+
+`EqualizedOddsRateTaskLoss` の引数：
 
 | 引数 | 既定 | 意味 |
 | --- | --- | --- |
-| `constraint_form` | `pairwise` | `pairwise`：全有向群ペアで rate_g − rate_h ≤ ε（最大 − 最小 ≤ ε と同値、評価指標に直接対応）。`overall`：原論文の各群 vs 全体の片側制約 |
-| `rates` | `[tpr, fpr]` | 制約をかける率。原論文は 1 種類 |
-| `epsilon_pos` / `epsilon_neg` | 0.1 / 0.1 | TPR 側 / FPR 側の許容値 |
-| `initial_task_weight` | null（一様、原論文どおり） | pairwise の dual holdout preset（CheXpert 8 群・HAM10000 4 群）は 0.9（下記）。overall FPR の preset は null |
-| `dual_step_size` | 0.01 | M の指数勾配の step。原論文は validation で選ぶ |
-| `tau` | 1.0 | hinge の幅。代理は TFCO の既定 HingeLoss と同じ上下界に固定（2026-10-13 より前の run が使った smoothstep は閾値を越える勾配を持たないため 2026-10-16 に削除） |
+| `constraint_form` | `pairwise` | `pairwise`：全有向群ペアで rate_g − rate_h ≤ ε（最大 − 最小 ≤ ε と同じ）。`overall`：各群を全体と比べる片側の制約 |
+| `rates` | `[tpr, fpr]` | 制約をかける率 |
+| `epsilon_pos` / `epsilon_neg` | 0.1 / 0.1 | TPR / FPR の許容値 |
+| `dual_step_size` | 0.01 | M の更新の η_λ |
+| `tau` | 1.0 | hinge の幅。U = max(0, 1 + s/τ)、D = 1 − max(0, 1 − s/τ) |
+| `initial_task_weight` | null | null なら M を一様に置く。値を渡すと、λ の初期値の先頭（目的関数の重み）をその値にする |
 
-- **制約の向き（overall）**：TPR は TPR_全体 − TPR_g ≤ ε_pos（低すぎない）、FPR は FPR_g − FPR_全体 ≤ ε_neg（高すぎない）。
-  FPR は原論文の Communities と同じ向き。TPR は原論文の COMPAS（TPR_g ≤ TPR_全体 + 0.05、高すぎない）と**逆向き**で、陽性の見落としを抑えるために意図的に変えている。
-  CheXpert は陽性 = No Finding なので、FPR は所見のある人の見落としで、害の大きい側にあたる。
-- **全体の率**：train の群構成で重み付けした群の率の和。セル均等のバッチの単純平均ではない。
-- **制約の本数**：pairwise は |rates| × G(G−1)（8 群・両方で 112 本）、overall は |rates| × G（8 群・FPR だけなら 8 本）。
-- **バッチ**：`GroupClassImageDataModule` が群 × クラスを均等に引く（8 群なら 1 セル 8 件、計 128 件）。
-  率は 1 バッチで測るので、8 件の率の標準誤差は 0.15 前後ある。
-- **task loss**：母集団の比率に重み付けし直したクラス重み付き CE（原論文は hinge）。
-- **代理制約**（`objectives/equalized_odds.py:15-29`）：指示関数 1(s > 0) を hinge の上界 U = (1 + s/τ)₊ と
-  下界 D = 1 − (1 − s/τ)₊ で挟み、率に正の係数がかかる項は U、負の係数の項は D に置き換える。s は 2 クラスの logit の差。
-- **λ の更新**（`equalized_odds.py:184-199`）：θ の更新のあとに、hard な違反（0-1 の率で測った制約の値 − ε）で
-  log M に η · outer([0, 違反], λ) を足し、列ごとに正規化する。λ は M の定常分布（`:137-146`）。
-- **dual holdout**：`*_dual_holdout` preset は `holdout_split: holdout` を持つ。毎 step、θ を更新したあとに、held-out の
-  セル均等バッチを eval モード（BN の統計を動かさない）で流して hard な違反を測り直し、その値で λ を更新する
-  （`module.py:245-264`、`:308-321` の `_measure_on_held_out`）。split は CheXpert が
-  `data/chexpert/splits_race_known_dual_holdout*`、HAM10000 が `data/ham10000/splits_dual_holdout`（どちらも train の 80% / 20%）。
-  val・test は元の split と同じ。
-- **checkpoint**：`_dual_holdout_chexpert.yaml`・`_dual_holdout_ham10000.yaml` が `save_top_k: -1` で全 epoch を残す。
-- **`initial_task_weight: 0.9`**：1 段で ImageNet から学習すると、一様では task の重みが 1/(m+1) しかなく、
-  全予測を片側へ寄せる自明解に落ちたため入れた（112 本のときの経験）。原論文の形（8 本）なら一様でよいか試す。
+### 処理の流れ
 
-### 診断値（`metrics/objective_diagnostics.jsonl`、1 行 = 1 epoch）
+**起動時（fit の前）。**
 
-| key | 中身 |
-| --- | --- |
-| `epoch_mean` | train バッチの平均。`lambda`（先頭が task の重み）、`hard_g`（制約の値 − ε、正なら違反）、`proxy_g`、`rates`（[G,2]、列 0 が FPR、列 1 が TPR）、`task` |
-| `held_out_epoch_mean` | λ の更新に使った held-out バッチの平均。制約が効いているかはこちらで見る |
-| それ以外の同名 key | epoch 最後の 1 バッチの値（旧形式との互換） |
+- `_resolve_inverse_class_weights`：`weighting=inverse` なら train のラベルから全群共通のクラス重み（平均 1）を作る。
+- `_resolve_conditional_population`：train の群 × クラスの件数 `[G, 2]` を数え、`population_cell_counts` に書く。
+  空のセルがあれば止める。単一 device・勾配の蓄積なし・bf16 か float32 も要求する。fp16 の GradScaler は optimizer step を
+  飛ばすことがあり、そのとき λ だけが進むため。data がセル均等抽出の `GroupClassImageDataModule` でなければ止める。
+- 損失の `__init__`：制約の一覧を作る。`pairwise` は |rates| × G(G−1) 本（8 群・両方の率で 112 本）、`overall` は
+  |rates| × G 本。`overall` の「全体の率」は、train の群構成で重み付けした群の率の和として係数行列にしておく。
+  M は全列を同じ分布（一様か `initial_task_weight`）にして log で持つ。その分布がそのまま初期の λ になる。
+- `on_train_start`：data に held-out があれば、held-out からセル均等のバッチを尽きずに返す流れを作る。
+- 途中からの再開は `on_load_checkpoint` が拒否する。
 
-`rates` はバッチごとの率の平均で、母集団の率ではない。違反の割合にはバッチの雑音が入る。
+**学習の各ステップ。**
 
-## 起動
+1. `EqualizedOddsRateTaskLoss.forward`（θ の更新前）
+   - `_cells` がバッチを群 × クラスのセルに分ける。空のセルがあれば止める。全セルが必要なので、train は
+     `GroupClassBatchSampler` で群 × クラスを均等に引く（8 群・batch 128 なら 1 セル 8 件）。
+   - s = logit_1 − logit_0 とし、セルごとの元の率 `hard[g, c]` = mean(s > 0) を測る。c = 0 のセルが FPR、c = 1 が TPR。
+   - 制約ごとに違反（元の率で測った制約の値 − ε）と代理制約（U・D で置き換えた値 − ε）を計算する。
+   - λ = `_stationary`（M のべき乗法。1000 回で収束しなければ止める）。
+   - 目的関数 `_task` は、セル均等に引いたバッチを train の母集団の比率に重み付けし直した、クラス重みつきの CE。
+   - 返り値 λ_1 · task + Σ λ_{i+1} · proxy_i で θ を更新する。違反と λ は `_pending` に保留する。
+2. Lightning の optimizer step で θ を更新する（AdamW）。
+3. `module.optimizer_step`：held-out があれば `_measure_on_held_out` で held-out の 1 バッチを流し、保留中の違反を
+   held-out で測った値に置き換える。測るのは更新後の θ で、net は eval モードにする（BatchNorm の統計を held-out で
+   動かさないため）。
+4. `commit_update`：log M に η_λ · outer([0, 違反], λ) を足し、列ごとに正規化する（`log_softmax`）。
 
-原論文の Communities 型（FPR だけ・各群 vs 全体・一様から始める）：
+先に forward で違反を保留し、θ の更新後に M を進めるのは、θ の 1 歩に古い λ を使う Algorithm 3 の同時更新に合わせるため。
+held-out の split は train の 80% / 20% で、CheXpert は患者単位、HAM10000 は病変単位で分ける。val・test は元の split と同じ。
+
+**設計上の選択。**
+
+- `overall` の TPR は TPR_全体 − TPR_g ≤ ε（低すぎない）の向き。原論文の COMPAS は TPR_g ≤ TPR_全体 + 0.05（高すぎない）
+  だが、ここでは陽性を見落とす群を抑えたいので逆にした。FPR は FPR_g − FPR_全体 ≤ ε で、Communities と同じ向き。
+- `pairwise` は評価指標（群の TPR・FPR の最大 − 最小）に直接対応させた独自の形。
+- `initial_task_weight: 0.9` は pairwise の preset が入れている。ImageNet 初期化から 1 段で学習すると、一様な λ では目的関数の
+  重みが 1/(m+1)（112 本なら 1/113）しかなく、全予測を片側へ寄せる自明解に落ちたため。overall FPR の preset は null（一様）。
+- 元の率のしきい値は s > 0、つまり確率 0.5 超で、評価の固定しきい値 0.5 と同じ。
+
+**記録と checkpoint。**
+
+- `ObjectiveDiagnosticsRecorder` が `metrics/objective_diagnostics.jsonl`（1 行 = 1 epoch）に書く。`epoch_mean` は train バッチの
+  平均で、`lambda`（先頭が目的関数の重み）、`hard_g`（違反、正なら制約を破っている）、`proxy_g`、`rates`（`[G, 2]`、
+  列 0 が FPR、列 1 が TPR）、`task`、`active_fraction`（|s| < τ の割合）を持つ。`held_out_epoch_mean` は λ の更新に使った
+  held-out バッチの平均。キーだけのものは epoch 最後の 1 バッチの値。`rates` はバッチの率の平均で、母集団の率ではない。
+- `_dual_holdout_chexpert.yaml`・`_dual_holdout_ham10000.yaml` は `save_top_k: -1`・`save_weights_only: true` で全 epoch の重みを
+  残す。混合分類器は作らず、epoch を 1 つ分析側で選ぶ。予測は `analysis/common/predictions.py` に
+  `--checkpoint best_val_auroc_<epoch>` で epoch を渡す。年齢 2 群の preset（`resnet_chexpert_age_equalized_odds_rate_race_known`）は
+  `ConditionalFairnessRecorder` が epoch ごとの val の候補を `fairness_candidates.json` に残す。
+
+### 原論文との違い
+
+| 項目 | 原論文 | この repo |
+| --- | --- | --- |
+| 制約の形 | 各群 vs 全体の片側、率は 1 種類 | 既定は全有向ペア・TPR と FPR の両方。`overall` も選べる |
+| TPR の向き（overall） | COMPAS は高すぎないこと | 低すぎないこと |
+| ε | 0〜0.05 | 0.1（overall FPR の preset は 0.05） |
+| 目的関数 | hinge | 母集団の比率に戻したクラス重みつき CE |
+| 代理制約 | hinge（margin 1） | 同じ（τ = 1） |
+| M の初期値 | 一様（TFCO の既定は目的関数寄り） | 一様。pairwise の preset は目的関数の重み 0.9 |
+| M の下限 | TFCO は 1e-3/(m+1) | なし |
+| optimizer | θ・λ とも ADAM | θ は AdamW（lr 1e-4、weight decay 0.01）。λ は素の指数勾配、η = 0.01 固定 |
+| モデルとデータ | 線形・小さな NN・lattice、表形式 | ResNet-50・Spatial LoRA、CheXpert・HAM10000 の画像 |
+| 抽出 | 未確認 | 群 × クラスのセル均等 |
+| 2 データセットの分け方 | train を半分に分ける | train を 80% / 20% に分け、θ を更新した後に eval モードで測る |
+| 学習の長さ | 制約なしで良い反復回数 | 30 epoch |
+| 出力 | shrinking の混合（ICML）、Best iterate も比較（JMLR） | 全 epoch を残し、1 つを分析側で選ぶ |
+
+原論文に揃えるなら、`constraint_form=overall`・`rates=[fpr]`・`initial_task_weight=null` にし（preset
+`*_eo_fpr_overall_dual_holdout`）、`epsilon_neg=0` にする。学習の長さは同じ構成の ERM の best val epoch を目安に
+`trainer.max_epochs` で縮める。
+
+### 起動例
 
 ```bash
-uv run python -m projects.hypernet_e2e.run experiment=<..._eo_rate_dual_holdout> seed=<seed> study=<slug> \
-  model.loss_fn.constraint_form=overall 'model.loss_fn.rates=[fpr]' model.loss_fn.epsilon_neg=0.05 \
-  model.loss_fn.initial_task_weight=null trainer.max_epochs=10
+uv run python -m projects.hypernet_e2e.run experiment=resnet_chexpert_age_race_eo_fpr_overall_dual_holdout study=<slug> seed=42 \
+  trainer.max_epochs=10
+uv run python -m projects.hypernet_e2e.run experiment=resnet_ham10000_sex_age_eo_rate_dual_holdout study=<slug> seed=42
 ```
-
-同じ制約の preset（`resnet_chexpert_age_race_eo_fpr_overall_dual_holdout` など、HAM10000 版もある）は上の override のうち
-`trainer.max_epochs` 以外を持っている。preset は 30 epoch のままなので、長さは起動時に渡す。
-
-`trainer.max_epochs` は、同じ構成の ERM の best val epoch を目安にする（CheXpert の Spatial LoRA なら epoch 8 前後）。
-30 epoch 回すと、held-out の task loss が上がり続け、退化解へ寄っていく（下の失敗例）。
-
-## checkpoint の選び方と予測の使い方
-
-全 epoch の val 予測を作り、選んだ 1 つで test を評価する。
-
-```bash
-for e in $(seq -w 0 9); do
-  uv run python analysis/common/predictions.py --study <slug> --split val \
-    --run-dir analysis/<slug>/runs/<run-id> --checkpoint best_val_auroc_0$e
-done
-```
-
-全 epoch を残した run では `best_val_auroc_*.ckpt` が epoch の数だけあるが、既定の `best` は run.json の記録から
-val AUROC の best を選ぶ。特定の epoch は `--checkpoint best_val_auroc_<epoch>` で選ぶ。cache 名には checkpoint の名前が
-入るので（`<run-id>_<名前>_<split>.npz`）、epoch ごとの cache は並べて置ける。
-
-選び方（val で測る。holdout は λ の更新に使ったので、選択にも使うと二重に使うことになる）：
-
-- **主（規則 A）**：学習でかけた制約を val の hard な率で測り、全制約を満たす epoch のうち val の損失が最小のもの。
-  満たす epoch が無ければ、最大違反が最小のもの（`infeasible` と明記する）。年齢 2 群の
-  `callbacks/conditional_fairness.py` の `select_candidate` と同じ考え方。
-- **補足（規則 B）**：JMLR 式 18。損失の順位と最大違反の順位のうち、悪いほうが最小の epoch。
-- 制約は**学習に使った群**（例：dw8）で測る。評価の 8 群（年齢 × race）とは別に扱う。
-- **preset のコメントと食い違っている。** `*_eo_fpr_overall_dual_holdout.yaml` のコメントは「holdout で制約を満たす epoch のうち
-  目的関数が最もよいもの」と書き、この文書は val で測る。ICML 2019 の shrinking（付録 B）は、目的関数を train で、制約を
-  λ 側のデータ（ここでは holdout）で測るので、preset のコメントは原論文の形に近い。この文書は、holdout を λ の更新と選択の
-  両方に使うのを避けて val を選んだ。提案：今の方針（val）を正とし、preset のコメントを val に揃える。holdout で選んだ
-  結果は補足として並べる。
-
-## 既知の失敗例（2026-10-13、`analysis/archive/latent_group_fairness`）
-
-run `…dw8-eo-rate-dual-holdout-s42-9bb9`：pairwise・両方の率・ε 0.1・初期 task 重み 0.9・30 epoch。
-
-- held-out では制約がほぼ満たされた（FPR 差 0.26 → 0.05、TPR 差 0.26 → 0.13）。ただし、それは全群の TPR が
-  0.80 → 0.22 に落ちた結果だった。test では TPR 0.87 → 0.38、AUROC 0.862 → 0.805。
-- train の TPR は 0.78 のまま、train の TPR 差は 0.62 まで広がった。held-out の task loss は 0.51 → 0.92 と上がり続けた。
-- grid の 8 群 EO rate（8b3d）も同じ形で、best val AUROC は epoch 0 だった。
-- この run の代理制約は hinge（config の `proxy: hinge`）。smoothstep の削除はこの失敗の説明にならない。
-- 原因の候補：原論文と違う制約の形（112 本・両側）、last と best val AUROC による選択、30 epoch の過学習、
-  1 セル 8 件のバッチで測る λ 更新の雑音、hinge の下界の平らな部分（下の照合結果の推測）。原論文の条件に揃えた run での
-  検証は 2026-10-14 に開始した。
-
-## 2026-10-16 の照合結果
-
-JMLR 2019 の Algorithm 3・ICML 2019 の本文と付録・TFCO（`proxy_lagrangian_optimizer.py`、`loss.py`）を読み、HEAD `0f2af99` の
-`objectives/equalized_odds.py` と `module.py` に突き合わせた。
-
-### 原論文・TFCO と同じ（確認済み）
-
-- **λ の更新**：swap regret を最小化する JMLR Algorithm 3 の更新を log 空間で書いたもの。M ← 列正規化(M ⊙ exp(η · outer([0, 違反], λ)))、
-  λ は M の定常分布。M は一様（M_ij = 1/(m+1)）で初期化する（`initial_task_weight` を渡さないとき）。
-- **hinge の上下界**：TFCO の既定 `HingeLoss`（margin 1）と同じ U・D。
-- **しきい値**：hard な率は s > 0 で数える。s は 2 クラスの logit の差なので、argmax で陽性と予測すること（確率 0.5 超）と同じ。
-  評価の固定しきい値 0.5 と食い違わない。
-- **overall の FPR 形**：FPR_g − FPR_全体 ≤ ε は Communities の形と同じ。ただし ε は 0.05（原論文は 0）。
-
-### 原論文・TFCO と違う（確認済み）
-
-| 項目 | 原論文・TFCO | この repo | 扱い |
-| --- | --- | --- | --- |
-| M の下限 | TFCO は M の各要素を `minimum_multiplier_radius / (m+1)`（既定 1e-3）以上に保つ | 下限なし | 差は小さいと見込むが未検証 |
-| step の規則 | ICML の実験は θ・λ とも ADAM（既定値） | θ は AdamW、λ は素の指数勾配、η = 0.01 固定 | 意図した単純化 |
-| pairwise の形 | 無い（各群 vs 全体の片側だけ） | 既定。全有向ペアで rate_g − rate_h ≤ ε | 評価指標（最大 − 最小）に合わせた独自の形 |
-| overall の TPR の向き | COMPAS は TPR_g ≤ TPR_全体 + 0.05（高すぎない） | TPR_全体 − TPR_g ≤ ε（低すぎない） | 陽性の見落としを抑えるため意図して逆向き |
-| dual holdout の測り方 | train と別のデータで λ を更新。train を半分に分ける | 同じ考え方。θ を更新した後の θ^(t+1) で、eval モードで測る。80% / 20% に分ける | 考え方は原論文どおり。測る時点・BN・分け方が違う |
-| 出力 | ICML は 100 個の iterate から shrinking で確率的分類器。JMLR は Best iterate も比べる | epoch を 1 つ決定的に選ぶ（上の規則 A・B） | JMLR の Best iterate に近い。理論保証の外 |
-
-### 未検証の推測：held-out の TPR が全群で落ちた理由
-
-上の失敗例（held-out の TPR が 0.80 → 0.22、train の TPR は 0.78 のまま）は、hinge の下界の形で説明できる。
-
-- 下界 D = 1 − (1 − s/τ)₊ は s ≥ τ で 1 に張り付き、勾配が 0 になる。上界 U = (1 + s/τ)₊ は s > −τ のどこでも勾配を持つ。
-- TPR の制約（pairwise の rate_g − rate_h、overall の TPR_全体 − TPR_g）では、片方の群の陽性に U、もう片方に D がかかる。
-  U の項は陽性の score を下げる向き、D の項は上げる向き。
-- train の陽性を記憶して score が τ を超えると、上げる側（D）の勾配は消え、下げる側（U）だけが残る。各群は U 側にも D 側にも
-  入るので、どの群の陽性も下げる圧力だけを受ける。
-- λ は held-out の違反で更新されるので、held-out で差が残るかぎり制約の重みは下がらない。train では記憶した陽性が
-  しきい値の上に残り（train の TPR 0.78）、記憶していない held-out の陽性だけがしきい値の下に落ちる。全群の TPR を
-  下げて差を詰める形になる。
-
-確かめるには、train の陽性の score の分布（s ≥ τ の割合）と、`active_fraction`（|s| < τ の割合）の epoch 推移を見る。

@@ -1,160 +1,208 @@
-# FairDRO（Jung et al.）：原論文・実装・使い方
+# FairDRO
 
-2026-10-16 作成。原論文の本文・付録と公式実装を読み直し、この repo の実装（commit `0f2af99` 時点）と突き合わせた結果をまとめる。
-FairDRO の run を設計・起動・評価するセッションは、先にこれを読む。
+正解クラスごとに群の重みを持ち、誤り率の高い群を重く、低い群を軽くして学習する手法。Jung et al., ICLR 2023。
+狙いは Equalized Odds（EO）で、この repo では strategy `fair_dro`。
 
-## 先に押さえること
+## 1. 手法のロジック
 
-- **FairDRO は「正解クラスごとの GroupDRO」**。クラス y ごとに群の重み q^y（群数 G 個の重みで、合計 1）を持ち、
-  群 × クラスの各セルの CE を q で重み付けして学習する。q は epoch 末に「誤り率の高い群を重く、低い群を軽く」する向きへ
-  閉形式で決める。狙いは EO（二値分類では、群間で TPR と TNR をそろえること）。
-- **q の動ける範囲が χ² 球**。一様分布 1/G からの χ² ダイバージェンスが半径 ρ 以下の重みの集合で、**負の重みも許す**。
-  ρ が大きいほど q は一様から離れられる。
-- **ρ は公式実装の単位で指定する**（2026-10-16 から）。q* = 1/G + √(2ρ/G)·(e − ē)/‖e − ē‖（e は群別の 0-1 誤り率、ē はその平均）。
-  論文の式 8 は √(ρ/G) と書いており、論文の ρ は公式の 2 倍にあたる。preset の既定は 0.5（公式の既定値）。
-- **G=2 では q* は誤り率の差の符号だけで決まる**：q* = 1/2 ± √(ρ/2)。ρ=0.5 で (1, 0)、それより大きいと片方が負になる。
-  q* の全成分が 0 以上に収まる ρ の上限は 1/(2(G−1))（G=2 で 0.5、G=4 で 0.167、G=8 で 0.071）。
-  手法の性質で、実装の誤りではない。公式 README の値（2 群の Adult 5、COMPAS 3、CelebA 1.5）もこの上限を大きく超える。
-- **preset の 0.5 は、2026-10-16 より前の「ρ=1」と同じ重みを出す**（単位を変えただけ）。この振る舞いは原論文が想定する
-  もので、旧 ρ=1 の run は 2026-10-16 に「使わない」から外した（[research_overview](../meetings/20261016/research_overview.md)）。
-  ρ は原論文どおり振って選ぶハイパーパラメータなので、格子に入れる値は回す前に決める。
-- checkpoint は EO の規則（val の TPR・TNR の群間差）で選ぶ。best val AUROC ではない。原論文は最終 epoch を報告している。
+### 解く問題
 
-## 原論文と公式実装
+普通の学習（ERM）は全サンプルの平均損失を下げるので、群（性別・年齢など）によって正解率が違っても直さない。
+FairDRO が揃えたいのは、**正解クラスを固定したときの群ごとの正解率**である。原論文はその差を DCA
+（Difference of Conditional Accuracy）で測る。
+
+```
+Δ_y   = max_{a,a'} | P(Ŷ=y | A=a, Y=y) − P(Ŷ=y | A=a', Y=y) |     A：群（敏感属性）、Y：正解クラス
+DCA   = (1/|Y|) Σ_y Δ_y
+```
+
+二値分類では、DCA が 0 であることは EO（群の間で TPR と TNR が等しい）と同じ。
+
+### 目的関数
+
+クラス y ごとに群の重み q^y = (q^y_1, …, q^y_G) を持つ（G は群数）。L(θ, D^y_a) は群 a・クラス y のセル
+（群 × クラスの組）の平均損失。クラスごとに最悪の q^y を取り、そのクラス平均を最小化する（式 6）。
+
+```
+min_θ  (1/|Y|) Σ_y  max_{q^y ∈ Q_ρ}  Σ_a q^y_a · L(θ, D^y_a)
+Q_ρ = { q : Σ_a q_a = 1,  D_φ(q ‖ 一様分布) ≤ ρ }，φ(t) = (t − 1)²
+```
+
+Q_ρ は一様分布 1/G を中心とする χ² ダイバージェンスの球で、半径 ρ が大きいほど q は一様から離れられる。
+**q ≥ 0 の制約が無い**ので、負の重み（擬似確率）も取れる。負の重みは、成績の良い群の損失を逆に上げる向きに働く。
+
+この内側の最大化は、群損失の平均に「群損失の分散の平方根 × √ρ」を足したものに等しい（式 5、Xie et al. の結果）。
+損失を 0-1 損失（誤りなら 1）にすると、FairDRO は「群・クラス均等の誤り率 + 定数 × √ρ × DCA」の最小化と同じになる
+（系 1、式 7）。つまり DCA そのものを正則化項に持つ。
+
+内側の最大化には閉形式の解がある（命題 2、式 8）。e_a = L(θ, D^y_a)、ē はその群平均。
+
+```
+q^y*_a = 1/G + √(ρ/G) · (e_a − ē) / ‖e − ē‖₂
+```
+
+各成分は [1/G − √(ρ(G−1))/G, 1/G + √(ρ(G−1))/G] に入る。下端が負になる ρ では、成績の良い群に負の重みが付く。
+G = 2 では誤り率の差の符号だけで q* が決まり、2 つの値の間を行き来する。
+
+### 学習の手順（原論文 Algorithm 1）
+
+q を毎回閉形式の解に置き換える方法を IBR（iterated best response）という。そのままでは q が振動するので、
+原論文は η_t = 1 − t/T（T は総 epoch 数）で混ぜる「平滑化 IBR」を使う（式 10）。
+
+1. q^y を一様 1/G で始める。
+2. epoch の中では、群 × クラスの各セルから均等にミニバッチを引き、q で重み付けしたセル平均の CE
+   `(1/|Y|) Σ_y Σ_a q^y_a · CE_{a,y}` で θ を更新する（式 9）。
+3. epoch の終わりに、**train 全件**で群 × クラス別の 0-1 誤り率を測り、式 8 で q* を出して
+   `q ← (1 − η_t) q + η_t q*` とする。
+
+θ の更新は微分できる CE、q を決めるのは 0-1 損失、と役割を分けている（4.4 節）。
+
+## 2. 原論文の設定
 
 - Jung, Park, Chun, Moon. *Re-weighting Based Group Fairness Regularization via Classwise Robust Optimization.*
   ICLR 2023（[arXiv:2303.00442](https://arxiv.org/abs/2303.00442)）
-- 公式実装：[sangwon-jung94/FairDRO](https://github.com/sangwon-jung94/FairDRO)（`trainer/fairdro.py`、`arguments.py`、
-  `data_handler/dataloader_factory.py`）
+- 公式実装：[sangwon-jung94/FairDRO](https://github.com/sangwon-jung94/FairDRO)（`trainer/fairdro.py`、`arguments.py`）
 
-### 原論文の条件（本文・付録と公式実装で確認済み）
+### データセットとタスク
 
-| 項目 | 原論文・公式実装 | 出典 |
-| --- | --- | --- |
-| 目的 | クラスごとに χ² 球上の最悪の q^y を取り、その重み付き群損失のクラス平均を最小化（式 6）。0-1 損失なら「群・クラス均等の誤り + √ρ × DCA」の最小化と同じ（系 1、式 7） | 4.3 節 |
-| 公平性の指標 | DCA：クラスごとの群間 accuracy 差の最大値を、クラスで平均（式 1）。二値分類では EO と同じ | 3 節 |
-| q の閉形式 | 式 8（論文の単位）。公式 `_update_mw_margin` は `1/G + sqrt(2ρ/G)·dev/‖dev‖` | 命題 2、`trainer/fairdro.py` |
-| q の更新（平滑化 IBR） | IBR（iterated best response）は、毎回 q を内側の最大化の厳密解 q* に置き換える方法。これを η_t = 1 − t/T で混ぜる：q ← (1−η_t) q + η_t q*（式 10）。**epoch 末に 1 回**、train 全件の群別損失で | 4.4 節、Algorithm 1 l.10 |
-| q を決める損失 | 論文は 0-1、θ の更新は CE。公式の既定は CE（`--use-01loss` を付けると 0-1） | 4.4 節、`arguments.py` |
-| 誤りの測り方（公式） | train 全件を `model.train()` のまま、学習用 transform（RandomCrop・Flip）で推論 | `trainer/fairdro.py`、`trainer_factory.py` |
-| 抽出 | Alg. 1 はセル均等。公式 README のコマンドは `--balSampling` なし（自然抽出）。損失はバッチ内のセル平均 | Algorithm 1 l.6、README |
-| データと群 | Adult（性別 2 群）、COMPAS（race 2 群）、UTKFace（ethnicity 4 群 × 年齢 3 クラス）、CelebA（性別 × Blond_Hair）、CivilComments（ethnicity 5 群） | 5 節、付録 D.2 |
-| モデル | 表形式はロジスティック回帰、画像は ResNet18（README に `--pretrained` なし＝ランダム初期化）、言語は BERT | 5 節、README |
-| optimizer | AdamW、lr 1e-3、cosine、70 epoch、batch 128。weight decay は付録 1e-3、README 1e-4。BERT は 3 epoch、q は 100 iteration ごと | 付録 C.1、5.3 節 |
-| ρ | grid [1e-2, 1e2] を振ってパレート曲線を描く。README の値：Adult 5、COMPAS 3、UTKFace 0.3、CelebA 1.5、CivilComments 0.3（公式の単位） | 付録 C.3 表 C.1、README |
-| checkpoint | **最終 epoch** | 付録 C.1 |
-| 評価 | 群 × クラスの balanced accuracy と DCA。単一値は「Scratch の accuracy の 95% 以上で DCA 最良」、4 seed | 5 節、付録 C.4・表 D.1 |
+| データセット | 入力 | 予測ラベル（クラス数） | 群・敏感属性（群数） |
+| --- | --- | --- | --- |
+| UCI Adult | 表形式 | 年収が 5 万ドルを超えるか（2 クラス） | 性別（2） |
+| ProPublica COMPAS | 表形式 | 再犯するか（2 クラス） | race：Caucasian か否か（2） |
+| UTKFace | 顔画像 | 年齢 0〜19 / 20〜40 / 40 超（3 クラス） | ethnicity：White・Black・Asian・Indian（4） |
+| CelebA（付録 D.2） | 顔画像 | 金髪か（2 クラス） | 性別（2） |
+| CivilComments-WILDS | 文 | toxic か（2 クラス） | ethnicity：Black・White・Asian・Latino・Others（5） |
 
-公式 README のコマンドは `--method lgdro_chi`・`--optim-q ibr_ip`・`--trueloss` など、公開版の `arguments.py` に無い引数を使っており、
-そのままでは動かない。公開コードで論文の手順に当たるのは `--method fairdro --optim-q smt_ibr --use-01loss`。
-論文の数値をどの設定で出したかは、公開コードからは確定できない。
+UTKFace だけが多クラスで、そこでは DCA は EO と一致しない（付録 D.1 で EO の差も報告）。
 
-`arguments.py` の既定 `--optim-q pd` は、q を指数勾配で動かしてから `utils.chi_proj` で χ² 球へ射影する経路で、
-射影に `q >= 0` の制約が入っており、論文の擬似確率（負の重み）を許さない。ただしこの経路は `self.adv_probs_dict` を
-どこでも初期化しておらず、最初の q 更新で止まる（`trainer/fairdro.py:248–256`、2026-10-17 に確認）。動く経路は
-`ibr` と `smt_ibr` で、どちらも閉形式 `_update_mw_margin`（負の重みを許す）を使う。`smt_ibr` の既定 `--q-decay linear` が
-式 10 の η_t = 1 − t/T にあたり、図 4(b) の負の q とも合う。README の `ibr_ip` は `smt_ibr`、`--trueloss` は
-`--use-01loss` のことだと推測する（未確認）。どの経路でも χ² 球の大きさは ‖q − 1/G‖² ≤ 2ρ/G で、ρ の単位は同じ。
+### ハイパーパラメータ
 
-## この repo の実装
-
-`projects/hypernet_e2e/objectives/fair_dro.py` の `FairDROTaskLoss`（`training_strategy=fair_dro`）。
-
-- **閉形式**：`chi_square_best_response`（`fair_dro.py:14`）。公式 `_update_mw_margin` と同じ式。誤り率が全群で等しいときは一様。
-- **上限の警告**：`nonnegative_radius_limit`（`:38`）が 1/(2(G−1)) を返し、ρ がそれ以上なら起動時に警告する（禁止はしない）。
-  現在の preset はすべてこの警告が出る。
-- **学習の損失**：`forward`（`:103`）。セルごとの CE 平均に q を掛け、クラスで平均する（`(q * risks).sum() / 2`、式 9）。
-  クラス重みは使わない（`class_weight` を渡すと止める）。
-- **q の更新**：`module.py` の `on_train_epoch_end`（`:323`）が、epoch 末に全件の群 × クラス別 0-1 誤り率を測り、
-  `update_from_errors`（`fair_dro.py:136`）に渡す。η_t = 1 − t/T の T は `trainer.max_epochs`。最初の epoch は一様な q で学習する。
-- **誤り率の測り方**：`_split_errors`（`module.py:358`）。eval モード・評価 transform・sampler なしで 1 周する。
-  DataModule が held-out split を持てば held-out 全件、無ければ train 全件（`held_out_evaluation_dataloader`、
-  `evaluation_dataloader("train")`）。どちらを使ったかは `fair_dro_q.jsonl` の `source` に残る。
-- **抽出**：`GroupClassImageDataModule` 必須（`training.py` の `_resolve_conditional_population` が確認）。
-  1 バッチに各セル B/(2G) 件を復元抽出する（B=128 なら G=2 で 32 件、G=8 で 8 件）。
-- **制約**：single device、勾配蓄積なし、bf16 か fp32。途中再開は未対応（`module.py:216`）。
-
-診断値：
-
-| 場所 | 中身 |
+| 項目 | 値 |
 | --- | --- |
-| `metrics.csv` | `train/fair_dro/q/y{c}_g{g}`（更新後の q）、`train/fair_dro/error/g{g}_y{c}`（誤り率）、`train/fair_dro/q_min` |
-| `metrics/fair_dro_q.jsonl` | 1 行 = 1 epoch。`eta`・`q_star`・`q`・`error`・`count`・`source`・`q_min` |
-| `metrics/objective_diagnostics.jsonl` | バッチ内のセル別 CE（`risk`）と予測の陽性率（`rates`）。2026-10-17 から全 preset（それより前は HAM10000 preset のみ） |
+| モデル | 表形式はロジスティック回帰、画像は ResNet18、文は事前学習済み BERT |
+| 画像モデルの初期値 | Algorithm 1 は「θ をランダムに初期化」。公式 README のコマンドに `--pretrained` は無い |
+| optimizer（表形式・画像） | AdamW、lr 1e-3 を cosine で減衰、70 epoch、batch 128、weight decay 1e-3（付録 C.1）。公式 README のコマンドは weight decay 1e-4 |
+| optimizer（文） | AdamW、lr 2e-5（warm-up のあと線形減衰）、3 epoch、batch 24、weight decay 1e-3。q は 100 iteration ごとに更新 |
+| データ拡張 | 本文に記載なし。公式の UTKFace は Resize 256 → RandomCrop 224 → 左右反転 |
+| 抽出 | Algorithm 1 はセル均等。公式 README のコマンドの抽出（`--labelwise`）は公開版の引数に無く、未確認 |
+| ρ | 格子 [1e-2, 1e2] を振る（表 C.1）。公式 README の値は Adult 5、COMPAS 3、UTKFace 0.3、CivilComments 0.3、CelebA 1.5 |
+| q を決める損失 | 論文は 0-1 損失。公式の既定は CE で、`--use-01loss` で 0-1 になる |
+| 誤りを測るときのモデル（公式） | train 全件を `model.train()` のまま、学習用 transform で推論する |
+
+**ρ の単位に注意。** 公式の `_update_mw_margin` は `1/G + √(2ρ/G) · …` で、論文の式 8 の √(ρ/G) と違う。
+同じ q を出すのは「論文の ρ = 2 × 公式の ρ」のとき。README の値は公式の単位。表 C.1 の格子がどちらの単位かは未確認。
+
+公開版のコードについて：README のコマンドは `--method lgdro_chi`・`--optim-q ibr_ip`・`--trueloss`・`--labelwise`
+など、公開版の `arguments.py` に無い引数を使っていて、そのままでは動かない。公開コードで論文の手順に当たるのは
+`--method fairdro --optim-q smt_ibr --use-01loss`（`--q-decay` の既定 `linear` が η_t = 1 − t/T）。
+既定の `--optim-q pd` は `adv_probs_dict` を初期化していないので、最初の q 更新で止まる。
+
+### モデルの選び方
+
+- 報告するのは**最終 epoch** のモデル（付録 C.1 末尾「All results are reported for the model at the last epoch」）。
+- 評価は群 × クラスの balanced accuracy と DCA。ρ を振って accuracy と DCA のパレート曲線を描く。
+- 単一の数値では、「Scratch（公平性なしの学習）の accuracy の 95% 以上を保つ設定のうち DCA が最良のもの」を報告する
+  （付録 C.4）。この選択に val を使ったか test を使ったかは本文に記載が無い。4 seed の平均。
+
+## 3. この repo の実装
+
+### ファイルと設定
+
+| 役割 | 場所 |
+| --- | --- |
+| 損失・閉形式・q の更新 | [objectives/fair_dro.py](../../projects/hypernet_e2e/objectives/fair_dro.py) の `FairDROTaskLoss`、`chi_square_best_response`、`nonnegative_radius_limit` |
+| 共通の基底（セルの取り出し） | [objectives/conditional.py](../../projects/hypernet_e2e/objectives/conditional.py) の `ConditionalObjective` |
+| strategy | [configs/training_strategy/fair_dro.yaml](../../projects/hypernet_e2e/configs/training_strategy/fair_dro.yaml)（`radius: 0.5`、`max_epochs: ${trainer.max_epochs}`） |
+| epoch 末の誤り率と q の更新 | [module.py](../../projects/hypernet_e2e/module.py) の `LitModule.on_train_epoch_end`・`_split_errors` |
+| 起動時の検証と件数の注入 | [training.py](../../projects/hypernet_e2e/training.py) の `_resolve_conditional_population` |
+| セル均等抽出・held-out | [data/group_class_sampler.py](../../projects/hypernet_e2e/data/group_class_sampler.py) の `GroupClassBatchSampler`・`GroupClassImageDataModule` |
+| 群の定義 | data config（例 [chexpert_age_known_cells.yaml](../../projects/hypernet_e2e/configs/data/chexpert_age_known_cells.yaml)：65 歳未満/以上の 2 群、[ham10000_sex_age_cells.yaml](../../projects/hypernet_e2e/configs/data/ham10000_sex_age_cells.yaml)：性別 × 年齢の 4 群） |
+| 記録・候補の選択 | [callbacks/objective_diagnostics.py](../../projects/hypernet_e2e/callbacks/objective_diagnostics.py) の `ObjectiveDiagnosticsRecorder`、[callbacks/conditional_fairness.py](../../projects/hypernet_e2e/callbacks/conditional_fairness.py) の `ConditionalFairnessRecorder`・`select_candidate` |
+| 代表的な preset | `resnet_chexpert_age_fair_dro_race_known`（CheXpert 2 群、ImageNet から）、`resnet_chexpert_from_resnet_age_fair_dro_race_known`（同じ seed の ERM から継続）、`resnet_ham10000_fg_fairdro_sex_age`（HAM10000 4 群） |
+
+### 処理の流れ
+
+**起動時（fit の前）。**
+
+- `_resolve_conditional_population`：single device・勾配蓄積なし・bf16 か fp32 でなければ止める。DataModule が
+  `GroupClassImageDataModule` でなければ止める。`train.csv` から群 × クラスの件数 [G, 2] を数え、
+  `population_cell_counts` に書く。空のセルがあれば止める。
+- クラス重みは使わない。preset はどれも `weighting: none` で、`weighting=inverse` にすると `class_weight` が入り、
+  `FairDROTaskLoss` が止まる。セル均等に抽出するので、クラスの偏りは抽出で消えているため。
+- `FairDROTaskLoss.__init__`：q を buffer `q`（形 [2, G]、初期値 1/G）として持つ。ρ が
+  `nonnegative_radius_limit` の 1/(2(G−1)) 以上なら、q* が負になり得ると警告する（止めはしない）。
+  上限は G = 2 で 0.5、G = 4 で 0.167、G = 8 で 0.071 なので、既定の 0.5 ではどの preset でも警告が出る。
+- `LitModule.setup`・`on_load_checkpoint`：複数 GPU・勾配蓄積・途中再開を拒否する。
+
+**学習の各ステップ。**
+
+1. `GroupClassBatchSampler`：1 バッチに各セルから B/(2G) 件を復元抽出する（B = 128 なら G = 2 で 32 件、G = 4 で 16 件）。
+   B は 2G の倍数でなければならない。
+2. `FairDROTaskLoss.forward`：`_cells` で群 × クラスのマスクを作り、セルごとの平均 CE を [G, 2] で出す。
+   これに q を掛けて足し、2（クラス数）で割る（式 9）。q は勾配を流さない。
+3. モデルを更新する。q はこの時点では変えない（`commit_update` は何もしない）。
+
+**epoch の終わり（`LitModule.on_train_epoch_end`）。**
+
+4. 誤り率を測る split を決める。DataModule が held-out を持てば held-out 全件、無ければ train 全件。
+5. `_split_errors`：eval モード・評価 transform・sampler なしで 1 周し、`z1 − z0 > 0` を陽性としたときの
+   群 × クラス別の誤り率を出す。行の欠けや空のセルがあれば止める。
+6. `update_from_errors`：t を更新回数、T を `max_epochs` として η = 1 − t/T。クラスごとに
+   `chi_square_best_response` で q* を出し、`q ← (1 − η) q + η q*`。最初の更新は η = 1 なので q = q* になる。
+   `trainer.max_epochs` を変えると T も一緒に変わる。
+
+**ρ の単位は公式実装に合わせた。** `chi_square_best_response` は `1/G + √(2ρ/G) · …` で、公式 README の値をそのまま
+入れれば公式コードと同じ重みになる。論文の式や図の ρ を使うときは 1/2 にする。
+
+**held-out を使える理由。** train 全件で測ると、モデルが少数セルを記憶して誤り率が 0 に近づき、q が一様に戻る。
+これを避けるため、学習に使わない held-out で測る選択肢を持たせた（EO rate・Minimax AUC の held-out と同じ扱い）。
+held-out を持つ data config は `*_dual_holdout`（train の 20% を held-out に分けた split）。FairDRO の preset には無いので、
+使うときは data を差し替える（下の起動例）。
+
+**記録と checkpoint。**
+
+- `metrics.csv`：`train/fair_dro/q/y{c}_g{g}`（更新後の q）、`train/fair_dro/error/g{g}_y{c}`（誤り率）、`train/fair_dro/q_min`。
+- `metrics/fair_dro_q.jsonl`：1 行 = 1 回の更新。`eta`・`q_star`・`q`・`error`・`count`・`source`（`train` か `holdout`）・`q_min`。
+- `metrics/objective_diagnostics.jsonl`：バッチ内のセル別 CE（`risk`）と予測の陽性率（`rates`）。最後のバッチの値と `epoch_mean`。
+- checkpoint は既定の best val AUROC と last。HAM10000 の preset は val の性別 × 年齢の最悪群 AUROC の best も残す
+  （gmm8 preset でも最悪群は性別 × 年齢で測り、学習に使った群ではない）。
+- CheXpert 年齢 2 群の preset は `ConditionalFairnessRecorder` が毎 epoch `checkpoints/candidate_XXX.ckpt` と
+  `metrics/fairness_candidates.json`（val の群別 TPR・TNR・AUROC）を残す。継続学習 preset は fit の終わりに
+  `select_candidate` で EO の規則で選ぶ：val の TPR 差・TNR 差がともに 0.1 以下、どの群の TPR・TNR も親 ERM から
+  0.02 より下がらず、AUROC と最悪年齢 AUROC が親から 0.005 以内。満たす epoch のうち val の重み付き CE が最小のもの。
+  無ければ `infeasible`。原論文に合わせた最終 epoch も `last_epoch` に書く。1 stage preset（`reference: deferred`）は
+  選ばず、分析側で同じ seed の ERM の val を基準に選ぶ。
+- held-out で q を更新した run は、epoch の選択に val を使う（held-out は q の更新に使ったため）。
 
 ### 原論文との違い
 
-| 項目 | 原論文・公式実装 | この repo の preset |
+| 項目 | 原論文 | この repo |
 | --- | --- | --- |
-| 誤りを測るデータ | train 全件 | held-out があれば held-out 全件（preset には無い）、無ければ train 全件 |
-| 測るときのモデル | 公式は train モード・学習 transform | eval モード・評価 transform |
-| 抽出 | Alg. 1 はセル均等、公式 README は自然抽出 | セル均等 |
-| 初期値 | ランダム初期化 | 1 stage は ImageNet 重み、継続学習 preset は同じ seed の ERM |
-| optimizer | AdamW lr 1e-3、cosine、70 epoch | AdamW lr 1e-4、wd 0.01、schedule なし、30 epoch |
-| ρ | grid でパレート曲線 | 0.5 の 1 点 |
-| checkpoint | 最終 epoch | EO の規則（下） |
-| 評価 | balanced accuracy と DCA | 固定しきい値の群別 TPR・FPR（research-premises） |
+| タスク | 2 クラスと 3 クラス | 2 クラスだけ（q の形が [2, G]） |
+| 誤りを測るデータ | train 全件 | train 全件。held-out を持つ data config なら held-out 全件 |
+| 誤りを測るときのモデル | 公式は train モード・学習用 transform | eval モード・評価 transform |
+| 抽出 | セル均等（Algorithm 1） | セル均等（セル内は復元抽出） |
+| 初期値 | ランダム初期化 | ImageNet 重み。継続学習 preset は同じ seed の ERM |
+| モデル | ResNet18 ほか | ResNet-50 か Spatial LoRA ResNet-50 |
+| optimizer | AdamW lr 1e-3、cosine、70 epoch | AdamW lr 1e-4、weight decay 0.01、schedule なし、30 epoch |
+| ρ | 格子を振ってパレート曲線 | 0.5 の 1 点（公式の単位） |
+| モデルの選び方 | 最終 epoch | best val AUROC と last。CheXpert 2 群は EO の規則（上） |
+| 評価 | balanced accuracy と DCA | 固定しきい値の群別 TPR・FPR（[research-premises.md](../research-premises.md)） |
 
-## 起動
+原論文に揃えるなら、まず `model.loss_fn.radius` を格子で振る。負の重みを避けるなら上限 1/(2(G−1)) 未満にする。
+最終 epoch で比べるなら全 epoch の重みを残し、optimizer の条件まで揃えるなら lr・epoch・scheduler を変える。
 
-FairDRO を使う preset（`configs/experiment/`）：
-
-| preset | データと群 | 学習 |
-| --- | --- | --- |
-| `resnet_chexpert_age_fair_dro_race_known`、`spatial_lora_chexpert_stage1_4_age_fair_dro_race_known` | CheXpert、年齢 2 群 | ImageNet から 1 stage |
-| `resnet_chexpert_from_resnet_age_fair_dro_race_known` | CheXpert、年齢 2 群 | 同じ seed の ERM から継続（`model.backbone_checkpoint_path` 必須） |
-| `resnet_ham10000_fg_fairdro_sex_age` | HAM10000、性別 × 年齢 4 群 | ImageNet から 1 stage |
-| `resnet_ham10000_fg_fairdro_gmm8` | HAM10000、DINOv2 特徴の GMM 8 クラスタ | ImageNet から 1 stage |
+### 起動例
 
 ```bash
-# ρ を負の重みが出ない範囲に下げ、q を held-out 全件で測り、全 epoch の重みを残す例（HAM10000 4 群）
-uv run python -m projects.hypernet_e2e.run experiment=resnet_ham10000_fg_fairdro_sex_age seed=<seed> study=<slug> \
+uv run python -m projects.hypernet_e2e.run experiment=resnet_ham10000_fg_fairdro_sex_age study=<slug> seed=42
+```
+
+```bash
+# ρ を負の重みが出ない範囲に下げ、q を held-out 全件で測り、全 epoch の重みを残す（HAM10000 4 群）
+uv run python -m projects.hypernet_e2e.run experiment=resnet_ham10000_fg_fairdro_sex_age study=<slug> seed=42 \
   model.loss_fn.radius=0.1 data=ham10000_sex_age_cells_dual_holdout \
   callbacks.model_checkpoint.save_top_k=-1 callbacks.model_checkpoint.save_weights_only=true
 ```
 
-- `model.loss_fn.radius` は公式の単位。公式 README の値を入れると公式コードと同じ重みになるが、README の値がどの設定で論文の数値を出したかは確定できない（上）。ρ は原論文と同じく振って選ぶ。論文の図の ρ を使うときは 1/2 にする。
-- `trainer.max_epochs` を変えると、η_t の T も一緒に変わる。
-
-## checkpoint の選び方と予測の使い方
-
-- **CheXpert の年齢 2 群 preset**：`ConditionalFairnessRecorder` が毎 epoch `checkpoints/candidate_XXX.ckpt` と
-  `metrics/fairness_candidates.json`（val の群別 TPR・TNR・AUROC）を残す。継続学習 preset は fit 末に
-  `select_candidate`（`callbacks/conditional_fairness.py:33`）で選び、`metrics/fairness_selection.json` に書く。
-  規則は EO rate と共通：val の TPR 差・TNR 差がともに 0.1 以下、どの群の TPR・TNR も親 ERM から 0.02 以上下がらず、
-  AUROC と最悪年齢 AUROC が親から 0.005 以内。満たす epoch のうち val の重み付き CE が最小のもの。
-  満たす epoch が無ければ `infeasible`。原論文に合わせた最終 epoch も `last_epoch` に併記する。
-- 1 stage preset は `reference: deferred` で、選択は分析側（同じ seed・同じ構造の ERM の val を親の代わりにする）。
-- **HAM10000 preset**：best val AUROC、best val 性別 × 年齢の最悪群 AUROC、last の 3 つだけが残る。gmm8 preset でも
-  最悪群は性別 × 年齢で測る（学習に使った GMM 群ではない）。EO の規則で選ぶなら、上の例のように全 epoch を残して回す。
-- held-out で q を更新した run は、選択には val を使う（held-out は q の更新に使ったので、選択にも使うと二重に使う）。
-- 予測は `analysis/common/predictions.py`。EO の規則など best val AUROC 以外で選んだ epoch は `--checkpoint` は名前で渡す（既定 `best` は run.json に記録された val AUROC の best、`xxx` は `checkpoints/xxx.ckpt`。例 `best_val_auroc_009`、`last`、`swad`）。
-- q の推移は `fair_dro_q.jsonl` で見る。q が誤り率の高い群へ向いたか、負の重みがどれだけ続いたか（`q_min`）を確かめる。
-
-## 2026-10-16 の照合結果
-
-原論文（本文・付録）と公式実装を読み、この repo の実装と照合した。単体テスト（`tests/test_conditional_objectives.py`
-の FairDRO・minimax 関連 23 件）は HEAD で通る。
-
-**合っている点（確認済み）**
-
-- 閉形式（命題 2）、クラスごとの q、q を 0-1 誤りで決めて θ を CE で更新する分担（4.4 節）、
-  epoch 末の平滑化 IBR（η_t = 1 − t/T）、q の初期値 1/G、損失のクラス平均。
-
-**直した点（commit `0f2af99`）**
-
-- ρ の単位を論文から公式実装へ変えた（`sqrt(ρ/G)` → `sqrt(2ρ/G)`）。公式 README の ρ をそのまま使えるようにするため。
-- 非負の上限を 1/(G−1) から 1/(2(G−1)) に、preset の既定を 1.0 から 0.5 にした。どちらも単位の変更で、q の値は変わらない。
-
-**残している違い**：上の「原論文との違い」の表のとおり。誤りを eval モードで測る点、held-out を使える点、
-継続学習、AdamW の設定、EO の規則での選択。
-
-**既存の run（`run_inventory.csv`、2026-10-16 時点で 12 本）**：どれも `0f2af99` より前で、ρ は旧単位で記録されている
-（公式の単位では記録値の 1/2）。q の更新の中身は単位以外変わっていない。
-
-- CheXpert 年齢 2 群（2026-10-07、`archive/conditional_fairness_one_stage`）：旧 ρ=1.0 の 2 本は完了記録が無い（stale_running）。
-  `fair_dro.py` の docstring によれば、各クラスで片方の群の重みが 0 になり、一方の群だけを学ぶ解へ epoch ごとに振れた
-  （上の G=2 の性質による。run の中身はこの照合では見ていない）。旧 ρ=0.1（公式 0.05）の 2 本は完走。
-- HAM10000（2026-10-09、`archive/latent_bias_hypernet`）：旧 ρ=1.0（公式 0.5、現在の preset と同じ重み）で 6 本完走、
-  2 本は起動時に失敗。完走した 6 本では、q* が 30 epoch 中 27〜30 epoch で負の成分を持ち、平滑化後の q の最小値は
-  −0.07〜−0.16 だった（`fair_dro_q.jsonl` で確認）。4 群・8 群の上限（0.167・0.071）を ρ が超えているため。
+継続学習 preset（`*_from_resnet_*`）は `model.backbone_checkpoint_path=<同じ seed の ERM の checkpoint>` が必須。
