@@ -145,15 +145,33 @@ def val_transforms_isic2019() -> transforms.Compose:
 
 
 # 3. FairVLMed（SLO 眼底）
-def train_transforms_fairvlmed() -> transforms.Compose:
-    """FairVLMed 学習用 transform。
+# FairVLMed の前処理は、先行研究のあいだで経路ごとに違う。
+# - FairCLIP（github.com/Harvard-Ophthalmology-AI-Lab/FairCLIP、91b05b6）の CLIP 微調整・zero-shot（論文 Table 3）は
+#   clip.load の preprocess（bicubic で短辺 224 → CenterCrop(224)、CLIP の mean/std）を学習にも評価にも掛け、
+#   augmentation は無い（FairCLIP/src/modules.py:123-124）。Fair-MoE・Robust FairCLIP・FairEnc・FairCLIP の再現研究は
+#   この data コードをそのまま使う。
+# - FairCLIP の linear probing（論文 Table 2）は LAVIS の processor を使い、学習は RandomResizedCrop(224, scale 0.5-1) と
+#   左右反転、評価は縦横比を保たずに 224x224 へ縮めるだけで切り出さない（mae/main_linprobe.py:152-154）。
+# - FairMedFM（github.com/FairMedFM/FairMedFM）のコードは、評価が上の CLIP と同じ切り出しで、`--augment` を付けたときの
+#   学習が bicubic で短辺 224 → 左右反転 → RandomRotation(±15) → RandomCrop(224)（benchmark/fairmedfm_bench/datasets/utils.py:55-85）。
+#   既定では augment しない。split は配布元と違う 80/20 の再分割なので、数値は比較できない。
+# ここでは評価を FairCLIP の CLIP 経路と FairMedFM の評価に、学習を FairMedFM の augment=True に合わせる。
+# MEDFAIR は FairVLMed を扱っていないので、CheXpert・HAM10000 の前処理は使わない。正規化は ImageNet 重みの
+# backbone に合わせて ImageNet の値にする（FairCLIP・FairMedFM は CLIP の値）。
+# 2026-10-17 までは、学習の回転が ±10° だった。
 
-    評価側は FairCLIP と同じ「短辺 224 → CenterCrop(224)」で、学習側はその切り出し位置と向きを
-    揺らす。画像は 512x664 の縦長で視神経乳頭がほぼ中央にあるので、縦方向の切り出しで乳頭は落ちない。
+
+def train_transforms_fairvlmed() -> transforms.Compose:
+    """FairVLMed 学習用 transform。FairMedFM の `--augment` を付けたときの学習 transform と同じ構成。
+
+    bicubic で短辺 224 → RandomHorizontalFlip → RandomRotation(±15, 余白は黒) → RandomCrop(224) →
+    ImageNet normalize。画像は 512x664 の縦長なので、短辺を 224 にすると幅がちょうど 224 になり、
+    RandomCrop は縦方向の位置だけを揺らす。視神経乳頭はほぼ中央にあるので、縦方向の切り出しで乳頭は落ちない。
 
     正方形への pad はしない。背景がほぼ黒（画素の約 4 割が 10 未満）の画像に
-    `IMAGENET_FILL` の灰色を足すと、実画像に無い明るい帯を作ってしまう。同じ理由で回転の余白は
-    黒（0）で埋める。左右反転は右眼・左眼の入れ替えに相当し、どちらも実在する見え方なので入れる。
+    `IMAGENET_FILL` の灰色を足すと、実画像に無い明るい帯を作ってしまう。回転の余白も同じ理由で黒（0）で
+    埋め、これは FairMedFM の既定（fill=0）とも一致する。左右反転は右眼・左眼の入れ替えに相当し、
+    どちらも実在する見え方である。
 
     Args:
         なし
@@ -165,7 +183,7 @@ def train_transforms_fairvlmed() -> transforms.Compose:
         [
             transforms.Resize(224, interpolation=transforms.InterpolationMode.BICUBIC),
             transforms.RandomHorizontalFlip(),
-            transforms.RandomRotation(10, fill=0),
+            transforms.RandomRotation((-15, 15), fill=0),
             transforms.RandomCrop(224),
             transforms.ToTensor(),
             transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
@@ -176,8 +194,10 @@ def train_transforms_fairvlmed() -> transforms.Compose:
 def val_transforms_fairvlmed() -> transforms.Compose:
     """FairVLMed 検証・テスト用 transform。
 
-    FairCLIP が使う CLIP の前処理（bicubic で短辺 224 → CenterCrop(224)）と同じ切り出しにして、
-    先行研究との比較可能性を保つ。正規化は他データセットと揃えて ImageNet の値を使う。
+    bicubic で短辺 224 → CenterCrop(224) → ImageNet normalize。FairCLIP の CLIP 微調整・zero-shot の経路と
+    FairMedFM の評価と同じ切り出しで、画像の上下それぞれ約 11% が落ちる。FairCLIP の linear probing
+    （論文 Table 2）は切り出さずに 224x224 へ縮めるので、その数値とは前処理が違う。正規化は CLIP ではなく
+    ImageNet の値を使う。
 
     Args:
         なし
