@@ -23,6 +23,11 @@
   256×256 への縮小も MEDFAIR の cv2 と同じくアンチエイリアスなしにし、MEDFAIR の経路との差は全画素で ±1 階調以内になった。
   それより前の CheXpert の run は train と評価で画像の形が揃っていない旧前処理、HAM10000 の run は短辺 256 の旧前処理で学習している。どれを回し直すかは、
   既存の分析・run の棚卸しをしながら決める。
+- 同日、FairVLMed の前処理を先行研究と照合した。評価（bicubic で短辺 224 → 中央 224）は FairCLIP の CLIP 微調整・zero-shot の
+  経路、それを流用する後続研究、FairMedFM のコードと一致していた。FairCLIP の linear probing（論文 Table 2）だけは
+  切り出さずに 224×224 へ縮めており、その数値とは前処理が違う。学習の回転を ±10° から ±15° に変え、学習 transform を
+  FairMedFM の `--augment` 時の構成と同じにした。それより前の FairVLMed の run は ±10° で学習している。
+  照合の詳細は `projects/hypernet_e2e/data/transform_utils.py` の FairVLMed の節に書いた。
 - Q1〜Q3 の区分（[plans/20261011_chexpert_restructure_plan.md](plans/20261011_chexpert_restructure_plan.md)）は柱 A・B に置き換えた。
   結果の一部は上の不具合の影響を受ける。
 
