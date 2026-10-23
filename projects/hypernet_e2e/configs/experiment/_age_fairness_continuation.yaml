@@ -1,0 +1,27 @@
+# @package _global_
+defaults:
+  - resnet_chexpert
+  - override /data: chexpert_age_known_groups
+  - _self_
+experiment_seed: 42
+continuation:
+  require_parent: true
+model:
+  backbone_checkpoint_path: null
+  freeze_backbone: false
+  optimizer:
+    lr: 0.0001
+    weight_decay: 0.01
+  scheduler: null
+trainer:
+  max_epochs: 30
+  devices: 1
+  accumulate_grad_batches: 1
+  num_sanity_val_steps: -1
+callbacks:
+  group_dro_diagnostics:
+    group_labels: ["<65", "≥65"]
+  conditional_fairness:
+    _target_: projects.hypernet_e2e.callbacks.conditional_fairness.ConditionalFairnessRecorder
+    method: ${training_strategy.name}
+    group_key: ${data.group_key}

@@ -1,0 +1,7 @@
+# @package _global_
+defaults:
+  - hyperadapt_chexpert_from_resnet_age_race_group_dro_race_known
+  - override /training_strategy: group_dro_subgroup
+  - _self_
+
+experiment_name: hyperadapt-chexpert-from-resnet-age-race-group-dro-subgroup-race-known

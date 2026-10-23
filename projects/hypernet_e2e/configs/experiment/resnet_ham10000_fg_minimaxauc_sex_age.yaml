@@ -1,0 +1,15 @@
+# @package _global_
+# 公平性手法の比較（ResNet-50、HAM10000）。群間の最悪 AUC を最適化する minimax（Yang et al. AAAI 2023）。
+defaults:
+  - resnet_ham10000
+  - _fairness_ham10000
+  - override /data: ham10000_sex_age_cells
+  - override /training_strategy: minimax_auc
+  - _self_
+
+experiment_name: resnet-ham10000-fg-minimaxauc-sex-age
+weighting: none
+trainer:
+  # 条件付き objective は単一 device・勾配の蓄積なしを要求する（training._resolve_conditional_population）。
+  devices: 1
+  accumulate_grad_batches: 1

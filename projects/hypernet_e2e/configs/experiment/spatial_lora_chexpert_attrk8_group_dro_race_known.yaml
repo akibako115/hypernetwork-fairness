@@ -1,0 +1,9 @@
+# @package _global_
+# Spatial LoRA（stage3・stage4・fc）、1 段。潜在群 attrk8：モデル入力属性の k-means（K = 8、ΔW 群の対照）。GroupDRO（原典どおり train のバッチで q を更新）。
+defaults:
+  - spatial_lora_chexpert_age_race_group_dro_race_known
+  - _latent_groups_chexpert
+  - override /data: chexpert_latent_groups
+  - _self_
+latent_partition: attrk8
+experiment_name: spatial-lora-chexpert-attrk8-group-dro-race-known

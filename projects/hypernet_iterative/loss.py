@@ -198,6 +198,16 @@ def _group_losses(
     return group_losses, observed
 
 
+def _exponentiated_update(probs: torch.Tensor, group_losses: torch.Tensor, step_size: float) -> torch.Tensor:
+    """公式 GroupDRO と同じ乗算・全群正規化で q を更新する。
+
+    欠損群の loss は 0 とし、乗算係数を 1 に保ったまま全群で正規化する。
+    自然抽出時も欠損群の確率質量を保存する独自処理は行わない。
+    """
+    updated = probs * torch.exp(step_size * group_losses.detach())
+    return updated / updated.sum()
+
+
 class UniformGroupTaskLoss(nn.Module):
     """観測されたgroupごとの平均cross-entropyを等重みで最適化する。
 
@@ -308,10 +318,9 @@ class GlobalClassWeightedGroupDROTaskLoss(nn.Module):
             num_groups=self.num_groups,
             group_key=self.group_key,
         )
+        # exponentiated gradientでadv_probsを更新する（勾配はここに流さない）。
         with torch.no_grad():
-            shifted = group_losses.detach()
-            updated = self.adv_probs * torch.exp(self.step_size * (shifted - shifted.max()))
-            self.adv_probs.copy_(updated / updated.sum())
+            self.adv_probs.copy_(_exponentiated_update(self.adv_probs, group_losses, self.step_size))
         return torch.dot(self.adv_probs, group_losses)
 
 
@@ -381,9 +390,6 @@ class SubgroupClassWeightedGroupDROTaskLoss(nn.Module):
             group_key=self.group_key,
         )
         # exponentiated gradientでadv_probsを更新する（勾配はここに流さない）。
-        # max を引いてから exp する。正規化後の値は同じで、overflow だけを避ける。
         with torch.no_grad():
-            shifted = group_losses.detach()
-            updated = self.adv_probs * torch.exp(self.step_size * (shifted - shifted.max()))
-            self.adv_probs.copy_(updated / updated.sum())
+            self.adv_probs.copy_(_exponentiated_update(self.adv_probs, group_losses, self.step_size))
         return torch.dot(self.adv_probs, group_losses)

@@ -1,0 +1,10 @@
+# @package _global_
+# fc だけを変調する Spatial LoRA の EO rate。
+defaults:
+  - spatial_lora_ham10000_sex_age_eo_rate_dual_holdout
+  - _self_
+experiment_name: spatial-lora-ham10000-fc-sex-age-eo-rate-dual-holdout
+model:
+  net:
+    # 分類ヘッドだけを condition で変調する。backbone の Bottleneck は素の ResNet のまま残る。
+    modulation_stages: [fc]

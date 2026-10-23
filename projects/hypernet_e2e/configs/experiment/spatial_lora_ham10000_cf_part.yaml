@@ -1,0 +1,18 @@
+# @package _global_
+# 2 段学習の 2 段目を、区分 `part` で条件付ける。crossfit.partition が lhcf なら LHCF のコホート、
+# iter<N> なら誤りの向きで作り直した区分（analysis/archive/latent_bias_hypernet/crossfit.py）。
+# 区分の数 crossfit.k は、その split の k.txt を起動時に渡す。
+defaults:
+  - spatial_lora_ham10000_cf_const
+  - _self_
+
+experiment_name: spatial-lora-ham10000-cf-${crossfit.partition}
+crossfit:
+  dir: ${crossfit.field}_s${seed}_${crossfit.partition}
+data:
+  attribute_names:
+    categorical: [part]
+    continuous: []
+  attribute_spec:
+    categorical_cardinalities: ["${crossfit.k}"]
+    continuous_dim: 0

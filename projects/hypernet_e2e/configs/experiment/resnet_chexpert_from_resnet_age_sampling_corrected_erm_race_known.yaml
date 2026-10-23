@@ -1,0 +1,7 @@
+# @package _global_
+defaults:
+  - _age_fairness_continuation
+  - override /data: chexpert_age_known_cells
+  - override /training_strategy: sampling_corrected_erm
+  - _self_
+experiment_name: resnet-chexpert-from-resnet-age-sampling-corrected-erm-race-known

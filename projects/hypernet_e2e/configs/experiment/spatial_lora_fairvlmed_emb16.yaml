@@ -1,0 +1,19 @@
+# @package _global_
+# Spatial LoRA を、DINOv2 埋め込みの PCA 16 成分だけで条件付ける（段階 3）。
+# 列は analysis/archive/latent_bias_hypernet/latent_conditions.py --dataset fairvlmed が data/fairvlmed/splits_latent に足したもの。
+defaults:
+  - /model: spatial_lora_resnet50
+  - _base_fairvlmed
+  - _self_
+
+experiment_name: spatial-lora-fairvlmed-emb16
+tags: [latent_routing]
+
+data:
+  cv_splits_dir: ${paths.data_dir}/fairvlmed/splits_latent
+  attribute_names:
+    categorical: []
+    continuous: [e0, e1, e2, e3, e4, e5, e6, e7, e8, e9, e10, e11, e12, e13, e14, e15]
+  attribute_spec:
+    categorical_cardinalities: []
+    continuous_dim: 16

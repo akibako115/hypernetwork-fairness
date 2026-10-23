@@ -1,0 +1,12 @@
+# @package _global_
+# 規則の食い違いを植え込んだ HAM10000（analysis/archive/latent_bias_hypernet/rule_planting.py）での ResNet-50 ERM。
+# マーカーの意味が GMM 8 のクラスタ 2・4 でだけ反転する。振り分けの正の対照の基準。
+defaults:
+  - resnet_ham10000
+  - _self_
+
+experiment_name: resnet-ham10000-rule
+tags: [latent_routing, rule_planting]
+data:
+  data_dir: ${paths.data_dir}/ham10000/images_rule
+  cv_splits_dir: ${paths.data_dir}/ham10000/splits_latent

@@ -54,8 +54,10 @@ CV 戦略・群別指標の最小セル枚数は [data_pipeline/README.md](data_
 
 | dataset | 分割単位 | 比率 | CV |
 | --- | --- | --- | --- |
-| CheXpert | 患者 | 80/10/10 | 行わない |
-| ISIC 2019 | 病変（`lesion_id`） | 80/10/10 | 5-fold（fold 内 60/20/20）。稀少クラスの評価に必要 |
+| CheXpert | 患者 | 80/10/10 | 行わない（主軸のデータセット） |
+| HAM10000 | 病変（`lesion_id`） | 本体を train/val 85/15、test は ISIC2018 Task3 の公式 test | 行わない |
+| FairVLMed | 患者（1 患者 1 枚） | 配布元の `use` 列（7,000 / 1,000 / 2,000） | 行わない |
+| ISIC 2019 | 病変（`lesion_id`） | 80/10/10 | 5-fold（fold 内 60/20/20）。**新しい実験では使わない。** 施設間（BCN20000 → HAM10000）の分析にだけ使う（[研究の前提](docs/research-premises.md#皮膚画像ham10000-と-isic-20192026-10-12)） |
 
 ## 再現性の境界
 
@@ -81,6 +83,7 @@ uv run ruff check projects/hypernet_e2e
 ## Agent skills
 
 `.agents/skills/` に作業手順を置いています。skill 名で参照されたら対応する `SKILL.md` を読みます。
+Claude Code 向けに `.claude/skills/` から symlink し、入口として root の `CLAUDE.md` を置いています。
 
 | skill | 用途 |
 | --- | --- |

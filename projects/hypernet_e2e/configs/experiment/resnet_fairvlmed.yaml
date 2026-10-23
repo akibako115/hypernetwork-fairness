@@ -1,0 +1,7 @@
+# @package _global_
+defaults:
+  - /model: resnet50
+  - _base_fairvlmed
+  - _self_
+
+experiment_name: resnet-fairvlmed

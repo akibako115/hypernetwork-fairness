@@ -1,0 +1,10 @@
+# @package _global_
+# ResNet-50、1 段。潜在群 attrk8：モデル入力属性の k-means（K = 8、ΔW 群の対照）。
+# EO rate 制約（Cotter et al. JMLR 2019 の proxy-Lagrangian）。8 群の全有向ペアで TPR 差・FPR 差 ≤ 0.1、双対変数は held-out で更新。
+defaults:
+  - resnet_chexpert_age_race_eo_rate_dual_holdout
+  - _latent_groups_chexpert
+  - override /data: chexpert_latent_cells_dual_holdout
+  - _self_
+latent_partition: attrk8
+experiment_name: resnet-chexpert-attrk8-eo-rate-dual-holdout

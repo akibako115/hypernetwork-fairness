@@ -1,0 +1,14 @@
+# @package _global_
+training_strategy:
+  name: fair_dro
+  uses_group_id: true
+  class_weight_scope: global
+model:
+  loss_fn:
+    _target_: projects.hypernet_e2e.objectives.fair_dro.FairDROTaskLoss
+    num_groups: ${data.num_groups}
+    group_key: ${data.group_key}
+    population_cell_counts: null
+    class_weight: null
+    radius: 0.5
+    max_epochs: ${trainer.max_epochs}

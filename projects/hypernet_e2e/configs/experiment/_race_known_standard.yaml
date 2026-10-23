@@ -1,6 +1,8 @@
 # @package _global_
 experiment_seed: 42
 callbacks:
+  group_dro_diagnostics:
+    group_labels: ["<65 × White", "<65 × Asian", "<65 × Black", "<65 × Others", "≥65 × White", "≥65 × Asian", "≥65 × Black", "≥65 × Others"]
   fairness_metrics:
     intersectional_groups:
       age_race_group:

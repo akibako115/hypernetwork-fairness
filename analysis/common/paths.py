@@ -41,7 +41,7 @@ def runs_root(study: str) -> Path:
     """その分析 package が取り込んだ run の置き場を返す。分析コードはここだけを読む。
 
     Args:
-        study: `analysis/` 直下の package 名
+        study: 分析 package 名
 
     Returns:
         Path: `analysis/<study>/runs`
@@ -53,7 +53,7 @@ def run_dir(study: str, run_id: str) -> Path:
     """package に取り込んだ run directory を返す。
 
     Args:
-        study: `analysis/` 直下の package 名
+        study: 分析 package 名
         run_id: run ID
 
     Returns:
@@ -66,7 +66,7 @@ def study_dir(study: str) -> Path:
     """仮説 (study) の分析 package を返す。
 
     Args:
-        study: `analysis/` 直下の package 名。学習側に渡した `study` と同じ値
+        study: 分析 package 名。学習側に渡した `study` と同じ値
 
     Returns:
         Path: `analysis/<study>`

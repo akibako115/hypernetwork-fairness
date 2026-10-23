@@ -27,6 +27,6 @@ fairness_age_groups:
     boundaries: [65]
 
 train_transform:
-  _target_: projects.hypernet_e2e.data.transform_utils.train_transforms_chexpert
+  _target_: projects.hypernet_e2e.data.transform_utils.train_transforms_medfair
 val_transform:
-  _target_: projects.hypernet_e2e.data.transform_utils.val_transforms_chexpert
+  _target_: projects.hypernet_e2e.data.transform_utils.val_transforms_medfair

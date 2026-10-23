@@ -15,17 +15,18 @@ models/
 ├── resnet/                 # ResNetBackbone と通常の ResNet
 ├── spatial_hypernet/
 │   ├── metadata_encoder.py # 属性辞書を condition embedding に変換
-│   ├── blocks.py           # 3x3 conv2 への sample-wise Spatial LoRA
+│   ├── blocks.py           # Bottleneck の conv1/conv2/conv3 への sample-wise Spatial LoRA
 │   ├── modulation.py       # FC 用 HyperLinear LoRA
-│   └── network.py          # stage3 / stage4 / fc を束ねる SpatialLoRAResNet
+│   └── network.py          # stage1〜4 / fc を束ねる SpatialLoRAResNet
 ├── hyperadapt/
 │   └── network.py          # 論文 HyperAdapt の全 Bottleneck 主枝と fc の条件付き変調
 └── utils.py                # checkpoint 部分ロードと embedding 分散推定
 ```
 
-`SpatialLoRAResNet` は `attributes` から metadata encoder が作る condition を使い、`stage3`、
-`stage4`、`fc` の任意の部分集合を変調します。Spatial LoRA は Bottleneck の `conv2` にだけ
-低ランク差分を加え、初期状態では元の ResNet と同じ出力になります。
+`SpatialLoRAResNet` は `attributes` から metadata encoder が作る condition を使い、
+`modulation_stages`（`stage1`〜`stage4`、`fc` の任意の部分集合）を変調します。Spatial LoRA は
+各 Bottleneck の `adapted_convs`（`conv1` / `conv2` / `conv3` の部分集合、全 stage 共通。既定は
+`[conv2]`）に低ランク差分を加え、初期状態では元の ResNet と同じ出力になります。
 
 属性辞書は以下の key を持ちます。
 
@@ -47,9 +48,12 @@ model・data・callbacks・trainer を作成し、1 回の `fit` を実行しま
 - `experiment=spatial_lora_chexpert_fc` / `_stage4_fc`（変調範囲だけを変えた条件）
 - `experiment=spatial_lora_chexpert_from_resnet`（2 段学習の 2 段目）
 - `experiment=hyperadapt_chexpert_from_resnet`（論文 HyperAdapt の凍結済み ResNet への患者条件付き変調）
-- `experiment=resnet_chexpert_attribute_invariant`（GRL による属性不変な第1段）
-- `experiment=spatial_lora_chexpert_from_attribute_invariant`（上記からの第2段）
 - 各モデルの `group_dro` / `inverse_weighted_sampling`
+
+FairVLMed（SLO 眼底・glaucoma 2 クラス）は `experiment=resnet_fairvlmed` /
+`experiment=spatial_lora_fairvlmed` で起動します。split と画像は `data_pipeline.fairvlmed_splits` が
+作り、配布元の split をそのまま使います（`data_pipeline/README.md`）。陽性率がほぼ半々なので
+`weighting: none` です。
 
 `experiment` に既定はありません。渡し忘れた起動が「たまたま既定だった条件」で完走しないよう、
 Hydra が未指定を拒否します。
@@ -70,7 +74,7 @@ group を使う条件は、`data` と `training_strategy` の組で決まりま�
 | `training_strategy=erm` | 通常の cross-entropy。group ID を読まない |
 | `training_strategy=uniform_group` | 観測された group ごとの平均 loss を等重みで最適化する |
 | `training_strategy=group_dro_global` | global class weight の group loss で adversarial weight を更新する |
-| `training_strategy=group_dro_subgroup` | subgroup-wise class weight の group loss で adversarial weight を更新する |
+| `training_strategy=group_dro_subgroup` | subgroup-wise class weight の group loss で adversarial weight だけを更新し、モデルは global class weight の group loss で更新する |
 
 `_group_dro` 系の experiment はこの 2 つを組にした preset です。目的関数だけを差し替えるときは
 `training_strategy=` を重ねます。
@@ -82,6 +86,11 @@ uv run python -m projects.hypernet_e2e.run \
 `num_groups` は `group_cardinalities` の積として data config に明示します。Hydra が乗算できない
 ためで、DataModule が Dataset 構築時に積と突き合わせ、group 属性の欠損・範囲外・train split に
 現れない group を拒否します。目的関数は group ID の範囲を step ごとには再検証しません。
+
+目的関数はどれも `objectives/base.py` の `Objective` を継ぐ。損失の計算の外の時点で状態を動かす手法
+（EO rate・Minimax AUC の毎 step の双対の確定と held-out、FairDRO の epoch 末の全件評価、FIS の群ごとのバッチ）は、
+その処理を目的関数の隣に Lightning callback として書き、`callbacks()` で返す。`LitModule` は `configure_callbacks` で
+それを Trainer の callback より先に並べて渡すだけで、手法ごとの処理を持たない。
 
 validation と test は学習条件によらず通常の cross-entropy を使うので、`val/auroc` は条件を
 またいで比較できます。段ごとに run が分かれているため、1 段目は ERM、2 段目だけ Group DRO と
@@ -96,7 +105,14 @@ CheXpert の model 入力は `sex`、`race`、`ethnicity`、連続 `age` と撮�
 
 ### race-known 比較の標準設定
 
-今回の5条件には、既存名に `_race_known` を付けた専用presetを使います。既存presetは変更していません。
+2026-10-02の比較計画は[実験計画](../../docs/plans/20261002_experiment.md)を参照してください。
+主比較13条件のpresetと、local / ws11 GPU 2〜8への割り当てを掲載しています。
+HyperAdaptのrace-known条件と、Group DROの`_subgroup_race_known`条件を追加しています。
+subgroup版はtrain splitから8群×2クラスの重みを計算してqの更新だけに使い、それ以外の標準条件（モデル更新のglobal class weightを含む）はglobal版と共通です。
+2-stageはbackboneと元classifierを凍結し、第2段階はGroup DROのみとします。
+
+以下は当初のglobal class weightを使う5条件の起動例です。
+既存名に `_race_known` を付けた専用presetを使います。既存presetは変更していません。
 全条件で `splits_race_known`、seed 42、batch size 128、30 epoch、AdamW（lr `1e-4`、
 weight decay `1e-2`）、global inverse class weight、uniform samplingを使用します。
 GroupDROのstep sizeは `0.01`、群は `<65 / ≥65` × `White / Asian / Black / Others` の8群です。
@@ -152,41 +168,6 @@ uv run python -m projects.hypernet_e2e.run \
 `parent_run` に記録します。1 段目の記録と SHA-256 が食い違う checkpoint は、fit を始めずに
 失敗させます。段ごとに別 run なので、`trainer.max_epochs` のような設定は段ごとに独立して振れます。
 
-### 属性不変 backbone → 属性条件付き LoRA
-
-`resnet_chexpert_attribute_invariant` は、backbone 特徴量から demographic 属性（`sex`、`race`、
-`age`）を当てる補助予測器の前に Gradient Reversal Layer（GRL）を置く。補助予測器は属性を当てる
-ように、backbone はその予測を難しくするように同じ通常の backprop で更新される。`ethnicity` は補助
-予測の対象に含めない。
-`frontal_lateral` と `ap_pa` は撮影プロトコルであり、この標準条件の adversary には含めない。
-これらへの不変化は acquisition-invariance として別 ablation で扱う。第2段では既存の凍結契約に
-より backbone と共有 classifier を固定し、属性の条件は Spatial LoRA / HyperLinear の差分にのみ
-入る。
-
-```bash
-uv run python -m projects.hypernet_e2e.run experiment=resnet_chexpert_attribute_invariant
-
-uv run python -m projects.hypernet_e2e.run \
-  experiment=spatial_lora_chexpert_from_attribute_invariant \
-  model.backbone_checkpoint_path=projects/hypernet_e2e/runs/<stage1-run-id>/checkpoints/<best>.ckpt
-```
-
-比較用に、GRL係数を DANN 式に 0 から warm-up する `resnet_chexpert_attribute_invariant_dann` と、
-adversary を先に1回、task/backboneを次に1回更新する ALFR 型の
-`resnet_chexpert_attribute_invariant_alfr` も用意している。ALFR は task optimizer と adversary optimizer を
-分離し、adversary 更新時は feature を detach する。
-
-```bash
-uv run python -m projects.hypernet_e2e.run experiment=resnet_chexpert_attribute_invariant_dann
-uv run python -m projects.hypernet_e2e.run experiment=resnet_chexpert_attribute_invariant_alfr
-```
-
-GRL の学習時の属性損失だけでは不変性の証明にはならない。保持情報量は、凍結した第1段 backbone
-出力に対して、学習に使っていない独立の線形／MLP probe を train/validation split で学習・評価し、
-ERM の第1段と属性 AUC / accuracy / age MAE を比較して判定する。task AUROC と subgroup gap も
-同じ split で併記する。`model.loss_fn.attribute_adversary_weight` は task 性能とのトレードオフなので、
-少なくとも `0.01, 0.03, 0.1` を同一 seed 群で比較する。
-
 ### HyperAdapt
 
 `hyperadapt_chexpert_from_resnet` は、論文 *Patient-Conditioned Adaptive Offsets for Reliable Diagnosis across Subgroups* の ResNet 版を CheXpert に適用する。stem を除く stage1〜4 の各 Bottleneck 主枝の `conv1` / `conv2` / `conv3` を、metadata condition から生成する低ランク channel-pair 行列で乗法変調する。分類器は低ランクの加法更新を受ける。同じ出力次元を持つ層は A 側 generator を共有し、B 側は層ごとに独立する。
@@ -206,10 +187,10 @@ uv run python -m projects.hypernet_e2e.run \
 次を実行します。
 
 ```bash
-uv run python -m projects.hypernet_e2e.run trainer=cpu trainer.max_epochs=1 data.num_workers=0 data.persistent_workers=false data.prefetch_factor=null
+uv run python -m projects.hypernet_e2e.run experiment=resnet_chexpert study=scratch logger=none trainer=cpu trainer.max_epochs=1 data.num_workers=0 data.persistent_workers=false data.prefetch_factor=null
 ```
 
-デフォルトは GPU trainer と Spatial LoRA ERM です。`experiment=` で比較条件を選べます。
+`experiment=` に既定は無く、指定しないと起動を止めます。比較条件は `experiment=` で選びます。
 
 epoch ごとの metric は run directory の `metrics/metrics.csv` に必ず残し、既定では wandb
 （project `fairness_hypernet`）にも送ります。送信せずに試すときは `logger=none` を付けますが、

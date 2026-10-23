@@ -1,0 +1,15 @@
+# @package _global_
+# 公平性手法の比較（ResNet-50、HAM10000）。FairDRO（Jung et al. ICLR 2023、χ² 半径は training_strategy の既定 0.5＝公式実装の単位。2026-10-16 より前の run の 1.0 と同じ重み）。
+defaults:
+  - resnet_ham10000
+  - _fairness_ham10000
+  - override /data: ham10000_gmm8_cells
+  - override /training_strategy: fair_dro
+  - _self_
+
+experiment_name: resnet-ham10000-fg-fairdro-gmm8
+weighting: none
+trainer:
+  # 条件付き objective は単一 device・勾配の蓄積なしを要求する（training._resolve_conditional_population）。
+  devices: 1
+  accumulate_grad_batches: 1

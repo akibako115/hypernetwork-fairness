@@ -1,0 +1,14 @@
+# @package _global_
+# Spatial LoRA（E2E）を LHCF のコホート（ERM の埋め込みの GMM、K = 11）で条件付ける。ERM。
+defaults:
+  - spatial_lora_ham10000_fg_erm
+  - _self_
+
+experiment_name: spatial-lora-ham10000-fg-lhcfcond-erm
+data:
+  attribute_names:
+    categorical: [lhcf]
+    continuous: []
+  attribute_spec:
+    categorical_cardinalities: [11]
+    continuous_dim: 0

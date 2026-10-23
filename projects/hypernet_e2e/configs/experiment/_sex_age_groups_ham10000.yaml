@@ -1,0 +1,5 @@
+# @package _global_
+# sex × age_group_65 の 4 群の GroupDRO の q に、群 ID 順のラベルを付ける（ID は sex を上位桁にした mixed-radix）。
+callbacks:
+  group_dro_diagnostics:
+    group_labels: ["female × <65", "female × ≥65", "male × <65", "male × ≥65"]

@@ -66,6 +66,7 @@ docker run --ipc=host --gpus 'device=<gpu>' -d \
   -v <remote_path>:/workspaces/hypernet-fairness \
   -v <ws_data_path>:/workspaces/hypernet-fairness/data:ro \
   -v /home/kohkiakiba/.netrc:/home/app/.netrc:ro \
+  -e HYPERNET_GIT_COMMIT=<同期したコードの commit> \
   <image> bash -lc '
     cd /workspaces/hypernet-fairness
     set -euo pipefail
@@ -77,6 +78,8 @@ REMOTE_SCRIPT
 ```
 
 - `CONDITION` / `SEED` / `DATE_TAG` / `DATA_FOLDER` の env は使わない。条件は Hydra override で表す
+- `HYPERNET_GIT_COMMIT` には、同期したコードのローカルの `git rev-parse HEAD` を渡す。container には `.git` を
+  送らないので、渡さないと `run.json` の `git_commit` が null になり、どのコードで回したか辿れない
 - run directory は `run.py` が `projects/<project>/runs/` に予約する。`RUN_DIR` を外から与えない
 - GPU が少ないまま複数 seed を回す場合は、条件ごとに 1 container とし、次の seed は前の seed が
   正常終了した後に `&&` で続ける。seed ごとに container 名・controller log 名を分ける
@@ -106,7 +109,8 @@ ssh -o ConnectTimeout=10 -o ControlPath=~/.ssh/sockets/%r@%h-%p kohkiakiba@192.1
 - 予約された run directory の所有者が `kohkiakiba` である（`root` なら `--user` の指定が残っている）
 
 worker が bus error を起こした場合、失敗 container と成功 container の `IpcMode` と `ShmSize` を
-比べる。成功側の IPC mode で `retryN` の名前を付けて再起動し、失敗側の log は残す。
+比べる。成功側の IPC mode で `retryN` の名前を付けて再起動する。失敗側の log は比較が終わるまで残し、
+その後は失敗 run と一緒に消す（[failures.md](failures.md) の「掃除」）。
 失敗が確定した exited container だけを、ID とエラーを記録してから削除する。
 
 ## root 所有のファイルが残ったとき

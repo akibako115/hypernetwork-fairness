@@ -1,0 +1,10 @@
+# @package _global_
+# spatial_lora_ham10000_attr_rule と同じ場での ResNet-50 ERM（条件なしの基準）。
+defaults:
+  - resnet_ham10000
+  - _self_
+
+experiment_name: resnet-ham10000-attr-rule
+tags: [conditioned_subgroup_discovery, rule_planting]
+data:
+  data_dir: ${paths.data_dir}/ham10000/images_attr_rule

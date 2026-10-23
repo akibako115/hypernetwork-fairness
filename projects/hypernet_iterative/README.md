@@ -163,7 +163,8 @@ W&B の step は run を通した通し epoch で、実際に記録された epo
 
 - 他 project から import しません。他 project 用の共有 module をここに置きません。
 - run は不変です。既存 run の再開・上書きをせず、再実行は必ず新しい run directory を作ります。
-  途中で失敗した run も `run.json` に `failed` を残します。
+  途中で失敗した run は `run.json` に `failed` を残します。原因を確かめて報告したら、その run directory は消します
+  （`.agents/skills/train/failures.md`）。
 - 出力は `runs/<run-id>/` 配下だけに書きます。`data/chexpert/` は固定入力だけを持ちます。
 - cohort は固定入力ではなく、生成した run の artifact です。参照 checkpoint の絶対 path と
   SHA-256、KMeans の設定を `cohort.json` に残し、既存 artifact directory へは上書きしません。

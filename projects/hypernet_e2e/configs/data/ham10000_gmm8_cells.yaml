@@ -1,0 +1,8 @@
+defaults:
+  - ham10000_gmm8_groups
+  - _self_
+
+# 群 × クラスのセルを均等に抽出する。条件付き公平性 objective（FairDRO・minimax AUC・EO）は全セルを含むバッチを要求する。
+_target_: projects.hypernet_e2e.data.group_class_sampler.GroupClassImageDataModule
+sampling_seed: ${seed}
+train_sampling: group_class_balanced

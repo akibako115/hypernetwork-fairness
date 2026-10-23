@@ -132,32 +132,62 @@ def run_project(run_dir: Path) -> str:
     return _PROJECT_BY_KIND[kind]
 
 
-def selected_checkpoint(run_dir: Path) -> Path:
-    """その run が「これが成果物」と記録した checkpoint を返す。
+DEFAULT_CHECKPOINT = "best"
 
-    iterative は `run.json` の `selected_checkpoint` が最終 stage の best val AUROC を指す。
-    記録された path は実行環境（container）のものなので、run directory からの相対位置だけを
-    使う。単段 run は stage を持たないので `checkpoints/best_val_auroc_*.ckpt` を取る。
-    どちらも val AUROC で選んだ checkpoint であり、選び方は揃っている。
 
-    Args:
-        run_dir: `analysis/<study>/runs/<run-id>`
+def _within_run(run_dir: Path, recorded: str) -> Path:
+    # 記録された path は実行環境（container）のものなので、run directory からの相対位置だけを使う。
+    parts = Path(recorded).parts
+    return run_dir.joinpath(*parts[parts.index(run_dir.name) + 1 :])
 
-    Returns:
-        Path: 評価する checkpoint
 
-    Raises:
-        FileNotFoundError: checkpoint がちょうど 1 つに定まらない場合
-    """
+def _best_val_auroc_checkpoint(run_dir: Path) -> Path:
     record = read_run_record(run_dir)
     if "selected_checkpoint" in record:
-        parts = Path(record["selected_checkpoint"]["path"]).parts
-        return run_dir.joinpath(*parts[parts.index(run_dir.name) + 1 :])
+        return _within_run(run_dir, record["selected_checkpoint"]["path"])
+    for entry in record.get("checkpoints") or []:
+        if entry.get("monitor") == "val/auroc" and (entry.get("best") or {}).get("path"):
+            return _within_run(run_dir, entry["best"]["path"])
+    # checkpoint の記録を持たない run は、ファイル名から一意に決まるときだけ受け付ける。
     checkpoints = sorted((run_dir / "checkpoints").glob("best_val_auroc_*.ckpt"))
     if len(checkpoints) != 1:
         found = len(checkpoints)
         raise FileNotFoundError(f"{run_dir} の best_val_auroc checkpoint は 1 つ必要だが、{found} 件見つかった")
     return checkpoints[0]
+
+
+def selected_checkpoint(run_dir: Path, name: str = DEFAULT_CHECKPOINT) -> Path:
+    """評価する checkpoint を名前で選ぶ。
+
+    `"best"`（既定）は、その run が val AUROC で選んだ checkpoint。iterative は `run.json` の
+    `selected_checkpoint`（最終 stage の best）、単段 run は `run.json` の `checkpoints` のうち monitor が
+    `val/auroc` のものの best。全 epoch を残した run では `best_val_auroc_*.ckpt` が epoch の数だけあり、
+    ファイル名では best を決められないので、記録を正とする。
+
+    それ以外の名前 `xxx` は、best と同じ directory の `xxx.ckpt` を指す。例：`swad`（SWAD の平均重み）、
+    `last`、`best_val_worst_sexage_012`、`best_val_auroc_009`（全 epoch を残した run の特定の epoch）。
+
+    Args:
+        run_dir: `analysis/<study>/runs/<run-id>`
+        name: `"best"` か、拡張子を除いた checkpoint のファイル名。
+
+    Returns:
+        Path: 評価する checkpoint
+
+    Raises:
+        FileNotFoundError: best が 1 つに定まらない場合、または `xxx.ckpt` が無い場合
+        ValueError: name が path を含む場合
+    """
+    best = _best_val_auroc_checkpoint(run_dir)
+    if name == DEFAULT_CHECKPOINT:
+        return best
+    if not name or Path(name).name != name or name.endswith(".ckpt"):
+        raise ValueError(f"checkpoint はファイル名から .ckpt を除いた名前で指定する: {name!r}")
+    path = best.parent / f"{name}.ckpt"
+    if not path.is_file():
+        available = sorted(candidate.stem for candidate in best.parent.glob("*.ckpt"))
+        raise FileNotFoundError(f"{run_dir} に {path.relative_to(run_dir)} が無い。選べる名前: {available}")
+    return path
 
 
 def write_csv(path: Path, rows: list[dict[str, Any]], columns: list[str]) -> None:

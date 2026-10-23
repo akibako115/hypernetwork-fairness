@@ -136,11 +136,13 @@ def test_group_dro_reaches_its_group_ids_through_one_lightning_fit(tmp_path: Pat
             return self.fc(image.mean(dim=(2, 3)))
 
     dm = _datamodule(*_all_four_groups(tmp_path))
-    objective = SubgroupClassWeightedGroupDROTaskLoss(num_groups=4, class_weight=[[1.0, 1.0]] * 4, step_size=1.0)
+    # 画像はどれも同じなので、q 用の class weight を群ごとに変えて、群 ID が届いたときだけ群の損失に差が出るようにする。
+    # 損失が等しい群どうしでは、Group DRO の q は動かない。
+    objective = SubgroupClassWeightedGroupDROTaskLoss(num_groups=4, class_weight=[1.0, 1.0], q_class_weight=[[1.0, 1.0], [2.0, 2.0], [3.0, 3.0], [4.0, 4.0]], step_size=1.0)
     module = LitModule(net=_Net(), loss_fn=objective, optimizer=lambda params: torch.optim.SGD(params, lr=0.1), scheduler=None)
 
     L.Trainer(max_epochs=1, accelerator="cpu", logger=False, enable_checkpointing=False, enable_progress_bar=False).fit(module, datamodule=dm)
 
-    # 4 群それぞれが train batch に現れるので、adversarial weight は一様初期値から動く。
+    # 群ごとに重みの違う損失が届くので、adversarial weight は一様初期値から動く。
     assert objective.adv_probs.sum().item() == pytest.approx(1.0)
     assert not torch.allclose(objective.adv_probs, torch.full((4,), 0.25))

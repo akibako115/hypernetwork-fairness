@@ -1,0 +1,7 @@
+# @package _global_
+defaults:
+  - _age_fairness_continuation
+  - override /data: chexpert_age_known_groups
+  - override /training_strategy: group_dro_global
+  - _self_
+experiment_name: resnet-chexpert-from-resnet-age-group-dro-race-known

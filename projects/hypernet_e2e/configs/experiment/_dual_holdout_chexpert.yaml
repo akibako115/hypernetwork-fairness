@@ -1,0 +1,12 @@
+# @package _global_
+# Q2：1 段（ImageNet から E2E）の hypernet に公平性損失をかけ、年齢 × race 8 群の差が縮むかを見る。
+# epoch の選び方は分析側で決める（全体 AUROC と、損失自身の狙い）ので、全 epoch の重みを残す。
+tags: [q2_fairness_loss, dual_holdout]
+trainer:
+  # 条件付き objective は単一 device・勾配の蓄積なしを要求する（training._resolve_conditional_population）。
+  devices: 1
+  accumulate_grad_batches: 1
+callbacks:
+  model_checkpoint:
+    save_top_k: -1
+    save_weights_only: true

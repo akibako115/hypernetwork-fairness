@@ -1,0 +1,7 @@
+# @package _global_
+# 柱 B：潜在群（学習前に固定）に公平性損失をかける。評価は年齢 × race の 8 群のまま（_race_known_standard）。
+# 群の診断ラベルだけ潜在群の番号に置き換える。
+tags: [latent_group_fairness]
+callbacks:
+  group_dro_diagnostics:
+    group_labels: ["latent 0", "latent 1", "latent 2", "latent 3", "latent 4", "latent 5", "latent 6", "latent 7"]

@@ -1,0 +1,3 @@
+group_dro_diagnostics:
+  _target_: projects.hypernet_e2e.callbacks.group_dro_diagnostics.GroupDRODiagnostics
+  group_labels: null

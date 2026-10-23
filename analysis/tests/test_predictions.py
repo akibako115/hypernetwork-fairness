@@ -11,12 +11,14 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from omegaconf import OmegaConf
 
 from analysis.common import predictions
 from analysis.common.predictions import (
     FEATURES_SCHEMA_VERSION,
     SCHEMA_VERSION,
     cache_path,
+    evaluation_data_config,
     features_cache_path,
     load_cache,
     load_features,
@@ -236,3 +238,76 @@ def test_features_cache_file_names_do_not_collide_with_predictions(tmp_path: Pat
 
     assert features_path.name == "20260922T063725Z-resnet-chexpert-s43-efcd_val_features.npz"
     assert features_path != predictions_path
+
+
+def test_named_checkpoint_hash_and_split_invalidate_cache(repository: Path) -> None:
+    """best 以外の名前で選んだ checkpoint は、同じ名前のまま中身が変わっても作り直す。"""
+    run_dir = _run(repository, "best_val_auroc_007.ckpt")
+    path_on_disk = run_dir / "checkpoints" / "swad.ckpt"
+    path_on_disk.write_bytes(b"original weights")
+    checkpoint = "swad"
+    split_dir = repository / "splits"
+    split_dir.mkdir()
+    split = split_dir / "val.csv"
+    split.write_text("image,target\na,0\nb,1\n")
+    (run_dir / "config.yaml").write_text(f"data:\n  cv_splits_dir: {split_dir}\n")
+    path = _cache(
+        repository / "cache" / "explicit.npz",
+        checkpoint=predictions.checkpoint_reference(run_dir, checkpoint),
+        checkpoint_sha256=predictions._sha256(path_on_disk),
+        split_sha256=predictions._sha256(split),
+        split="val",
+    )
+    assert stale_reason(path, run_dir, checkpoint=checkpoint) is None
+    split.write_text("image,target\na,1\nb,0\n")
+    assert "split SHA" in stale_reason(path, run_dir, checkpoint=checkpoint)
+    path_on_disk.write_bytes(b"changed weights at same path")
+    assert "checkpoint SHA" in stale_reason(path, run_dir, checkpoint=checkpoint)
+
+
+def test_sha_is_reused_within_operation_but_new_operation_detects_rewrite(tmp_path, monkeypatch):
+    import os
+
+    path = tmp_path / "checkpoint.ckpt"
+    path.write_bytes(b"original")
+    actual = predictions.hashlib.file_digest
+    calls = []
+
+    def digest(stream, algorithm):
+        calls.append(stream.name)
+        return actual(stream, algorithm)
+
+    monkeypatch.setattr(predictions.hashlib, "file_digest", digest)
+    source_hashes = {}
+    first = predictions._sha256(path, source_hashes)
+    assert predictions._sha256(path, source_hashes) == first and len(calls) == 1
+    stat = path.stat()
+    path.write_bytes(b"modified")
+    os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+    assert predictions._sha256(path) != first and len(calls) == 2
+    replacement = tmp_path / "replacement"
+    replacement.write_bytes(b"replaced")
+    replacement.replace(path)
+    assert predictions._sha256(path) != first and len(calls) == 3
+
+
+def test_group_datamodule_config_fills_missing_group_attributes_for_prediction() -> None:
+    data = OmegaConf.create(
+        {"group_attribute_names": ["sex", "age_group_65"], "group_missing_values": {"sex": 2}, "batch_size": 8}
+    )
+    filled = evaluation_data_config(data)
+    assert dict(filled.group_missing_values) == {"sex": 2, "age_group_65": 0}
+    assert "group_missing_values" in data and dict(data.group_missing_values) == {"sex": 2}
+
+
+def test_plain_datamodule_config_is_left_unchanged() -> None:
+    data = OmegaConf.create({"batch_size": 8})
+    assert evaluation_data_config(data) is data
+
+
+def test_a_named_checkpoint_gets_its_own_cache_name(repository: Path) -> None:
+    """best の cache 名は run-id だけ、それ以外は名前を付ける。同じ run の best と swad の cache が衝突しない。"""
+    run_dir = _run(repository, "best_val_auroc_007.ckpt")
+
+    assert predictions._cache_identity(run_dir, "best") == "r"
+    assert predictions._cache_identity(run_dir, "swad") == "r_swad"

@@ -1,0 +1,8 @@
+# @package _global_
+defaults:
+  - resnet_chexpert_race_known
+  - _age_fairness_one_stage
+  - override /training_strategy: minimax_auc
+  - _self_
+experiment_name: resnet-chexpert-age-minimax-auc-race-known
+weighting: none

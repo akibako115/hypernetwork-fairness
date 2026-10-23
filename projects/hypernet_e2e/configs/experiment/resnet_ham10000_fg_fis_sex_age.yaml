@@ -1,0 +1,10 @@
+# @package _global_
+# 公平性手法の比較（ResNet-50、HAM10000）。FIS（c = 0.5）、群：性別 × 年齢。
+defaults:
+  - resnet_ham10000
+  - _fairness_ham10000
+  - override /data: ham10000_sex_age_groups
+  - override /training_strategy: fis
+  - _self_
+
+experiment_name: resnet-ham10000-fg-fis-sex-age

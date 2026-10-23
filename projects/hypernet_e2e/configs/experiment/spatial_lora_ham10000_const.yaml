@@ -1,0 +1,20 @@
+# @package _global_
+# Spatial LoRA の条件を全行同じ値にする。adapter を足した構成そのものの効果を見る対照。
+# 条件の列は analysis/archive/latent_bias_hypernet/latent_conditions.py が data/ham10000/splits_latent に足したもの。
+# それ以外は spatial_lora_ham10000 と同じ（評価軸は sex と age_group_65 のまま）。
+defaults:
+  - /model: spatial_lora_resnet50
+  - _base_ham10000
+  - _self_
+
+experiment_name: spatial-lora-ham10000-const
+tags: [latent_routing]
+
+data:
+  cv_splits_dir: ${paths.data_dir}/ham10000/splits_latent
+  attribute_names:
+    categorical: [const]
+    continuous: []
+  attribute_spec:
+    categorical_cardinalities: [1]
+    continuous_dim: 0

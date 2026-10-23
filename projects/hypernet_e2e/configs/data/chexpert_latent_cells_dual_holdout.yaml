@@ -1,0 +1,10 @@
+# 潜在群（K = 8）× クラスのセルを均等に抽出し、双対変数は held-out で測る（EO rate 用）。
+# split は splits_race_known_dual_holdout に同じ潜在群の列を足したもの（latent_groups.py）。
+defaults:
+  - chexpert_latent_groups
+  - _self_
+_target_: projects.hypernet_e2e.data.group_class_sampler.GroupClassImageDataModule
+cv_splits_dir: ${paths.data_dir}/chexpert/splits_race_known_dual_holdout_latent
+sampling_seed: ${seed}
+train_sampling: group_class_balanced
+holdout_split: holdout

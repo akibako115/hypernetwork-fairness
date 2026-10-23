@@ -13,6 +13,7 @@ import torch.nn.functional as F
 
 from projects.hypernet_e2e.loss import ObjectiveInput
 from projects.hypernet_e2e.models.utils import load_compatible_state_dict
+from projects.hypernet_e2e.objectives.base import Objective
 
 log = logging.getLogger(__name__)
 
@@ -26,17 +27,17 @@ class LitModule(L.LightningModule):
     名前を表す。
     train は ``loss_fn``、validation/test は実験条件をまたいで比較できる通常の
     cross-entropy を用いる。``use_attributes=True`` のときだけ attributes を net に渡す。
-    ``freeze_backbone=True`` は ``backbone_checkpoint_path`` を伴う必要がある。`loss_fn` が
-    ``requires_features=True`` を持つ場合だけ、net の `forward_with_features` から表現も取得する。
+    ``freeze_backbone=True`` は ``backbone_checkpoint_path`` を伴う必要がある。
+    損失の計算の外で目的関数が必要とする処理（双対変数の確定など）は、目的関数の ``callbacks()`` を
+    ``configure_callbacks`` で Trainer に渡すだけで、この module は手法ごとの処理を持たない。
     """
 
     def __init__(
         self,
         net: nn.Module,
-        loss_fn: nn.Module,
+        loss_fn: Objective,
         optimizer: Callable[..., torch.optim.Optimizer] | None,
         scheduler: Callable[..., Any] | None,
-        adversary_optimizer: Callable[..., torch.optim.Optimizer] | None = None,
         compile: bool = False,
         use_attributes: bool = False,
         backbone_checkpoint_path: str | None = None,
@@ -47,11 +48,10 @@ class LitModule(L.LightningModule):
         """モデル、目的関数、および単段 fit の初期化設定を保持する。
 
         Args:
-            net: logits、または特徴量を必要とする loss 使用時は logits と特徴量を返す分類モデル。
+            net: logits を返す分類モデル。
             loss_fn: `ObjectiveInput` から task loss を計算する目的関数。
             optimizer: trainable parameter を受けて optimizer を作る factory。
             scheduler: optimizer を受けて scheduler を作る任意の factory。
-            adversary_optimizer: ALFR の adversary optimizer factory。None なら optimizer を再利用する。
             compile: `torch.compile` を fit 開始時に使うか。
             use_attributes: net の forward に属性辞書を渡すか。
             backbone_checkpoint_path: 初期化または第2段用に読む checkpoint の path。
@@ -74,26 +74,29 @@ class LitModule(L.LightningModule):
         # optimizer / scheduler factory は lambda や Hydra partial を取り得る。hparams に残すと
         # checkpoint に pickle され、load 側が同じ import を解決できることを要求してしまう。
         # ignore して実行中の module だけが保持し、Lightning のシリアライズ経路から切り離す。
-        self.save_hyperparameters(logger=False, ignore=["net", "loss_fn", "optimizer", "scheduler", "adversary_optimizer"])
+        self.save_hyperparameters(logger=False, ignore=["net", "loss_fn", "optimizer", "scheduler"])
         self.net = net
         self.loss_fn = loss_fn
         self._optimizer_factory = optimizer
         self._scheduler_factory = scheduler
-        self._adversary_optimizer_factory = adversary_optimizer
-        self.automatic_optimization = not getattr(loss_fn, "requires_manual_optimization", False)
         self.use_attributes = use_attributes
         self.attribute_names = attribute_names
         self.fairness_attribute_names = fairness_attribute_names
+        # 目的関数の callback が直近の step に held-out で測った診断値。ObjectiveDiagnosticsRecorder が学習バッチの値と
+        # 分けて記録する。held-out を使わないときは空。
+        self.held_out_diagnostics: dict[str, torch.Tensor] = {}
+        # configure_callbacks で Trainer に渡した目的関数の callback。setup で Trainer の callback の先頭へ移す。
+        self._objective_callbacks: list[L.Callback] = []
 
     @property
-    def training_objective(self) -> nn.Module:
+    def training_objective(self) -> Objective:
         """train phase で最適化する注入済みの目的関数を返す。
 
         Args:
             なし
 
         Returns:
-            nn.Module: `ObjectiveInput` を受け取り scalar loss を返す目的関数
+            Objective: `ObjectiveInput` を受け取り scalar loss を返す目的関数
         """
         return self.loss_fn
 
@@ -131,14 +134,9 @@ class LitModule(L.LightningModule):
             dict[str, Any]: `loss` / `logits` / `preds` / `target` / `attributes`。
                 callback がこれを epoch 集計に使う。`loss` は backward 可能なまま返す
         """
-        self._update_adversary_progress()
-        if not self.automatic_optimization:
-            return self._alternating_training_step(batch)
-        logits, preds, target, attributes, features = self._shared_step(batch)
-        inputs = ObjectiveInput(logits=logits, target=target, attributes=attributes, features=features)
-        components = self._objective_components(inputs)
-        loss = components["loss"]
-        self._log_objective_components("train", components)
+        logits, preds, target, attributes = self._shared_step(batch)
+        inputs = ObjectiveInput(logits=logits, target=target, attributes=attributes)
+        loss = self.training_objective(inputs)
         return self._step_output(loss, logits, preds, target, attributes, detach_loss=False)
 
     def validation_step(self, batch: tuple[Any, Mapping[str, torch.Tensor], torch.Tensor], batch_idx: int) -> dict[str, Any]:
@@ -154,11 +152,7 @@ class LitModule(L.LightningModule):
             dict[str, Any]: `loss` / `logits` / `preds` / `target` / `attributes`。
                 callback がこれを epoch 集計に使う
         """
-        logits, preds, target, attributes, features = self._shared_step(batch)
-        inputs = ObjectiveInput(logits=logits, target=target, attributes=attributes, features=features)
-        components = self._objective_components(inputs, include_task=False)
-        self._log_objective_components("val", components)
-        return self._step_output(F.cross_entropy(logits, target), logits, preds, target, attributes, detach_loss=True)
+        return self._evaluation_step(batch)
 
     def test_step(self, batch: tuple[Any, Mapping[str, torch.Tensor], torch.Tensor], batch_idx: int) -> dict[str, Any]:
         """比較用の通常 cross-entropy で test loss を計算する。
@@ -191,6 +185,7 @@ class LitModule(L.LightningModule):
         """
         if stage != "fit":
             return
+        self._put_objective_callbacks_first()
         if self.hparams.backbone_checkpoint_path is not None:
             result = self.load_backbone_checkpoint(self.hparams.backbone_checkpoint_path)
             self._require_loaded_backbone(result, self.hparams.backbone_checkpoint_path)
@@ -212,8 +207,77 @@ class LitModule(L.LightningModule):
         Returns:
             None
         """
+        sampler = getattr(getattr(self._trainer, "datamodule", None), "group_class_sampler", None)
+        if sampler is not None:
+            sampler.set_epoch(self.current_epoch)
         if self.hparams.freeze_backbone and (backbone := getattr(self.net, "backbone", None)) is not None:
             backbone.eval()
+
+    def configure_callbacks(self) -> list[L.Callback]:
+        """目的関数が必要とする callback を Trainer に渡す。
+
+        Lightning はここで返した callback を Trainer の callback の後ろに足し、前の fit で足した同じ型の callback を
+        置き換える。fit では `setup` が、これらを Trainer の callback の先頭へ移す。
+
+        Args:
+            なし
+
+        Returns:
+            list[Callback]: 目的関数の `callbacks()`。持たなければ空。
+        """
+        self._objective_callbacks = self.training_objective.callbacks()
+        return list(self._objective_callbacks)
+
+    def _put_objective_callbacks_first(self) -> None:
+        # 目的関数の callback は step の終わりに双対変数を確定し、診断を記録する callback（ObjectiveDiagnosticsRecorder、
+        # ConditionalFairnessRecorder）はその後の値を読む。Lightning は model の callback を後ろに足すので、先頭へ移す。
+        # configure_callbacks で Trainer の callback を返し直して型による置き換えで並べ替えると、LastEpochModelCheckpoint
+        # と ModelCheckpoint のように親子の型が並ぶ構成で同じ instance が重複するため、list を直接並べ替える。
+        # callback の setup はすべて済んでいるので、ここで並べ替えても呼び漏れは出ない。checkpoint は元どおり最後に残る。
+        if self._trainer is None or not self._objective_callbacks:
+            return
+        own = {id(callback) for callback in self._objective_callbacks}
+        self.trainer.callbacks = [*self._objective_callbacks, *(callback for callback in self.trainer.callbacks if id(callback) not in own)]
+
+    def on_train_start(self) -> None:
+        """held-out を使わない目的関数に held-out を設定した run を止める。
+
+        Args:
+            なし
+
+        Returns:
+            None
+
+        Raises:
+            ValueError: 目的関数が held-out を使わないのに DataModule が held-out を持つ場合。
+        """
+        datamodule = getattr(self.trainer, "datamodule", None)
+        if getattr(datamodule, "data_holdout", None) is not None and not self.training_objective.uses_held_out:
+            raise ValueError("held-out は双対変数を更新する条件付き objective でだけ使う")
+
+    @torch.no_grad()
+    def eval_logits(self, image: torch.Tensor, attributes: Mapping[str, torch.Tensor]) -> torch.Tensor:
+        """学習の途中に、net を eval にして勾配なしで logits を測る。
+
+        目的関数の callback が、学習に使わない画像（held-out や split 全件）で成績を測るときに使う。BatchNorm の
+        running 統計を動かさないよう net を eval にし、抜けるときに学習時の状態（凍結した backbone は eval のまま）へ戻す。
+        mixed precision の run でも学習時と同じ精度で推論する。
+
+        Args:
+            image: `[B, 3, H, W]` の画像 batch（device 上）。
+            attributes: 属性辞書（device 上）。
+
+        Returns:
+            torch.Tensor: float32 の `[B, num_classes]` logits。
+        """
+        self.net.eval()
+        try:
+            with self.trainer.precision_plugin.forward_context():
+                return self(image, attributes).float()
+        finally:
+            self.net.train()
+            if self.hparams.freeze_backbone and (backbone := getattr(self.net, "backbone", None)) is not None:
+                backbone.eval()
 
     def load_backbone_checkpoint(self, checkpoint_path: str, load_fc: bool = True) -> dict[str, list[str]]:
         """checkpoint から backbone 相当の互換する重みだけを読み込む。
@@ -240,7 +304,7 @@ class LitModule(L.LightningModule):
             return load_compatible_state_dict(self.net.backbone, backbone_dict, load_fc=load_fc)
         return load_compatible_state_dict(self.net, state_dict, load_fc=load_fc)
 
-    def configure_optimizers(self) -> dict[str, Any] | list[torch.optim.Optimizer]:
+    def configure_optimizers(self) -> dict[str, Any]:
         """学習可能な model / loss parameter から optimizer と任意 scheduler を構築する。
 
         Args:
@@ -256,21 +320,6 @@ class LitModule(L.LightningModule):
         """
         if self._optimizer_factory is None:
             raise ValueError("optimizer を指定する必要がある")
-        if not self.automatic_optimization:
-            if self._scheduler_factory is not None:
-                raise ValueError("ALFR の manual optimization は scheduler をまだサポートしない")
-            if not hasattr(self.loss_fn, "adversary_parameters"):
-                raise TypeError("manual optimization の loss は adversary_parameters() を実装する必要がある")
-            adversary_parameters = list(self.loss_fn.adversary_parameters())
-            adversary_ids = {id(parameter) for parameter in adversary_parameters}
-            task_parameters = [parameter for parameter in self.net.parameters() if parameter.requires_grad]
-            task_parameters.extend(parameter for parameter in self.loss_fn.parameters() if parameter.requires_grad and id(parameter) not in adversary_ids)
-            if not task_parameters or not adversary_parameters:
-                raise ValueError("ALFR の task/adversary optimizer に trainable parameter が必要")
-            task_optimizer = self._optimizer_factory(params=task_parameters)
-            adversary_factory = self._adversary_optimizer_factory or self._optimizer_factory
-            adversary_optimizer = adversary_factory(params=adversary_parameters)
-            return [task_optimizer, adversary_optimizer]
         parameters = [parameter for parameter in self.parameters() if parameter.requires_grad]
         if not parameters:
             raise ValueError("optimizer 構成に使う trainable parameter が見つからない")
@@ -283,95 +332,15 @@ class LitModule(L.LightningModule):
             "lr_scheduler": {"scheduler": scheduler, "monitor": "val/loss", "interval": "epoch", "frequency": 1},
         }
 
-    def _update_adversary_progress(self) -> None:
-        """DANN objective に現在の fit 進捗を渡す。"""
-        if not hasattr(self.training_objective, "set_training_progress") or self._trainer is None:
-            return
-        total_steps = max(int(getattr(self.trainer, "estimated_stepping_batches", 1)), 1)
-        progress = min(float(getattr(self, "global_step", 0)) / max(total_steps - 1, 1), 1.0)
-        self.training_objective.set_training_progress(progress)
-        if hasattr(self._trainer, "barebones"):
-            self.log("train/adversary_scale", self.training_objective.adversary_scale, on_step=False, on_epoch=True)
-
-    def _alternating_training_step(self, batch: tuple[Any, Mapping[str, torch.Tensor], torch.Tensor]) -> dict[str, Any]:
-        """ALFR の adversary update と representation update を1:1で実行する。"""
-        task_optimizer, adversary_optimizer = self.optimizers()
-        # adversary update は feature を detach して行うため、ここで backbone の
-        # BatchNorm running statistics まで二重に更新しない。task update 側だけを
-        # train mode にして、1 iteration を 1 回の表現更新として扱う。
-        was_training = self.net.training
-        self.net.eval()
-        try:
-            logits, preds, target, attributes, features = self._shared_step(batch)
-        finally:
-            self.net.train(was_training)
-        adversary_inputs = ObjectiveInput(logits=logits, target=target, attributes=attributes, features=features)
-        adversary_optimizer.zero_grad()
-        adversary_loss = self.training_objective.adversary_loss(adversary_inputs)
-        self.manual_backward(adversary_loss)
-        adversary_optimizer.step()
-
-        logits, preds, target, attributes, features = self._shared_step(batch)
-        inputs = ObjectiveInput(logits=logits, target=target, attributes=attributes, features=features)
-        adversary_parameters = list(self.training_objective.adversary_parameters())
-        previous_requires_grad = [parameter.requires_grad for parameter in adversary_parameters]
-        for parameter in adversary_parameters:
-            parameter.requires_grad_(False)
-        try:
-            task_optimizer.zero_grad()
-            components = self._objective_components(inputs)
-            loss = components["loss"]
-            self.manual_backward(loss)
-            task_optimizer.step()
-        finally:
-            for parameter, requires_grad in zip(adversary_parameters, previous_requires_grad, strict=True):
-                parameter.requires_grad_(requires_grad)
-        self._log_objective_components("train", components)
-        if hasattr(self._trainer, "barebones"):
-            self.log("train/alfr/adversary_loss", adversary_loss.detach(), on_step=False, on_epoch=True)
-        return self._step_output(loss, logits, preds, target, attributes, detach_loss=False)
-
-    def _shared_step(self, batch: tuple[Any, Mapping[str, torch.Tensor], torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, Mapping[str, torch.Tensor], torch.Tensor | None]:
+    def _shared_step(self, batch: tuple[Any, Mapping[str, torch.Tensor], torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, Mapping[str, torch.Tensor]]:
         image, attributes, target = batch
-        features = None
-        if getattr(self.training_objective, "requires_features", False):
-            if not hasattr(self.net, "forward_with_features"):
-                raise TypeError("features を必要とする loss の net は forward_with_features を実装する必要がある")
-            if self.use_attributes:
-                logits, features = self.net.forward_with_features(image, attributes)
-            else:
-                logits, features = self.net.forward_with_features(image)
-        else:
-            logits = self(image, attributes)
+        logits = self(image, attributes)
         target = target.long()
-        return logits, torch.argmax(logits, dim=1), target, attributes, features
+        return logits, torch.argmax(logits, dim=1), target, attributes
 
     def _evaluation_step(self, batch: tuple[Any, Mapping[str, torch.Tensor], torch.Tensor]) -> dict[str, Any]:
-        logits, preds, target, attributes, _ = self._shared_step(batch)
+        logits, preds, target, attributes = self._shared_step(batch)
         return self._step_output(F.cross_entropy(logits, target), logits, preds, target, attributes, detach_loss=True)
-
-    def _objective_components(self, inputs: ObjectiveInput, *, include_task: bool = True) -> dict[str, torch.Tensor]:
-        """目的関数が提供する分解lossを取得し、通常のobjectiveにも対応する。"""
-        if hasattr(self.training_objective, "loss_components"):
-            components = self.training_objective.loss_components(inputs)
-            if include_task:
-                components["loss"] = components["task"] + self.training_objective.attribute_adversary_weight * components["attribute_adversary"]
-            else:
-                components.pop("task", None)
-            return components
-        loss = self.training_objective(inputs)
-        return {"loss": loss} if include_task else {}
-
-    def _log_objective_components(self, phase: str, components: Mapping[str, torch.Tensor]) -> None:
-        """分解lossをepoch集計用のscalar metricとして記録する。"""
-        # 単体テストでは Lightning Trainer の代わりに最小の stub を注入するため、実行時だけ
-        # logging API を呼ぶ。通常の fit では self.trainer が完全な Trainer になる。
-        if self._trainer is None or not hasattr(self._trainer, "barebones"):
-            return
-        for name, value in components.items():
-            if name == "loss":
-                continue
-            self.log(f"{phase}/{name}", value, on_step=False, on_epoch=True, prog_bar=False)
 
     @staticmethod
     def _step_output(

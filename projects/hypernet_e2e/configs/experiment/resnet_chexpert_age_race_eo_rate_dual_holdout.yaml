@@ -1,0 +1,14 @@
+# @package _global_
+# EO rate 制約（Cotter et al. JMLR 2019 の proxy-Lagrangian）。8 群の全有向ペアで TPR 差・FPR 差 ≤ 0.1。
+defaults:
+  - resnet_chexpert_race_known
+  - _dual_holdout_chexpert
+  - override /data: chexpert_age_race_known_cells_dual_holdout
+  - override /training_strategy: equalized_odds_rate
+  - _self_
+experiment_name: resnet-chexpert-age-race-eo-rate-dual-holdout
+model:
+  loss_fn:
+    # λ を一様に置くと task の重みが 1/113 になり、全予測を片側へ寄せる自明解に落ちる
+    # （2026-10-08 の 1 stage run）。task 側へ寄せて始める。TFCO の既定も task 寄り。
+    initial_task_weight: 0.9

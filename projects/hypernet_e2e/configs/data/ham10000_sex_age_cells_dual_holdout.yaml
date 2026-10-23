@@ -1,0 +1,7 @@
+# 性別 × 年齢（65 歳）の 4 群をセル均等に抽出し、群の重み（双対変数）は held-out で測る。
+# split は train の病変 20% を held-out に分けたもの（data_pipeline/ham10000_dual_holdout_splits.py）。
+defaults:
+  - ham10000_sex_age_cells
+  - _self_
+cv_splits_dir: ${paths.data_dir}/ham10000/splits_dual_holdout
+holdout_split: holdout

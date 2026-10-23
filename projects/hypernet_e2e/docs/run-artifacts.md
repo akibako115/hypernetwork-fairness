@@ -27,7 +27,8 @@ projects/hypernet_e2e/runs/
 ```
 
 `runs/` は Git 管理しない。生成済み run は不変であり、再実行や再開で既存 directory を使い回さない。
-途中で失敗した run も `run.json` に `failed` を記録して残す。
+途中で失敗した run は `run.json` に `failed` とエラーを記録する。原因を確かめて報告したら、その run directory は消す
+（`.agents/skills/train/failures.md`）。
 
 ## run ID
 
@@ -93,6 +94,13 @@ epoch ごとの metric は必須の `metrics/metrics.csv` にも記録する。�
 ではCSVとW&Bの両方を有効にする。既定の外部 loggerはwandbで、projectは`fairness_hypernet`とする。
 `logger=none` は preflight・単体テスト・結果を残さない短い動作確認だけに使う。`metrics/fit.json` は fit 終了時点の値だけなので、
 epoch 推移の分析には `metrics/metrics.csv` を使う。
+
+Group DROでは`GroupDRODiagnostics`が各epochの`train/group_dro/{q_end,q_mean,loss,count}/g<ID>`を
+CSVとW&Bへ記録する。`q_end`は最後のtrain batch更新後のq、`q_mean`は更新後qのbatch等重み平均。
+`loss`はclass weight適用後の群内標本平均（未観測群はNaN）、`count`は群内標本数である。
+群ID・ラベル・初期q・集計定義は`metrics/group_dro_groups.json`に保存する。
+診断は実際のtrain forwardの値を使い、追加のloss計算・q更新は行わない。単一deviceのみ対応する。
+このcallback導入前のrunにepoch別qは存在せず、checkpoint終端値からは復元できない。
 
 | 項目 | 扱い |
 | --- | --- |

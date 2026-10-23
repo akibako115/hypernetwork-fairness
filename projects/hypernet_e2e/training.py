@@ -24,6 +24,9 @@ from projects.hypernet_e2e.run_plan import format_run_plan
 from projects.hypernet_e2e.run_record import RunRecorder
 from projects.hypernet_e2e.runtime_paths import normalize_runtime_paths, repository_root
 
+# weighting=inverse で解いた class weight を書き込む場所。
+CLASS_WEIGHT_PATH = "model.loss_fn.class_weight"
+
 
 def run_fit(config: DictConfig) -> Path:
     """解決済み設定から新規 run を記録し、一回だけ Lightning ``fit`` を実行する。
@@ -48,9 +51,10 @@ def run_fit(config: DictConfig) -> Path:
     """
     normalize_runtime_paths(config)
     _validate_study(config)
-    _validate_attribute_invariance(config)
     _validate_group_dro_weighting(config)
     _resolve_inverse_class_weights(config)
+    _resolve_conditional_population(config)
+    _prepare_age_continuation(config)
     recorder = RunRecorder.prepare_fit(config)
     try:
         with text_log(recorder.run_dir / "logs"), experiment_loggers(config) as loggers:
@@ -96,14 +100,72 @@ def run_plan(config: DictConfig) -> str:
         str: 起動前に確認する条件の表
 
     Raises:
-        ValueError: study や属性不変化の組み合わせが不正な場合。
+        ValueError: study や Group DRO の重み付けの組み合わせが不正な場合。
     """
     normalize_runtime_paths(config)
     _validate_study(config)
-    _validate_attribute_invariance(config)
     _validate_group_dro_weighting(config)
     _resolve_inverse_class_weights(config)
-    return format_run_plan(config, class_weight_path(config))
+    _resolve_conditional_population(config)
+    _prepare_age_continuation(config, dry_run=True)
+    return format_run_plan(config, CLASS_WEIGHT_PATH)
+
+
+def _prepare_age_continuation(config: DictConfig, *, dry_run: bool = False) -> None:
+    if not OmegaConf.select(config, "continuation.require_parent", default=False):
+        return
+    if config.model.get("freeze_backbone") or config.model.get("use_attributes"):
+        raise ValueError("年齢公平性の初回比較は全層学習・属性入力なし")
+    if int(config.trainer.devices) != 1 or int(config.trainer.accumulate_grad_batches) != 1:
+        raise ValueError("年齢公平性の初回比較は single device / accumulation=1")
+    if str(config.trainer.precision) not in {"bf16-mixed", "32-true", "32"}:
+        raise ValueError("双対更新は optimizer skip のない bf16/float32 で検証する")
+    checkpoint = config.model.get("backbone_checkpoint_path")
+    if not checkpoint and not dry_run:
+        raise ValueError("年齢公平性の継続学習には同じ seed の親 ERM checkpoint が必要")
+    if checkpoint:
+        path = Path(str(checkpoint))
+        if not path.is_file():
+            raise ValueError(f"親 ERM checkpoint が見つからない: {path}")
+        parent_config = path.parent.parent / "config.yaml"
+        if not parent_config.is_file():
+            raise ValueError(f"親の seed・ERM 条件を確認する config.yaml が必要: {parent_config}")
+        parent = OmegaConf.load(parent_config)
+        if parent.get("seed") is None or int(parent.seed) != int(config.seed):
+            raise ValueError("継続学習の親 ERM と seed が一致しない")
+        if OmegaConf.select(parent, "training_strategy.name") != "erm":
+            raise ValueError("年齢公平性の初回比較には親 ERM checkpoint が必要")
+    wandb = OmegaConf.select(config, "logger.wandb")
+    if wandb is not None and not wandb.get("group"):
+        loss = config.model.loss_fn
+        if "radius" in loss:
+            settings = f"rho{float(loss.radius):g}"
+        else:
+            eta = float(loss.get("dual_step_size", loss.get("step_size", 0)))
+            tau = float(loss.get("tau", 0))
+            settings = f"eta{eta:g}_tau{tau:g}"
+        OmegaConf.update(config, "logger.wandb.group", f"maeo_age_{config.training_strategy.name}_{settings}")
+
+
+def _resolve_conditional_population(config: DictConfig) -> None:
+    loss = config.model.loss_fn
+    if "population_cell_counts" not in loss:
+        return
+    if int(config.trainer.get("devices", 1)) != 1 or int(config.trainer.get("accumulate_grad_batches", 1)) != 1:
+        raise ValueError("条件付き objective は single device / accumulation=1 が必要")
+    # fp16 の GradScaler は optimizer step を飛ばすことがあり、双対だけが進む。継続学習と 1 stage で共通に拒否する。
+    if str(OmegaConf.select(config, "trainer.precision", default="32-true")) not in {"bf16-mixed", "32-true", "32"}:
+        raise ValueError("条件付き objective は optimizer skip のない bf16/float32 で学習する")
+    if not str(config.data._target_).endswith("GroupClassImageDataModule"):
+        raise ValueError("条件付き objective にはセル均等抽出 DataModule が必要")
+    frame = add_age_groups(pd.read_csv(Path(str(config.data.cv_splits_dir)) / "train.csv"), config.data.get("fairness_age_groups"))
+    groups = demographic_group_ids(frame, config.data.group_attribute_names, config.data.group_cardinalities, group_key=config.data.group_key, missing_values=config.data.get("group_missing_values"))
+    counts = [[int(((groups == g) & (frame.target == c)).sum()) for c in range(2)] for g in range(int(config.data.num_groups))]
+    if any(min(row) == 0 for row in counts):
+        raise ValueError(f"train に空の群・クラスセル: {counts}")
+    OmegaConf.update(config, "model.loss_fn.population_cell_counts", counts, merge=False)
+    if config.get("weighting") == "none" and "class_weight" in loss:
+        OmegaConf.update(config, "model.loss_fn.class_weight", None, merge=False)
 
 
 def _validate_study(config: DictConfig) -> None:
@@ -136,28 +198,6 @@ def _validate_study(config: DictConfig) -> None:
         raise ValueError(unknown + remedy)
 
 
-def _validate_attribute_invariance(config: DictConfig) -> None:
-    """属性不変化の第1段を ERM 以外の学習 strategy と併用させない。
-
-    Group DRO の Hydra override は model.loss_fn を直接差し替える。そのまま許すと属性不変
-    wrapper が静かに消えるため、fit 前に意図しない組み合わせを明示的に拒否する。
-
-    Args:
-        config: Hydra が合成した実行設定。
-
-    Returns:
-        None
-
-    Raises:
-        ValueError: 属性不変化を ERM 以外の strategy と組み合わせた場合。
-    """
-    invariance = config.get("attribute_invariance")
-    if not invariance or not invariance.get("enabled", False):
-        return
-    if config.training_strategy.name != "erm":
-        raise ValueError("attribute_invariance は training_strategy=erm でのみ利用できる")
-
-
 def _validate_group_dro_weighting(config: DictConfig) -> None:
     """class weight 必須の Group DRO を `weighting=inverse` に限定する。"""
     strategy = config.get("training_strategy")
@@ -166,25 +206,36 @@ def _validate_group_dro_weighting(config: DictConfig) -> None:
 
 
 def _resolve_inverse_class_weights(config: DictConfig) -> None:
-    """inverse weighting 時に train split から class weight を設定する。"""
+    """inverse weighting 時に train split から class weight を設定する。
+
+    モデルの更新に使う `class_weight` は strategy の `class_weight_scope`（既定 global）で決める。
+    `q_class_weight_scope` を持つ strategy（`group_dro_subgroup`）は、q の更新だけに使う重みを `q_class_weight` にも書く。
+    """
     if config.get("weighting", "none") != "inverse":
         return
     frame = pd.read_csv(Path(str(config.data.cv_splits_dir)) / "train.csv")
+    strategy = config.get("training_strategy") or {}
+    weights = _scoped_inverse_weights(config, frame, strategy.get("class_weight_scope", "global"))
+    OmegaConf.update(config, CLASS_WEIGHT_PATH, weights, merge=False)
+    q_scope = strategy.get("q_class_weight_scope")
+    if q_scope is not None:
+        OmegaConf.update(config, "model.loss_fn.q_class_weight", _scoped_inverse_weights(config, frame, q_scope), merge=False)
+
+
+def _scoped_inverse_weights(config: DictConfig, frame: pd.DataFrame, scope: str) -> list[float] | list[list[float]]:
+    """scope が subgroup なら群 × クラスの、それ以外なら全群共通の逆頻度 class weight を返す。"""
     num_classes = int(config.data.num_classes)
-    strategy = config.get("training_strategy")
-    if strategy is not None and strategy.get("class_weight_scope") == "subgroup":
-        frame = add_age_groups(frame, config.data.get("fairness_age_groups"))
-        group_ids = demographic_group_ids(
-            frame,
-            config.data.group_attribute_names,
-            config.data.group_cardinalities,
-            group_key=config.data.group_key,
-            missing_values=config.data.get("group_missing_values"),
-        )
-        weights = _group_inverse_frequency_weights(frame["target"].tolist(), group_ids.tolist(), int(config.data.num_groups), num_classes)
-    else:
-        weights = _inverse_frequency_weights([int(value) for value in frame["target"]], num_classes)
-    OmegaConf.update(config, class_weight_path(config), weights, merge=False)
+    if scope != "subgroup":
+        return _inverse_frequency_weights([int(value) for value in frame["target"]], num_classes)
+    frame = add_age_groups(frame, config.data.get("fairness_age_groups"))
+    group_ids = demographic_group_ids(
+        frame,
+        config.data.group_attribute_names,
+        config.data.group_cardinalities,
+        group_key=config.data.group_key,
+        missing_values=config.data.get("group_missing_values"),
+    )
+    return _group_inverse_frequency_weights(frame["target"].tolist(), group_ids.tolist(), int(config.data.num_groups), num_classes)
 
 
 def _group_inverse_frequency_weights(labels: list[int], group_ids: list[int], num_groups: int, num_classes: int) -> list[list[float]]:
@@ -203,21 +254,6 @@ def _group_inverse_frequency_weights(labels: list[int], group_ids: list[int], nu
         total = sum(row)
         weights.append([round(total / (num_classes * cell), 6) for cell in row])
     return weights
-
-
-def class_weight_path(config: DictConfig) -> str:
-    """解決した class weight を書き込む config path を返す。
-
-    属性不変化の run は task loss を wrapper で包むので、重みの置き場所が 1 段深くなる。
-
-    Args:
-        config: `model.loss_fn` を持つ設定
-
-    Returns:
-        str: `model.loss_fn.class_weight` か、wrapper 越しの `model.loss_fn.task_loss.class_weight`
-    """
-    loss_target = str(OmegaConf.select(config, "model.loss_fn._target_", default=""))
-    return "model.loss_fn.task_loss.class_weight" if loss_target.endswith("AttributeInvariantTaskLoss") else "model.loss_fn.class_weight"
 
 
 def _inverse_frequency_weights(labels: list[int], num_classes: int) -> list[float]:

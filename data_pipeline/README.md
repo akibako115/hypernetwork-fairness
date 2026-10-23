@@ -20,9 +20,11 @@
 
 - CheXpert: 欠損 categorical は `0`。`race` なら `White`、`ap_pa` なら `AP` と同じ値になる
 - ISIC 2019: 欠損 categorical は `-1`
+- FairVLMed: 欠損 categorical は `-1`（配布 CSV の `unknown`）
+- HAM10000: 欠損 categorical は `-1`（配布 CSV の `unknown` と空欄）
 
 値そのものを見て欠損を判定すると、CheXpert では欠損が最大群へ静かに混ざる。消費側（`MetadataEncoder`、
-属性 adversary、公平性指標、group DataModule）はいずれもフラグとペアで読む実装になっている。
+公平性指標、group DataModule）はいずれもフラグとペアで読む実装になっている。
 
 ## CheXpert
 
@@ -51,7 +53,18 @@
 出力先の `manifest.json` に残す。期待する残存件数は train 157,852 / val 20,058 / test 19,617。
 元データを保持することで、race 欠損群の補足評価と既存 run の再現に利用できる。
 
+`uv run python -m data_pipeline.chexpert_crossfit_splits` で、race-known の train を患者単位で半分ずつに分けた
+`data/chexpert/splits_crossfit/{train_a,train_b,val,test}.csv` を作る（seed 0、train_a 79,493 / train_b 78,359）。
+1 段目を A だけで学習し、2 段目の補正を 1 段目が見ていない B で学習する cross-fit 用である。
+val / test は race-known と同じ行の複製。使っていた study は `analysis/archive/latent_bias_hypernet/`（2026-10-17 に消した。snapshot/agent-era-20261016 ブランチに残る）。
+
 ## ISIC 2019
+
+> **用途を限定している（2026-10-12）。** 皮膚画像の補足実験は HAM10000 にそろえ、下の `splits_fairness` と
+> 5-fold CV は新しい実験では使わない。ISIC 2019 は、BCN20000 で学習して HAM10000 の部分に展開する施設間の
+> 分析（`analysis/archive/latent_bias_hypernet/isic_sites.py`）にだけ使う。HAM10000 本体は ISIC 2019 に含まれるので、
+> 一方の split で学習・fit したものを他方のデータに当てない。方針の正本は
+> [docs/research-premises.md](../docs/research-premises.md)。
 
 | 項目 | 内容 |
 | --- | --- |
@@ -72,9 +85,133 @@ CheXpert が患者単位で分ける理由と同じ。比率 80/10/10 は
 有病率差を測ってしまう。ITA で肌色を推定する際に、色かぶりとの切り分けに使う想定で列だけ残す。
 MSK のうち 2,074 枚は ISIC archive のダンプに isic_id が無く、`attribution_missing` が立つ。
 
+## FairVLMed
+
+[Harvard-FairVLMed](https://huggingface.co/datasets/harvardairobotics/FairVLMed)（FairCLIP, CVPR 2024）。
+SLO 眼底画像 10,000 枚の glaucoma 2 クラス分類で、ライセンスは CC BY-NC-ND 4.0（非商用研究のみ）。
+
+| 項目 | 内容 |
+| --- | --- |
+| 分割単位 | 患者。ただし 1 患者 1 枚なので、画像単位と同じ |
+| 比率 | **配布元の `use` 列をそのまま使う**（train 7,000 / val 1,000 / test 2,000） |
+| 生成 | `uv run python -m data_pipeline.fairvlmed_splits` |
+| 場所 | `data/fairvlmed/splits/{train,val,test}.csv`、画像は `data/fairvlmed/images/*.png` |
+| CV | 行わない |
+
+配布 split を再分割しないのは、FairCLIP をはじめ先行研究の数値がすべてこの split 上のものだからである。
+入力は `data/fairvlmed/` に置いた HF の `Dataset/dataset.zip` と `ReadMe/data_summary.csv`。
+npz の `slo_fundus` を PNG へ展開し（`ImageDataset` は PIL で開くため）、その際に npz 内の
+`glaucoma` / 属性の整数符号が CSV の符号化と一致することを全件で確かめる。
+
+**npz の `language` は 2（Other）と -1（Unknown）が入れ替わっている。** CSV は other 76 件・unknown
+498 件で、論文の「0.8% が other、5.0% が unknown」と一致するので CSV を正とする。npz を直接読む
+FairCLIP 公式実装は `language == -1` を unknown として評価から外すが、実際に外れているのは other の
+76 件で、unknown の 498 件が Others 群として評価されている。先行研究の language 軸の数値と
+比べるときはこの差に注意する。
+
+属性は gender / race（Asian・Black・White）/ ethnicity / language / maritalstatus と age で、
+欠損は age 以外にあり `unknown` で表される。fairness の評価軸は FairCLIP の 4 軸（race / gender /
+ethnicity / language）に `age_group_65` を加えたもので、maritalstatus はモデル入力にだけ使う。
+
+test の language は other が 11 枚（陰性 5 / 陽性 6）、spanish が 31 枚（陰性 9 / 陽性 22）しかない。
+後述の最小セル枚数 20 を当てると、other は全セル、spanish は陰性側（TNR / FPR）のセルが外れる。
+**ただしこの下限は事後分析で適用する規則で、学習中の `FairnessMetricsCallback` には実装されていない。**
+callback がログする language 軸の gap は 11 枚の other 群を含んだ max−min なので、参考値として扱う。
+
+split CSV には、属性ではないフラグ列を 2 つ持たせる。どちらもモデル入力にも評価軸にも入れず、
+事後分析で評価対象を絞るために使う。
+
+| 列 | 内容 | test |
+| --- | --- | --- |
+| `image_blank` | 輝度 10 未満の画素が 95% 以上を占める、ほぼ黒い画像 | 112 / 2,000 |
+| `fairclip_eval_subset` | FairCLIP 公式実装が val / test の評価に残す行 | 1,883 / 2,000 |
+
+`image_blank` は全体で 552 枚（5.5%）あり、配布 zip の JPEG も同じ暗さなので変換の問題ではない。
+目視では大半が撮影失敗で、残りもコントラストを上げてようやく眼底が見える露出不足である。率は
+Black 12.3% / Asian 9.2% / White 3.8% と race で大きく違い、Black の陽性では 14.4% に達する。
+画像から判定できない例が特定の群の陽性に偏るので、群間 gap の一部は画質の差を測ってしまう。
+FairCLIP はこれらを除かずに評価しているため行は残し、除いた評価を感度分析として並べる。
+閾値の境界に明確な谷は無く（90% 以上なら 688 枚）、操作的な定義である。blank を除いても平均輝度は
+White 40 / Black 22 / Asian 23（0–255）と race で違う。
+
+`fairclip_eval_subset` は、先行研究の数値と突き合わせるための評価対象である。FairCLIP 公式実装は
+npz の race / gender / ethnicity / language のいずれかが -1 の行を、群別だけでなく全体 AUC からも外す。
+npz の language は入れ替わっているので、外れるのは ethnicity の unknown と language の other になる。
+
+## HAM10000
+
+[HAM10000](https://doi.org/10.7910/DVN/DBW86T)（Harvard Dataverse v4.0）。ダーモスコピー画像 10,015 枚
+（7,470 病変）と、ISIC2018 Task3 の公式 test 1,512 枚。ライセンスは CC BY-NC 4.0（非商用のみ）。
+
+| 項目 | 内容 |
+| --- | --- |
+| target | **悪性 2 値**（mel / akiec = 1、MEDFAIR と同じ）。7 クラスは `dx` 列に残す |
+| 分割単位 | 病変（`lesion_id`）。全画像が持つ |
+| 比率 | 本体を train/val 85/15（train 8,457 / val 1,491）。test は公式 test 1,511 |
+| 除外 | train/val から sex か age が欠損した 67 枚（train 62 / val 5）。test は全行を残す |
+| 層化 | 7 クラスの `dx`。`lesion_id` 内で dx は割れない |
+| 生成 | `uv run python -m data_pipeline.ham10000_splits`（seed 12345） |
+| 場所 | `data/ham10000/splits/{train,val,test}.csv`、画像は `data/ham10000/images/*.jpg` |
+| CV | 行わない |
+
+入力は `data/ham10000/raw/` に置いた Dataverse の配布物で、画像 zip 3 本を `images/` 直下へ展開する。
+本体の 10,015 枚は ISIC 2019 Training にもすべて含まれる（`attribution` の HAM10000 群）。ISIC 2019 の
+代わりにこちらを使う理由は、ラベル付きの公式 test を外部 test として使えることにある。公式 test は
+本体と画像 ID も病変も重ならず、病変単位の漏洩が起こらない。test の `ISIC_0035068` は GroundTruth に
+あるが画像 zip に無く、dx 以外の metadata も空なので外している。
+
+**target を 2 値にするのは、7 クラスでは評価セルが足りないため。** 公式 test を属性で割ると df・vasc は
+群あたり 1 桁になり、後述の最小セル枚数 20 を割る。2 値なら最小セルは sex 軸で female の悪性 69 枚、
+age 軸で 65 歳未満の悪性 94 枚ある。
+
+2 値の定義は [MEDFAIR](https://arxiv.org/abs/2210.01725) の公式前処理（`notebooks/HAM10000-example.ipynb`）に
+合わせ、mel と akiec を悪性、bcc を含む残り 5 クラスを良性とする。MEDFAIR は Maron et al. (2019) に従って
+bcc を良性側に置いている。臨床的には bcc も悪性腫瘍だが、先行研究との比較可能性を優先した。悪性の比率は
+train 14.5% / test 14.2%。分割は MEDFAIR と異なる（MEDFAIR は本体を病変単位で 80/10/10）ため、数値を
+直接は比べられない。
+
+属性は sex / localization（categorical）と age（continuous）。fairness の評価軸は sex と
+`age_group_65` で、CheXpert・ISIC 2019 と同じく 65 歳で切る。HAM10000 の age は 5 歳刻みなので、
+MEDFAIR の 2 区分（論文では 60 歳、コードでは 60 歳を若年側に入れる `≤60 / ≥61`）とも同じ群になる。肌色・人種の列は無く、撮影地もオーストリアとオーストラリアに
+限られる。
+
+欠損は本体では少ない（sex 57 / age 57 / localization 234、うち 47 件は sex と age が両方欠ける）。
+**train/val からは sex か age が欠損した行を外す。** どちらも fairness の評価軸と Group DRO の group を
+決める属性で、欠損行があると group が決まらない（`group_datamodule` は例外で止まる）。欠損を独立の
+group にすると数十行の group を DRO が過大に重み付けし、ERM の run でだけ残すと手法間で学習データが
+揃わない。病変の train/val 割り当ては全行で決めてから外すので、外す行の有無で他の病変の所属は動かない。
+localization は評価軸ではなくモデル入力にだけ使うので、欠損フラグのまま残す。
+
+| split | sex か age の欠損 | 扱い |
+| --- | --- | --- |
+| train | 62 / 8,519（0.7%） | 外す |
+| val | 5 / 1,496（0.3%） | 外す |
+| test | 294 / 1,511（19.5%） | 残す。全体の性能は 1,511 枚、fairness 指標は欠損フラグで外れた残り 1,217 枚で計算する |
+
+**test は `dataset=external`（HAM10000 外の施設、316 枚）に欠損が集中し**、age か sex を欠く 294 枚の
+うち 284 枚がここに属する。fairness 指標は実質 HAM10000 と同じ施設の画像に限られる。
+
+**属性で条件付けたモデルは、external の欠損行で崩れる。** 欠損年齢は配布 CSV で 0 歳として入り、標準化すると
+約 −3 SD の値になる。train/val から欠損行を外しているので、モデルはこの入力も、立った欠損フラグも学習中に見ない。
+2026-10-07 の ERM の比較（旧 `ham10000_architecture_erm`）では、external だけの AUROC で Spatial LoRA・HyperAdapt が
+ResNet-50 を下回った（0.822・0.799 対 0.846）。属性を使わない ResNet と比べると、全 1,511 枚の全体 AUROC には
+モデル構成の差と欠損入力の扱いの差が混ざるので、**モデル間の主比較は属性の揃った 1,217 枚で行う**。
+
+**患者単位の分離は保証できない。** 患者 ID が公開されておらず、ISIC archive でも全画像の `patient_id` が
+空である。同一患者の別病変が split をまたぐ可能性は残る。確認できたのは、split 間で `lesion_id` の共有が
+無いこと（archive 側の lesion ID でも同じ）と、dHash で split をまたぐ画像重複が無いこと（距離 10 以下の
+6 組は目視ですべて別病変）である。`dataset`（撮影元）と `dx_type`（診断の根拠: histo / follow_up / consensus /
+confocal）は共変量として列だけ残し、評価軸には入れない。
+
+`age=0` は本体に 39 件、test に 6 件ある。本体の 39 件はすべて vidir_modern 由来の良性
+（nv 30 / bkl 5 / vasc 4）で、先天性母斑や乳児血管腫と考えて矛盾しないので、ISIC 2019 と同じく実在の
+値として扱う。
+
 ## CV 戦略
 
 **ISIC 2019 のみ 5-fold CV を行う。CheXpert は単一 split のまま。**
+
+> ISIC 2019 の用途を限定したので（上の ISIC 2019 節）、この CV は新しい実験では使わない。過去の判断の記録として残す。
 
 ```bash
 uv run python -m data_pipeline.isic2019_splits --cv

@@ -1,0 +1,5 @@
+# ERM の対照。公平性損失の run と同じ 80% の train で学習する（held-out は使わない）。
+defaults:
+  - ham10000
+  - _self_
+cv_splits_dir: ${paths.data_dir}/ham10000/splits_dual_holdout

@@ -1,0 +1,6 @@
+defaults:
+  - chexpert_age_known_groups
+  - _self_
+_target_: projects.hypernet_e2e.data.group_class_sampler.GroupClassImageDataModule
+sampling_seed: ${seed}
+train_sampling: group_class_balanced

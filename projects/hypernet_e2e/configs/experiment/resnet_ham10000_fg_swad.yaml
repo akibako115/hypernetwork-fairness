@@ -1,0 +1,16 @@
+# @package _global_
+# 公平性手法の比較（ResNet-50、HAM10000）。SWAD（群を使わない、ERM の重みを val 損失の谷で平均）。
+# 評価する重みは checkpoints/swad.ckpt。
+defaults:
+  - resnet_ham10000
+  - _fairness_ham10000
+  - override /training_strategy: erm
+  - _self_
+
+experiment_name: resnet-ham10000-fg-swad
+callbacks:
+  swad:
+    _target_: projects.hypernet_e2e.callbacks.swad.SWADCallback
+    n_converge: 3
+    n_tolerance: 6
+    tolerance_ratio: 0.3

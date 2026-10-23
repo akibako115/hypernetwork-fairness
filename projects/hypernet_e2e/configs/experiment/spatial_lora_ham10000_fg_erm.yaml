@@ -1,0 +1,12 @@
+# @package _global_
+# 公平性手法の比較を Spatial LoRA（E2E）に広げる。条件は定数、ERM。Spatial LoRA の行の基準。
+defaults:
+  - spatial_lora_ham10000_const
+  - _fairness_ham10000
+  - override /training_strategy: erm
+  - _self_
+
+experiment_name: spatial-lora-ham10000-fg-erm
+data:
+  # splits_lhcf は splits_latent に LHCF のコホート列を足したもの
+  cv_splits_dir: ${paths.data_dir}/ham10000/splits_lhcf

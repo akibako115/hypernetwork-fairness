@@ -1,0 +1,7 @@
+# @package _global_
+# 2 段目の Spatial LoRA を EO rate で学習する。
+defaults:
+  - spatial_lora_chexpert_age_race_eo_rate_dual_holdout
+  - _two_stage_frozen
+  - _self_
+experiment_name: spatial-lora-chexpert-from-resnet-age-race-eo-rate-dual-holdout

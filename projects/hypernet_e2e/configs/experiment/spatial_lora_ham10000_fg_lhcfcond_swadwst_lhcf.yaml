@@ -1,0 +1,15 @@
+# @package _global_
+# Spatial LoRA（E2E）を LHCF のコホートで条件付け、SWAD ＋ 同じコホートの最悪コホート損失で学習する。
+# 評価する重みは checkpoints/swad.ckpt。
+defaults:
+  - spatial_lora_ham10000_fg_swadwst_lhcf
+  - _self_
+
+experiment_name: spatial-lora-ham10000-fg-lhcfcond-swadwst-lhcf
+data:
+  attribute_names:
+    categorical: [lhcf]
+    continuous: []
+  attribute_spec:
+    categorical_cardinalities: [11]
+    continuous_dim: 0

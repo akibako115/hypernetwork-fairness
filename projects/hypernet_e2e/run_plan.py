@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from hydra.core.hydra_config import HydraConfig
@@ -37,7 +37,9 @@ _SECTIONS: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = (
         (
             ("net", "model.net._target_"),
             ("modulation_stages", "model.net.modulation_stages"),
+            ("adapted_convs", "model.net.adapted_convs"),
             ("backbone_checkpoint", "model.backbone_checkpoint_path"),
+            ("parent required for fit", "continuation.require_parent"),
             ("freeze_backbone", "model.freeze_backbone"),
             ("optimizer", "model.optimizer._target_"),
             ("lr", "model.optimizer.lr"),
@@ -85,7 +87,10 @@ def format_run_plan(config: DictConfig, class_weight_path: str) -> str:
         sections.append((title, present))
     weighting = _value(config, "weighting")
     class_weight = _value(config, class_weight_path)
-    sections.insert(3, ("クラス重み", [("weighting", weighting), ("class_weight", class_weight)]))
+    weight_rows = [("weighting", weighting), ("class_weight", class_weight)]
+    if _select(config, "model.loss_fn.q_class_weight") is not _MISSING:
+        weight_rows.append(("q_class_weight", _value(config, "model.loss_fn.q_class_weight")))
+    sections.insert(3, ("クラス重み", weight_rows))
     sections.insert(4, ("目的関数", _objective_rows(config)))
     sections.append(("callbacks", [("callbacks", ", ".join(config.get("callbacks") or []) or "(なし)")]))
     sections.append(("明示指定", _override_rows()))
@@ -114,11 +119,23 @@ def _objective_rows(config: DictConfig) -> list[tuple[str, str]]:
     loss_fn = _select(config, "model.loss_fn")
     if isinstance(loss_fn, Mapping):
         for key, value in loss_fn.items():
-            # class weight は別の節が持ち、dict や list は表の 1 行に収まらない。
-            if key in ("_target_", "class_weight") or not isinstance(value, (int, float, str, bool)):
+            # class weight と群別件数は別の行が持ち、dict は表の 1 行に収まらない。null と scalar の list
+            # （EO の rates など）は条件そのものなので出す。null を落とすと既定値と見分けられない。
+            if key in ("_target_", "class_weight", "q_class_weight", "population_cell_counts") or not _is_plain(value):
                 continue
             rows.append((f"loss_fn.{key}", _format(value)))
+    counts = _select(config, "model.loss_fn.population_cell_counts")
+    if counts is not _MISSING and counts is not None:
+        rows.append(("train cell counts", _format(counts)))
+        rows.append(("cell draw probability", str(1 / (2 * len(counts)))))
+        rows.append(("draws per cell/batch", str(int(config.data.batch_size) // (2 * len(counts)))))
     return rows
+
+
+def _is_plain(value: Any) -> bool:
+    if value is None or isinstance(value, (int, float, str, bool)):
+        return True
+    return isinstance(value, Sequence) and all(isinstance(item, (int, float, str, bool)) for item in value)
 
 
 def _override_rows() -> list[tuple[str, str]]:

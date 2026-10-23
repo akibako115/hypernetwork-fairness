@@ -1,0 +1,14 @@
+# @package _global_
+# FIS（Luo et al., FairVision）Eq. 3–5。c = 0.5 は論文の既定。blur と B^t_a の件数は論文に記載がなく、公式実装の既定。
+training_strategy:
+  name: fis
+  uses_group_id: true
+model:
+  loss_fn:
+    _target_: projects.hypernet_e2e.objectives.cohort.FISTaskLoss
+    num_groups: ${data.num_groups}
+    fusion: 0.5
+    blur: 0.1
+    group_sample_size: 64
+    class_weight: null
+    group_key: ${data.group_key}

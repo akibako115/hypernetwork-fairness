@@ -1,11 +1,12 @@
 """demographic 属性の組を固定 group ID にまとめる実験用のデータ拡張。"""
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from math import prod
 from typing import Any
 
 import pandas as pd
 import torch
+from torch.utils.data import DataLoader, Sampler
 from torchvision.transforms import transforms
 
 from .datamodule import ImageDataModule
@@ -98,6 +99,47 @@ class GroupImageDataset(ImageDataset):
             torch.Tensor: `[num_groups]` の `int64` 行数
         """
         return torch.bincount(torch.as_tensor(self.df[self.group_key].to_numpy(), dtype=torch.long), minlength=num_groups)
+
+
+class GroupSampleBatchSampler(Sampler[list[int]]):
+    """群ごとに `per_group` 件ずつ引いたバッチを尽きることなく返す。
+
+    群ごとに独立した shuffle 済みの無限 loader を並べるのと同じ（FairVision の FIS が群ごとに作る
+    `endless_loader`）。各群は非復元で 1 周してから並べ直す。群の端数は次の周の先頭で埋め、常に同じ件数にそろえる。
+    """
+
+    def __init__(self, group_ids: Sequence[int] | torch.Tensor, num_groups: int, per_group: int, seed: int = 42) -> None:
+        """群ごとの行 index を用意する。
+
+        Args:
+            group_ids: 行ごとの群 ID。
+            num_groups: 群数。全群が 1 行以上必要。
+            per_group: 1 バッチに入れる群あたりの件数。
+            seed: 並べ替えの seed。
+
+        Returns:
+            None
+        """
+        groups = torch.as_tensor(group_ids)
+        if per_group <= 0:
+            raise ValueError(f"per_group は正である必要がある: {per_group}")
+        self.members = [torch.where(groups == g)[0] for g in range(num_groups)]
+        if any(not len(m) for m in self.members):
+            raise ValueError("群ごとの抽出には全群が 1 行以上必要")
+        self.per_group = int(per_group)
+        self.seed = int(seed)
+
+    def __iter__(self) -> Iterator[list[int]]:
+        generator = torch.Generator().manual_seed(self.seed)
+        queues = [torch.empty(0, dtype=torch.long) for _ in self.members]
+        while True:
+            batch = []
+            for g, members in enumerate(self.members):
+                while len(queues[g]) < self.per_group:
+                    queues[g] = torch.cat([queues[g], members[torch.randperm(len(members), generator=generator)]])
+                batch.append(queues[g][: self.per_group])
+                queues[g] = queues[g][self.per_group :]
+            yield torch.cat(batch).tolist()
 
 
 class GroupImageDataModule(ImageDataModule):
@@ -215,3 +257,26 @@ class GroupImageDataModule(ImageDataModule):
             attribute_names=self.hparams.attribute_names,
             fairness_attribute_names=self.hparams.fairness_attribute_names,
         )
+
+    def group_sample_batches(self, per_group: int, seed: int = 42) -> Iterator[tuple[Any, Any, Any]]:
+        """train から群ごとに `per_group` 件ずつ引いたバッチを尽きることなく返す。
+
+        FIS（Luo et al.）の B^t_a：学習 1 step ごとに、各群から別に引いたミニバッチ。train と同じ transform を掛ける
+        （公式実装は群で絞った train Dataset から引く）。
+
+        Args:
+            per_group: 群あたりの件数。
+            seed: 抽出の seed。
+
+        Returns:
+            Iterator: `(image, attributes, target)` のバッチ。群 a の行は `attributes[group_key] == a`。
+
+        Raises:
+            RuntimeError: `setup(stage="fit")` の前に呼んだ場合。
+        """
+        if getattr(self, "data_train", None) is None:
+            raise RuntimeError("group_sample_batches() には setup(stage='fit') が必要")
+        sampler = GroupSampleBatchSampler(self.data_train.df[self.hparams.group_key].to_numpy(), self.hparams.num_groups, per_group, seed)
+        # 学習の間ずっと回す流れなので、num_workers>0 なら worker を常駐させる（held-out の流れと同じ）。
+        persistent = self.hparams.num_workers > 0
+        yield from DataLoader(self.data_train, batch_sampler=sampler, num_workers=self.hparams.num_workers, pin_memory=self.hparams.pin_memory, persistent_workers=persistent)

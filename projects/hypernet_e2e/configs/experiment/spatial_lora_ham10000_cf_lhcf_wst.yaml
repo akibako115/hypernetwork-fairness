@@ -1,0 +1,11 @@
+# @package _global_
+# 2 段学習の 2 段目。LHCF のコホートで条件付け、同じコホートの最悪コホート損失（ℓ_wst、λ = 1）で学習する。
+defaults:
+  - spatial_lora_ham10000_cf_part
+  - override /data: ham10000_part_groups
+  - override /training_strategy: worst_cohort
+  - _self_
+
+experiment_name: spatial-lora-ham10000-cf-lhcf-wst
+crossfit:
+  partition: lhcf

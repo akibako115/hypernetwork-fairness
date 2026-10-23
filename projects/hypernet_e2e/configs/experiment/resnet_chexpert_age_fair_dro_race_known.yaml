@@ -1,0 +1,8 @@
+# @package _global_
+defaults:
+  - resnet_chexpert_race_known
+  - _age_fairness_one_stage
+  - override /training_strategy: fair_dro
+  - _self_
+experiment_name: resnet-chexpert-age-fair-dro-race-known
+weighting: none

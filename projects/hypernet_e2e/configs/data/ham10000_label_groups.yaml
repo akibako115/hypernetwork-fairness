@@ -1,0 +1,8 @@
+defaults:
+  - ham10000_lhcf_groups
+  - _self_
+
+# LHCF のコホートの対照：クラスそのものを群にする（コホートが悪性度で切れることの対照）。
+group_attribute_names: [label_group]
+group_cardinalities: [2]
+num_groups: 2

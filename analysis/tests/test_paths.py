@@ -33,9 +33,11 @@ def test_run_and_split_paths_follow_the_repository_layout() -> None:
     学習は `projects/<project>/runs/` に書き、分析は package に取り込んだ `analysis/<study>/runs/` を読む。
     """
     assert project_runs_root("hypernet_e2e") == REPOSITORY_ROOT / "projects/hypernet_e2e/runs"
-    assert runs_root("iterative_probe") == REPOSITORY_ROOT / "analysis/iterative_probe/runs"
-    assert run_dir("iterative_probe", "run-id") == REPOSITORY_ROOT / "analysis/iterative_probe/runs/run-id"
-    assert study_dir("iterative_probe") == REPOSITORY_ROOT / "analysis/iterative_probe"
+    assert runs_root("conditioning_mechanism") == REPOSITORY_ROOT / "analysis/conditioning_mechanism/runs"
+    assert (
+        run_dir("conditioning_mechanism", "run-id") == REPOSITORY_ROOT / "analysis/conditioning_mechanism/runs/run-id"
+    )
+    assert study_dir("conditioning_mechanism") == REPOSITORY_ROOT / "analysis/conditioning_mechanism"
     assert split_csv("chexpert", "test") == REPOSITORY_ROOT / "data/chexpert/splits/test.csv"
 
 

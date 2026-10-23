@@ -1,0 +1,10 @@
+# @package _global_
+# 規則の食い違いを強めた HAM10000（rule_planting.py --dose strong）での、2 段学習の 1 段目。
+defaults:
+  - resnet_ham10000_cf_stage1
+  - _self_
+
+experiment_name: resnet-ham10000-rule-strong-cf-stage1
+tags: [latent_routing, crossfit, rule_planting]
+data:
+  data_dir: ${paths.data_dir}/ham10000/images_rule_strong

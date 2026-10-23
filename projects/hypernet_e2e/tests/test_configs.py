@@ -4,14 +4,11 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-import torch
 import yaml
 from hydra import compose, initialize_config_dir
 from hydra.errors import ConfigCompositionException
 from hydra.utils import instantiate
-from omegaconf import DictConfig
-
-from projects.hypernet_e2e.training import _validate_attribute_invariance
+from omegaconf import DictConfig, OmegaConf
 
 CONFIG_DIR = Path(__file__).parent.parent / "configs"
 EXPERIMENT_DIR = CONFIG_DIR / "experiment"
@@ -20,15 +17,43 @@ EXPERIMENT_DIR = CONFIG_DIR / "experiment"
 # 逸脱する preset だけがこの表で違う値を持つ。preset を足したらこの表にも足す。足し忘れは
 # test_every_chexpert_preset_is_registered_in_the_table が落とす。
 CHEXPERT_PRESETS: dict[str, tuple[str, str, str]] = {
+    "resnet_chexpert_from_resnet_age_erm_race_known": ("inverse", "uniform", "erm"),
+    "resnet_chexpert_from_resnet_age_group_dro_race_known": ("inverse", "uniform", "group_dro_global"),
+    "resnet_chexpert_from_resnet_age_sampling_corrected_erm_race_known": ("inverse", "group_class_balanced", "sampling_corrected_erm"),
+    "resnet_chexpert_from_resnet_age_sampling_corrected_uniform_group_race_known": ("inverse", "group_class_balanced", "sampling_corrected_uniform_group"),
+    "resnet_chexpert_from_resnet_age_population_auc_race_known": ("none", "group_class_balanced", "population_auc"),
+    "resnet_chexpert_from_resnet_age_minimax_auc_race_known": ("none", "group_class_balanced", "minimax_auc"),
+    "resnet_chexpert_from_resnet_age_equalized_odds_rate_race_known": ("inverse", "group_class_balanced", "equalized_odds_rate"),
+    "resnet_chexpert_from_resnet_age_fair_dro_race_known": ("none", "group_class_balanced", "fair_dro"),
+    "resnet_chexpert_age_minimax_auc_race_known": ("none", "group_class_balanced", "minimax_auc"),
+    "resnet_chexpert_age_fair_dro_race_known": ("none", "group_class_balanced", "fair_dro"),
+    "resnet_chexpert_age_equalized_odds_rate_race_known": ("inverse", "group_class_balanced", "equalized_odds_rate"),
+    "spatial_lora_chexpert_stage1_4_age_minimax_auc_race_known": ("none", "group_class_balanced", "minimax_auc"),
+    "spatial_lora_chexpert_stage1_4_age_fair_dro_race_known": ("none", "group_class_balanced", "fair_dro"),
+    "spatial_lora_chexpert_stage1_4_age_equalized_odds_rate_race_known": ("inverse", "group_class_balanced", "equalized_odds_rate"),
+    "spatial_lora_chexpert_dual_holdout_erm": ("inverse", "uniform", "erm"),
+    "spatial_lora_chexpert_age_race_eo_rate_dual_holdout": ("inverse", "group_class_balanced", "equalized_odds_rate"),
+    "spatial_lora_chexpert_age_race_minimax_auc_dual_holdout": ("none", "group_class_balanced", "minimax_auc"),
+    "resnet_chexpert_age_race_eo_rate_dual_holdout": ("inverse", "group_class_balanced", "equalized_odds_rate"),
+    "spatial_lora_chexpert_stage1_4_race_known": ("inverse", "uniform", "erm"),
+    "spatial_lora_chexpert_stage1_4_age_race_group_dro_race_known": ("inverse", "uniform", "group_dro_global"),
+    "spatial_lora_chexpert_stage1_4_age_race_group_dro_subgroup_race_known": ("inverse", "uniform", "group_dro_subgroup"),
+    "spatial_lora_chexpert_stage1_4_from_resnet_age_race_group_dro_race_known": ("inverse", "uniform", "group_dro_global"),
+    "spatial_lora_chexpert_stage1_4_from_resnet_age_race_group_dro_subgroup_race_known": ("inverse", "uniform", "group_dro_subgroup"),
+    "hyperadapt_chexpert_race_known": ("inverse", "uniform", "erm"),
+    "hyperadapt_chexpert_age_race_group_dro_race_known": ("inverse", "uniform", "group_dro_global"),
+    "hyperadapt_chexpert_from_resnet_age_race_group_dro_race_known": ("inverse", "uniform", "group_dro_global"),
+    "resnet_chexpert_age_race_group_dro_subgroup_race_known": ("inverse", "uniform", "group_dro_subgroup"),
+    "spatial_lora_chexpert_age_race_group_dro_subgroup_race_known": ("inverse", "uniform", "group_dro_subgroup"),
+    "spatial_lora_chexpert_from_resnet_age_race_group_dro_subgroup_race_known": ("inverse", "uniform", "group_dro_subgroup"),
+    "hyperadapt_chexpert_age_race_group_dro_subgroup_race_known": ("inverse", "uniform", "group_dro_subgroup"),
+    "hyperadapt_chexpert_from_resnet_age_race_group_dro_subgroup_race_known": ("inverse", "uniform", "group_dro_subgroup"),
     "resnet_chexpert_race_known": ("inverse", "uniform", "erm"),
     "resnet_chexpert_age_race_group_dro_race_known": ("inverse", "uniform", "group_dro_global"),
     "spatial_lora_chexpert_race_known": ("inverse", "uniform", "erm"),
     "spatial_lora_chexpert_age_race_group_dro_race_known": ("inverse", "uniform", "group_dro_global"),
     "spatial_lora_chexpert_from_resnet_age_race_group_dro_race_known": ("inverse", "uniform", "group_dro_global"),
     "resnet_chexpert": ("inverse", "uniform", "erm"),
-    "resnet_chexpert_attribute_invariant": ("inverse", "uniform", "erm"),
-    "resnet_chexpert_attribute_invariant_dann": ("inverse", "uniform", "erm"),
-    "resnet_chexpert_attribute_invariant_alfr": ("inverse", "uniform", "erm"),
     "resnet_chexpert_group_dro": ("inverse", "uniform", "group_dro_subgroup"),
     "resnet_chexpert_age_race_group_dro": ("inverse", "uniform", "group_dro_subgroup"),
     "resnet_chexpert_inverse_weighted_sampling": ("none", "inverse_frequency", "erm"),
@@ -39,13 +64,35 @@ CHEXPERT_PRESETS: dict[str, tuple[str, str, str]] = {
     "spatial_lora_chexpert_group_dro": ("inverse", "uniform", "group_dro_subgroup"),
     "spatial_lora_chexpert_inverse_weighted_sampling": ("none", "inverse_frequency", "erm"),
     "spatial_lora_chexpert_from_resnet": ("inverse", "uniform", "erm"),
-    "spatial_lora_chexpert_from_attribute_invariant": ("inverse", "uniform", "erm"),
     "spatial_lora_chexpert_from_resnet_group_dro": ("inverse", "uniform", "group_dro_subgroup"),
     "spatial_lora_chexpert_from_resnet_age_race_group_dro": ("inverse", "uniform", "group_dro_subgroup"),
     "hyperadapt_chexpert": ("inverse", "uniform", "erm"),
     "hyperadapt_chexpert_age_race_group_dro": ("inverse", "uniform", "group_dro_subgroup"),
     "hyperadapt_chexpert_from_resnet": ("inverse", "uniform", "erm"),
     "hyperadapt_chexpert_from_resnet_age_race_group_dro": ("inverse", "uniform", "group_dro_subgroup"),
+    "spatial_lora_chexpert_fc_age_race_eo_rate_dual_holdout": ("inverse", "group_class_balanced", "equalized_odds_rate"),
+    # 潜在群（analysis/latent_subgroup_spaces/latent_groups.py）。8 群の preset と群の定義だけが違う。
+    "resnet_chexpert_dw8_group_dro_race_known": ("inverse", "uniform", "group_dro_global"),
+    "resnet_chexpert_dw8_eo_rate_dual_holdout": ("inverse", "group_class_balanced", "equalized_odds_rate"),
+    "resnet_chexpert_attrk8_group_dro_race_known": ("inverse", "uniform", "group_dro_global"),
+    "resnet_chexpert_attrk8_eo_rate_dual_holdout": ("inverse", "group_class_balanced", "equalized_odds_rate"),
+    "spatial_lora_chexpert_dw8_group_dro_race_known": ("inverse", "uniform", "group_dro_global"),
+    "spatial_lora_chexpert_dw8_group_dro_subgroup_race_known": ("inverse", "uniform", "group_dro_subgroup"),
+    "spatial_lora_chexpert_dw8_eo_rate_dual_holdout": ("inverse", "group_class_balanced", "equalized_odds_rate"),
+    "spatial_lora_chexpert_attrk8_group_dro_race_known": ("inverse", "uniform", "group_dro_global"),
+    "spatial_lora_chexpert_attrk8_eo_rate_dual_holdout": ("inverse", "group_class_balanced", "equalized_odds_rate"),
+    "spatial_lora_chexpert_fc_age_race_group_dro_race_known": ("inverse", "uniform", "group_dro_global"),
+    "spatial_lora_chexpert_fc_from_resnet_age_race_eo_rate_dual_holdout": ("inverse", "group_class_balanced", "equalized_odds_rate"),
+    "spatial_lora_chexpert_fc_from_resnet_age_race_group_dro_race_known": ("inverse", "uniform", "group_dro_global"),
+    "spatial_lora_chexpert_fc_from_resnet_race_known": ("inverse", "uniform", "erm"),
+    "spatial_lora_chexpert_fc_race_known": ("inverse", "uniform", "erm"),
+    "spatial_lora_chexpert_from_resnet_age_race_eo_rate_dual_holdout": ("inverse", "group_class_balanced", "equalized_odds_rate"),
+    "resnet_chexpert_age_race_eo_fpr_overall_dual_holdout": ("inverse", "group_class_balanced", "equalized_odds_rate"),
+    "spatial_lora_chexpert_age_race_eo_fpr_overall_dual_holdout": ("inverse", "group_class_balanced", "equalized_odds_rate"),
+    "spatial_lora_chexpert_fc_age_race_eo_fpr_overall_dual_holdout": ("inverse", "group_class_balanced", "equalized_odds_rate"),
+    "spatial_lora_chexpert_from_resnet_age_race_eo_fpr_overall_dual_holdout": ("inverse", "group_class_balanced", "equalized_odds_rate"),
+    "spatial_lora_chexpert_fc_from_resnet_age_race_eo_fpr_overall_dual_holdout": ("inverse", "group_class_balanced", "equalized_odds_rate"),
+    "spatial_lora_chexpert_from_resnet_race_known": ("inverse", "uniform", "erm"),
 }
 
 
@@ -126,7 +173,7 @@ def test_modulation_range_presets_change_only_the_modulated_stages(experiment: s
 def test_default_callbacks_include_metrics_and_fairness_without_text_progress() -> None:
     cfg = _compose("experiment=spatial_lora_chexpert")
 
-    assert set(cfg.callbacks) == {"model_checkpoint", "model_summary", "metrics_logger", "fairness_metrics"}
+    assert set(cfg.callbacks) == {"model_checkpoint", "model_summary", "metrics_logger", "fairness_metrics", "group_dro_diagnostics", "objective_diagnostics"}
     assert cfg.callbacks.model_checkpoint.dirpath is None
     assert cfg.callbacks.model_checkpoint._target_ == "projects.hypernet_e2e.callbacks.checkpoint.LastEpochModelCheckpoint"
 
@@ -195,54 +242,6 @@ def test_hyperadapt_preset_matches_the_spatial_lora_training_protocol() -> None:
     assert cfg.trainer.max_epochs == 30
 
 
-def test_attribute_invariant_variants_compose_with_expected_objectives() -> None:
-    dann = _compose("experiment=resnet_chexpert_attribute_invariant_dann")
-    alfr = _compose("experiment=resnet_chexpert_attribute_invariant_alfr")
-
-    assert dann.model.loss_fn._target_.endswith("AttributeInvariantTaskLoss")
-    assert dann.model.loss_fn.attribute_adversary_weight == 1.0
-    assert dann.model.loss_fn.gradient_schedule.name == "dann"
-    assert alfr.model.loss_fn._target_.endswith("AlternatingAttributeInvariantTaskLoss")
-    assert alfr.model.adversary_optimizer._target_.endswith("AdamW")
-    assert instantiate(dann.model).automatic_optimization is True
-    assert instantiate(alfr.model).automatic_optimization is False
-
-
-def test_attribute_invariant_adversary_width_and_trunk_sharing_are_overridable() -> None:
-    default = _compose("experiment=resnet_chexpert_attribute_invariant_dann")
-    wide = _compose(
-        "experiment=resnet_chexpert_attribute_invariant_dann",
-        "model.loss_fn.hidden_dim=[1024,1024]",
-        "model.loss_fn.shared_trunk=false",
-    )
-
-    assert instantiate(default.model.loss_fn).attribute_adversary.trunk is not None
-    adversary = instantiate(wide.model.loss_fn).attribute_adversary
-    assert adversary.trunk is None
-    assert len(adversary.categorical_trunks) == 2
-    assert len(adversary.continuous_trunks) == 1
-    assert [layer.out_features for layer in adversary.categorical_trunks[0] if isinstance(layer, torch.nn.Linear)] == [1024, 1024]
-
-
-def test_attribute_invariant_stage1_and_its_stage2_preset_compose() -> None:
-    stage1 = _compose("experiment=resnet_chexpert_attribute_invariant")
-    stage2 = _compose("experiment=spatial_lora_chexpert_from_attribute_invariant")
-
-    assert stage1.model.loss_fn._target_.endswith("AttributeInvariantTaskLoss")
-    assert stage1.model.loss_fn.feature_dim == 2048
-    assert list(stage1.model.loss_fn.adversarial_attribute_names.categorical) == ["sex", "race"]
-    assert list(stage1.model.loss_fn.adversarial_attribute_names.continuous) == ["age"]
-    assert instantiate(stage1.model).loss_fn.requires_features is True
-    assert stage2.model.freeze_backbone is True
-
-
-def test_attribute_invariant_preset_rejects_group_dro_override() -> None:
-    config = _compose("experiment=resnet_chexpert_attribute_invariant", "training_strategy=group_dro_subgroup")
-
-    with pytest.raises(ValueError, match="training_strategy=erm"):
-        _validate_attribute_invariance(config)
-
-
 @pytest.mark.parametrize(
     ("experiment", "loss_target"),
     [
@@ -290,6 +289,7 @@ def test_training_strategy_is_selectable_without_changing_the_experiment(strateg
     assert cfg.training_strategy.uses_group_id is (strategy != "erm")
     if strategy in {"group_dro_global", "group_dro_subgroup"}:
         assert cfg.model.loss_fn.class_weight is None
+        assert cfg.model.loss_fn.get("q_class_weight") is None
     else:
         assert instantiate(cfg.model) is not None
 
@@ -301,3 +301,32 @@ def test_plain_chexpert_preset_keeps_cross_entropy_and_no_group_id() -> None:
     assert cfg.model.loss_fn._target_.endswith("TaskLoss")
     assert cfg.data._target_ == "projects.hypernet_e2e.data.datamodule.ImageDataModule"
     assert "num_groups" not in cfg.data
+
+
+# 柱 A の EO rate を Cotter et al. の Communities の形（各群の FPR を全体と比べる）に替えた版。
+# 全ペアの版との差は制約と λ の初期値だけ。HAM10000 の 5 本もここで見る。
+EO_FPR_OVERALL = [
+    f"{model}_{dataset}{variant}_{groups}_eo_fpr_overall_dual_holdout"
+    for dataset, groups in (("chexpert", "age_race"), ("ham10000", "sex_age"))
+    for model, variant in (("resnet", ""), ("spatial_lora", ""), ("spatial_lora", "_fc"), ("spatial_lora", "_from_resnet"), ("spatial_lora", "_fc_from_resnet"))
+]
+
+
+@pytest.mark.parametrize("preset", EO_FPR_OVERALL)
+def test_eo_fpr_overall_presets_change_only_the_constraint(preset: str) -> None:
+    """全ペアの版と比べ、制約の形・率・epsilon_neg・λ の初期値と run 名だけが違う。"""
+    pairwise = preset.replace("eo_fpr_overall", "eo_rate")
+    cfg, base = _compose(f"experiment={preset}"), _compose(f"experiment={pairwise}")
+
+    loss = cfg.model.loss_fn
+    assert (loss.constraint_form, list(loss.rates), loss.epsilon_neg, loss.initial_task_weight) == ("overall", ["fpr"], 0.05, None)
+    assert base.model.loss_fn.constraint_form == "pairwise"
+    assert cfg.experiment_name == base.experiment_name.replace("eo-rate", "eo-fpr-overall")
+    changed, reference = OmegaConf.to_container(cfg), OmegaConf.to_container(base)
+    for config in (changed, reference):
+        config.pop("experiment_name")
+        for key in ("constraint_form", "rates", "epsilon_neg", "initial_task_weight"):
+            config["model"]["loss_fn"].pop(key)
+    assert changed == reference
+    objective = instantiate(_compose(f"experiment={preset}").model.loss_fn, population_cell_counts=[[1, 1]] * loss.num_groups)
+    assert len(objective.constraints) == loss.num_groups

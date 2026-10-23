@@ -1,0 +1,12 @@
+# @package _global_
+# 属性セルの組で規則が反転する HAM10000（analysis/archive/conditioned_subgroup_discovery/attribute_rule_planting.py）での
+# 属性条件付き Spatial LoRA。生成 ΔW のクラスタから、反転する組（女性の四肢・60 歳未満の男性の背中）を
+# 回収できるかを見る正の対照。条件は spatial_lora_ham10000 と同じ（性別・部位・年齢）。
+defaults:
+  - spatial_lora_ham10000
+  - _self_
+
+experiment_name: spatial-lora-ham10000-attr-rule
+tags: [conditioned_subgroup_discovery, rule_planting]
+data:
+  data_dir: ${paths.data_dir}/ham10000/images_attr_rule

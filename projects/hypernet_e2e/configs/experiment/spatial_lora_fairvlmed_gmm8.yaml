@@ -1,0 +1,20 @@
+# @package _global_
+# Spatial LoRA を、学習前に固定した DINOv2 の GMM 8 クラスタ（ラベル不使用）だけで条件付ける（段階 3）。
+# 条件の列は analysis/archive/latent_bias_hypernet/latent_conditions.py --dataset fairvlmed が data/fairvlmed/splits_latent に足したもの。
+# それ以外は spatial_lora_fairvlmed と同じ（評価軸は FairCLIP の 4 軸と age_group_65 のまま）。
+defaults:
+  - /model: spatial_lora_resnet50
+  - _base_fairvlmed
+  - _self_
+
+experiment_name: spatial-lora-fairvlmed-gmm8
+tags: [latent_routing]
+
+data:
+  cv_splits_dir: ${paths.data_dir}/fairvlmed/splits_latent
+  attribute_names:
+    categorical: [gmm8]
+    continuous: []
+  attribute_spec:
+    categorical_cardinalities: [8]
+    continuous_dim: 0

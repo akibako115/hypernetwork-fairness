@@ -1,0 +1,10 @@
+# @package _global_
+# Spatial LoRA を sex × age_group_65 の GroupDRO で学習する（柱 A の格子の HAM10000 版）。
+defaults:
+  - spatial_lora_ham10000
+  - _sex_age_groups_ham10000
+  - override /data: ham10000_sex_age_groups
+  - override /training_strategy: group_dro_global
+  - _self_
+
+experiment_name: spatial-lora-ham10000-sex-age-group-dro

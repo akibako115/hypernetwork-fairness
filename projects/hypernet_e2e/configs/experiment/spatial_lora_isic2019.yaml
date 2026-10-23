@@ -1,4 +1,5 @@
 # @package _global_
+# 新しい実験では使わない（2026-10-12）。皮膚画像の補足は HAM10000 の preset を使う。docs/research-premises.md
 defaults:
   - /model: spatial_lora_resnet50
   - _base_isic2019

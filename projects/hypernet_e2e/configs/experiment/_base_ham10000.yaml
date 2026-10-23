@@ -1,0 +1,26 @@
+# @package _global_
+defaults:
+  - /data: ham10000
+  # model group より後に置く。group 系の目的関数が model config の loss_fn を上書きする。
+  - /training_strategy: erm
+  - _self_
+
+dataset: ham10000
+# 悪性の陽性率は train で 19.7%。CheXpert と同じく train split の逆頻度で class weight を掛ける。
+weighting: inverse
+
+trainer:
+  max_epochs: 30
+
+data:
+  num_workers: 8
+  pin_memory: true
+  persistent_workers: true
+  prefetch_factor: 2
+
+callbacks:
+  fairness_metrics:
+    intersectional_groups:
+      sex_age_group:
+        attributes: [sex, age_group_65]
+        cardinalities: [2, 2]

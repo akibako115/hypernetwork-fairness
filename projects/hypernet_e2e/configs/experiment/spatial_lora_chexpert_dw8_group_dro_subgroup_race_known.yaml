@@ -1,0 +1,9 @@
+# @package _global_
+# dw8 の GroupDRO を、群ごとのクラス重み（group_dro_subgroup）で回す。global のクラス重みでは群損失が陽性率で決まり、
+# q が陽性率の高い群に集まった（docs/methods/group-dro.md）。群内で陽性と陰性を釣り合わせ、その影響を除く。
+defaults:
+  - spatial_lora_chexpert_dw8_group_dro_race_known
+  - override /training_strategy: group_dro_subgroup
+  - _self_
+
+experiment_name: spatial-lora-chexpert-dw8-group-dro-subgroup-race-known

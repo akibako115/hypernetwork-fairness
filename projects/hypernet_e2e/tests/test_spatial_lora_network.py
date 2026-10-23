@@ -85,7 +85,7 @@ def test_spatial_lora_resnet_freezes_only_base_model() -> None:
     assert not model.backbone.training
 
 
-@pytest.mark.parametrize("modulation_stages", [["unknown"], ["stage4", "stage4"]])
+@pytest.mark.parametrize("modulation_stages", [["unknown"], ["stage0"], ["stage4", "stage4"]])
 def test_spatial_lora_resnet_rejects_invalid_modulation_stages(modulation_stages: list[str]) -> None:
     with pytest.raises(ValueError):
         SpatialLoRAResNet(
@@ -94,6 +94,65 @@ def test_spatial_lora_resnet_rejects_invalid_modulation_stages(modulation_stages
             metadata_encoder=_metadata_encoder(),
             modulation_stages=modulation_stages,
         )
+
+
+@pytest.mark.parametrize("adapted_convs", [[], ["conv4"], ["conv2", "conv2"]])
+def test_spatial_lora_resnet_rejects_invalid_adapted_convs_even_without_spatial_stages(adapted_convs: list[str]) -> None:
+    with pytest.raises(ValueError):
+        SpatialLoRAResNet(
+            num_classes=2,
+            backbone=ResNetBackbone(layers=[1, 1, 1, 1], block="Bottleneck"),
+            metadata_encoder=_metadata_encoder(),
+            modulation_stages=["fc"],
+            adapted_convs=adapted_convs,
+        )
+
+
+def test_spatial_lora_resnet_modulates_early_stages_with_selected_convs() -> None:
+    torch.manual_seed(0)
+    backbone = ResNetBackbone(layers=[2, 1, 1, 1], block="Bottleneck")
+    model = SpatialLoRAResNet(
+        num_classes=2,
+        backbone=backbone,
+        metadata_encoder=_metadata_encoder(),
+        rank=2,
+        modulation_stages=["stage1", "stage2"],
+        adapted_convs=["conv1", "conv3"],
+    )
+    model.eval()
+    images = torch.randn(2, 3, 64, 64)
+
+    assert set(model.spatial_adapters) == {"stage1", "stage2"}
+    assert len(model.spatial_adapters["stage1"]) == len(backbone.layer1) == 2
+    adapter_keys = {key.rsplit(".", 2)[0] for key in model.state_dict() if key.startswith("spatial_adapters.")}
+    assert adapter_keys == {
+        "spatial_adapters.stage1.0.conv1_adapter",
+        "spatial_adapters.stage1.0.conv3_adapter",
+        "spatial_adapters.stage1.1.conv1_adapter",
+        "spatial_adapters.stage1.1.conv3_adapter",
+        "spatial_adapters.stage2.0.conv1_adapter",
+        "spatial_adapters.stage2.0.conv3_adapter",
+    }
+    # A 生成器のゼロ初期化により、学習前は素の backbone と同じ特徴量になる。
+    torch.testing.assert_close(model.get_features(images, _attributes()), backbone(images))
+
+    model.initialize_with_attributes(_attributes())
+    model.spatial_adapters["stage1"][0].conv1_adapter.a_generator.bias.data.fill_(1.0)
+    assert not torch.allclose(model.get_features(images, _attributes()), backbone(images))
+
+
+def test_spatial_lora_resnet_defaults_to_conv2_adapter_keys() -> None:
+    """既定値では conv2 だけを変調し、既存 checkpoint と同じ state_dict キーになる。"""
+    model = SpatialLoRAResNet(
+        num_classes=2,
+        backbone=ResNetBackbone(layers=[1, 1, 1, 1], block="Bottleneck"),
+        metadata_encoder=_metadata_encoder(),
+        rank=2,
+        modulation_stages=["stage3", "stage4"],
+    )
+
+    adapter_keys = {key.rsplit(".", 2)[0] for key in model.state_dict() if key.startswith("spatial_adapters.")}
+    assert adapter_keys == {"spatial_adapters.stage3.0.conv2_adapter", "spatial_adapters.stage4.0.conv2_adapter"}
 
 
 def test_initialize_with_attributes_rescales_b_generators_without_touching_a() -> None:

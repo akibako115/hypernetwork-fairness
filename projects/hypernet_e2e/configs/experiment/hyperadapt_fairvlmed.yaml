@@ -1,0 +1,14 @@
+# @package _global_
+# HyperAdapt を ImageNet 初期化から全パラメータ更新で学習する E2E 条件。hyperadapt_chexpert と同じ設定。
+defaults:
+  - /model: hyperadapt_resnet50
+  - _base_fairvlmed
+  - _self_
+
+experiment_name: hyperadapt-fairvlmed
+tags: [hyperadapt]
+
+model:
+  # model 既定は 2 段学習向けに凍結・path 無しなので、E2E ではここで ImageNet 重みを入れて凍結を外す。
+  backbone_checkpoint_path: ${paths.checkpoints_dir}/resnet50_imagenet.pth
+  freeze_backbone: false

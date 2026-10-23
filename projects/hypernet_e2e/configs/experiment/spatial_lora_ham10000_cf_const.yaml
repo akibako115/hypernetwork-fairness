@@ -1,0 +1,25 @@
+# @package _global_
+# 2 段学習（cross-fit）の 2 段目。1 段目（resnet_ham10000_cf_stage1）の checkpoint を凍結し、
+# train の残りの半分（stage2）で Spatial LoRA だけを学習する。条件は全行同じ値（振り分けなし）。
+#
+#   uv run python -m projects.hypernet_e2e.run experiment=spatial_lora_ham10000_cf_const \
+#     model.backbone_checkpoint_path=<1 段目の run>/checkpoints/<best>.ckpt
+#
+# crossfit.dir は splits_crossfit の下の split。区分を使う config は <field>_s<seed>_<partition> にする。
+defaults:
+  - spatial_lora_ham10000_const
+  - _self_
+
+experiment_name: spatial-lora-ham10000-cf-const
+tags: [latent_routing, crossfit]
+crossfit:
+  field: real
+  partition: lhcf
+  k: 1
+  dir: stage2
+data:
+  cv_splits_dir: ${paths.data_dir}/ham10000/splits_crossfit/${crossfit.dir}
+model:
+  # 1 段目の checkpoint を渡し忘れた run が凍結した ImageNet backbone で完走しないよう、既定を打ち消す
+  backbone_checkpoint_path: null
+  freeze_backbone: true

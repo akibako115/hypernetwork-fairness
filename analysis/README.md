@@ -65,11 +65,21 @@ checkpoint 選択・予測 cache）までとする。**群の切り方・指標�
 | `common/predictions.py` | 選択済み checkpoint → split 予測 `.npz`（CLI 付き） |
 | `common/studies.py` | study に属する run の一覧と `runs.md` 用の表 |
 
-現在の package:
+## package の索引
 
-- `initial_resnet_vs_invariant/` — 通常の ResNet と attribute-invariant ResNet の初期比較
-- `iterative_probe/` — 反復学習の初期方針を決める探り分析
-- `scratch/` — まだ仮説に紐づかない run の逃げ道
+2026-10-17 時点。いまの問い（柱 A・B）との対応は [docs/README.md](../docs/README.md) の「現在地」を正本とし、
+ここでは各 package が何を扱ったかだけを書く。2026-10-17 に、残す分析を次の 3 つに絞り、ほかは消した。どれも入力の
+CheXpert・HAM10000 の run は旧前処理で、回し直した run で作り直す（各 README の「現状」）。
+
+### 現役（直下）
+
+| package | 柱 | 扱ったこと |
+| --- | --- | --- |
+| `hypernet_conditioning_grid/` | A 主実験 | 条件付けの有無（ResNet-50 / Spatial LoRA）× 目的関数（ERM・GroupDRO・EO rate）× 学習手順の格子を、CheXpert（年齢 × race の 8 群）と HAM10000（sex × 年齢の 4 群）で回す。2026-10-17 に HAM10000 版の package をまとめた |
+| `conditioning_mechanism/` | A 機構 | 条件付けが全体性能を上げるのはいつか（3 データでの切り分け）と、属性が切片をずらすだけか画像の読み方も変えるか。2026-10-17 に `dataset_gain_sources` と `attribute_interaction` をまとめた |
+| `latent_subgroup_spaces/` | B 捕捉 | 1 段・ERM の Spatial LoRA（CheXpert）で、属性・metadata encoder の c・生成 ΔW・モデル自身の特徴・RAD-DINO の 5 空間 × クラスタリング／見落としの監査器で潜在サブグループを探し、同じ物差し（0.5 の FPR、val で作り test で測る）で並べる。小さな部分集団（細かい群・k 近傍の走査）も扱う |
+
+その他
 
 ## 追跡境界
 

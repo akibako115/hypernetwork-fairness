@@ -1,0 +1,16 @@
+# @package _global_
+# 公平性手法の比較（ResNet-50、HAM10000）。minimax AUC の対照。ペアの重み q を母集団由来の初期値に固定し、
+# 群の重みづけを外して、AUC 型の損失とセル均等抽出だけを残す。
+defaults:
+  - resnet_ham10000
+  - _fairness_ham10000
+  - override /data: ham10000_sex_age_cells
+  - override /training_strategy: population_auc
+  - _self_
+
+experiment_name: resnet-ham10000-fg-popauc-sex-age
+weighting: none
+trainer:
+  # 条件付き objective は単一 device・勾配の蓄積なしを要求する（training._resolve_conditional_population）。
+  devices: 1
+  accumulate_grad_batches: 1
