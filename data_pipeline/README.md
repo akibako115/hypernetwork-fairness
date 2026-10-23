@@ -24,7 +24,7 @@
 - HAM10000: 欠損 categorical は `-1`（配布 CSV の `unknown` と空欄）
 
 値そのものを見て欠損を判定すると、CheXpert では欠損が最大群へ静かに混ざる。消費側（`MetadataEncoder`、
-属性 adversary、公平性指標、group DataModule）はいずれもフラグとペアで読む実装になっている。
+公平性指標、group DataModule）はいずれもフラグとペアで読む実装になっている。
 
 ## CheXpert
 

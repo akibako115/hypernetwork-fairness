@@ -48,8 +48,6 @@ model・data・callbacks・trainer を作成し、1 回の `fit` を実行しま
 - `experiment=spatial_lora_chexpert_fc` / `_stage4_fc`（変調範囲だけを変えた条件）
 - `experiment=spatial_lora_chexpert_from_resnet`（2 段学習の 2 段目）
 - `experiment=hyperadapt_chexpert_from_resnet`（論文 HyperAdapt の凍結済み ResNet への患者条件付き変調）
-- `experiment=resnet_chexpert_attribute_invariant`（GRL による属性不変な第1段）
-- `experiment=spatial_lora_chexpert_from_attribute_invariant`（上記からの第2段）
 - 各モデルの `group_dro` / `inverse_weighted_sampling`
 
 FairVLMed（SLO 眼底・glaucoma 2 クラス）は `experiment=resnet_fairvlmed` /
@@ -164,43 +162,6 @@ uv run python -m projects.hypernet_e2e.run \
 2 段目の `run.json` は、読み込んだ checkpoint の path・SHA-256 と、それを出力した run の ID を
 `parent_run` に記録します。1 段目の記録と SHA-256 が食い違う checkpoint は、fit を始めずに
 失敗させます。段ごとに別 run なので、`trainer.max_epochs` のような設定は段ごとに独立して振れます。
-
-### 属性不変 backbone → 属性条件付き LoRA
-
-`resnet_chexpert_attribute_invariant` は、backbone 特徴量から demographic 属性（`sex`、`race`、
-`age`）を当てる補助予測器の前に Gradient Reversal Layer（GRL）を置く。補助予測器は属性を当てる
-ように、backbone はその予測を難しくするように同じ通常の backprop で更新される。`ethnicity` は補助
-予測の対象に含めない。
-`frontal_lateral` と `ap_pa` は撮影プロトコルであり、この標準条件の adversary には含めない。
-これらへの不変化は acquisition-invariance として別 ablation で扱う。第2段では既存の凍結契約に
-より backbone と共有 classifier を固定し、属性の条件は Spatial LoRA / HyperLinear の差分にのみ
-入る。
-
-```bash
-uv run python -m projects.hypernet_e2e.run experiment=resnet_chexpert_attribute_invariant
-
-uv run python -m projects.hypernet_e2e.run \
-  experiment=spatial_lora_chexpert_from_attribute_invariant \
-  model.backbone_checkpoint_path=projects/hypernet_e2e/runs/<stage1-run-id>/checkpoints/<best>.ckpt
-```
-
-どちらの GRL の model config も、反転の倍率を Ganin et al. の式で 0 から上げる。既定の
-`resnet_chexpert_attribute_invariant` は属性損失の重み 0.1、`resnet_chexpert_attribute_invariant_dann` は 1.0。
-ALFR 型の `resnet_chexpert_attribute_invariant_alfr` は、minibatch ごとに adversary と task/backbone を交互に
-1 回ずつ更新する（偶数番目が adversary）。task optimizer と adversary optimizer を分離し、adversary 更新時は
-feature を detach する。手法の詳細は [docs/methods/dann.md](../../docs/methods/dann.md)、
-[docs/methods/alfr.md](../../docs/methods/alfr.md)。
-
-```bash
-uv run python -m projects.hypernet_e2e.run experiment=resnet_chexpert_attribute_invariant_dann
-uv run python -m projects.hypernet_e2e.run experiment=resnet_chexpert_attribute_invariant_alfr
-```
-
-GRL の学習時の属性損失だけでは不変性の証明にはならない。保持情報量は、凍結した第1段 backbone
-出力に対して、学習に使っていない独立の線形／MLP probe を train/validation split で学習・評価し、
-ERM の第1段と属性 AUC / accuracy / age MAE を比較して判定する。task AUROC と subgroup gap も
-同じ split で併記する。`model.loss_fn.attribute_adversary_weight` は task 性能とのトレードオフなので、
-少なくとも `0.01, 0.03, 0.1` を同一 seed 群で比較する。
 
 ### HyperAdapt
 

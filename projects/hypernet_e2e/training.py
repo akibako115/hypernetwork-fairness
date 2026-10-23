@@ -24,6 +24,9 @@ from projects.hypernet_e2e.run_plan import format_run_plan
 from projects.hypernet_e2e.run_record import RunRecorder
 from projects.hypernet_e2e.runtime_paths import normalize_runtime_paths, repository_root
 
+# weighting=inverse で解いた class weight を書き込む場所。
+CLASS_WEIGHT_PATH = "model.loss_fn.class_weight"
+
 
 def run_fit(config: DictConfig) -> Path:
     """解決済み設定から新規 run を記録し、一回だけ Lightning ``fit`` を実行する。
@@ -48,7 +51,6 @@ def run_fit(config: DictConfig) -> Path:
     """
     normalize_runtime_paths(config)
     _validate_study(config)
-    _validate_attribute_invariance(config)
     _validate_group_dro_weighting(config)
     _resolve_inverse_class_weights(config)
     _resolve_conditional_population(config)
@@ -98,16 +100,15 @@ def run_plan(config: DictConfig) -> str:
         str: 起動前に確認する条件の表
 
     Raises:
-        ValueError: study や属性不変化の組み合わせが不正な場合。
+        ValueError: study や Group DRO の重み付けの組み合わせが不正な場合。
     """
     normalize_runtime_paths(config)
     _validate_study(config)
-    _validate_attribute_invariance(config)
     _validate_group_dro_weighting(config)
     _resolve_inverse_class_weights(config)
     _resolve_conditional_population(config)
     _prepare_age_continuation(config, dry_run=True)
-    return format_run_plan(config, class_weight_path(config))
+    return format_run_plan(config, CLASS_WEIGHT_PATH)
 
 
 def _prepare_age_continuation(config: DictConfig, *, dry_run: bool = False) -> None:
@@ -197,28 +198,6 @@ def _validate_study(config: DictConfig) -> None:
         raise ValueError(unknown + remedy)
 
 
-def _validate_attribute_invariance(config: DictConfig) -> None:
-    """属性不変化の第1段を ERM 以外の学習 strategy と併用させない。
-
-    Group DRO の Hydra override は model.loss_fn を直接差し替える。そのまま許すと属性不変
-    wrapper が静かに消えるため、fit 前に意図しない組み合わせを明示的に拒否する。
-
-    Args:
-        config: Hydra が合成した実行設定。
-
-    Returns:
-        None
-
-    Raises:
-        ValueError: 属性不変化を ERM 以外の strategy と組み合わせた場合。
-    """
-    invariance = config.get("attribute_invariance")
-    if not invariance or not invariance.get("enabled", False):
-        return
-    if config.training_strategy.name != "erm":
-        raise ValueError("attribute_invariance は training_strategy=erm でのみ利用できる")
-
-
 def _validate_group_dro_weighting(config: DictConfig) -> None:
     """class weight 必須の Group DRO を `weighting=inverse` に限定する。"""
     strategy = config.get("training_strategy")
@@ -237,7 +216,7 @@ def _resolve_inverse_class_weights(config: DictConfig) -> None:
     frame = pd.read_csv(Path(str(config.data.cv_splits_dir)) / "train.csv")
     strategy = config.get("training_strategy") or {}
     weights = _scoped_inverse_weights(config, frame, strategy.get("class_weight_scope", "global"))
-    OmegaConf.update(config, class_weight_path(config), weights, merge=False)
+    OmegaConf.update(config, CLASS_WEIGHT_PATH, weights, merge=False)
     q_scope = strategy.get("q_class_weight_scope")
     if q_scope is not None:
         OmegaConf.update(config, "model.loss_fn.q_class_weight", _scoped_inverse_weights(config, frame, q_scope), merge=False)
@@ -275,21 +254,6 @@ def _group_inverse_frequency_weights(labels: list[int], group_ids: list[int], nu
         total = sum(row)
         weights.append([round(total / (num_classes * cell), 6) for cell in row])
     return weights
-
-
-def class_weight_path(config: DictConfig) -> str:
-    """解決した class weight を書き込む config path を返す。
-
-    属性不変化の run は task loss を wrapper で包むので、重みの置き場所が 1 段深くなる。
-
-    Args:
-        config: `model.loss_fn` を持つ設定
-
-    Returns:
-        str: `model.loss_fn.class_weight` か、wrapper 越しの `model.loss_fn.task_loss.class_weight`
-    """
-    loss_target = str(OmegaConf.select(config, "model.loss_fn._target_", default=""))
-    return "model.loss_fn.task_loss.class_weight" if loss_target.endswith("AttributeInvariantTaskLoss") else "model.loss_fn.class_weight"
 
 
 def _inverse_frequency_weights(labels: list[int], num_classes: int) -> list[float]:

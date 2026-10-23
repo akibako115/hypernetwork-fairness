@@ -19,12 +19,13 @@
 | [fair-dro.md](fair-dro.md) | FairDRO | Jung et al., ICLR 2023 | `fair_dro` |
 | [minimax-auc.md](minimax-auc.md) | Minimax AUC と Population AUC | Yang et al., AAAI 2023 | `minimax_auc`、`population_auc` |
 | [eo-rate.md](eo-rate.md) | EO rate 制約（proxy-Lagrangian） | Cotter et al., JMLR 2019・ICML 2019 | `equalized_odds_rate` |
-| [dann.md](dann.md) | 勾配反転（GRL）による属性不変化、DANN | Ganin et al., JMLR 2016 | `/model: resnet50_attribute_invariant*` |
-| [alfr.md](alfr.md) | ALFR（adversary との交互更新） | Edwards & Storkey, ICLR 2016 | `/model: resnet50_attribute_invariant_alfr` |
 | [worst-cohort.md](worst-cohort.md) | ℓ_wst（最悪コホート損失） | LHCF（arXiv 2605.29827） | `worst_cohort` |
 | [fis.md](fis.md) | Fair Identity Scaling | Luo et al.（FairVision） | `fis` |
 | [fami.md](fami.md) | FaMI | Sadri et al., MICCAI 2025 | `fami` |
 | [swad.md](swad.md) | SWAD | Cha et al., NeurIPS 2021 | experiment の `callbacks.swad` |
+
+属性を敵対的に消す DANN・ALFR は hypernet_e2e から外した。使うときは別の project に置く。実装と文書は
+外す前の commit（`2d2f1f6`）に残っている。
 
 ## 手法の選定に使った調査
 

@@ -4,14 +4,11 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-import torch
 import yaml
 from hydra import compose, initialize_config_dir
 from hydra.errors import ConfigCompositionException
 from hydra.utils import instantiate
 from omegaconf import DictConfig, OmegaConf
-
-from projects.hypernet_e2e.training import _validate_attribute_invariance
 
 CONFIG_DIR = Path(__file__).parent.parent / "configs"
 EXPERIMENT_DIR = CONFIG_DIR / "experiment"
@@ -57,9 +54,6 @@ CHEXPERT_PRESETS: dict[str, tuple[str, str, str]] = {
     "spatial_lora_chexpert_age_race_group_dro_race_known": ("inverse", "uniform", "group_dro_global"),
     "spatial_lora_chexpert_from_resnet_age_race_group_dro_race_known": ("inverse", "uniform", "group_dro_global"),
     "resnet_chexpert": ("inverse", "uniform", "erm"),
-    "resnet_chexpert_attribute_invariant": ("inverse", "uniform", "erm"),
-    "resnet_chexpert_attribute_invariant_dann": ("inverse", "uniform", "erm"),
-    "resnet_chexpert_attribute_invariant_alfr": ("inverse", "uniform", "erm"),
     "resnet_chexpert_group_dro": ("inverse", "uniform", "group_dro_subgroup"),
     "resnet_chexpert_age_race_group_dro": ("inverse", "uniform", "group_dro_subgroup"),
     "resnet_chexpert_inverse_weighted_sampling": ("none", "inverse_frequency", "erm"),
@@ -70,7 +64,6 @@ CHEXPERT_PRESETS: dict[str, tuple[str, str, str]] = {
     "spatial_lora_chexpert_group_dro": ("inverse", "uniform", "group_dro_subgroup"),
     "spatial_lora_chexpert_inverse_weighted_sampling": ("none", "inverse_frequency", "erm"),
     "spatial_lora_chexpert_from_resnet": ("inverse", "uniform", "erm"),
-    "spatial_lora_chexpert_from_attribute_invariant": ("inverse", "uniform", "erm"),
     "spatial_lora_chexpert_from_resnet_group_dro": ("inverse", "uniform", "group_dro_subgroup"),
     "spatial_lora_chexpert_from_resnet_age_race_group_dro": ("inverse", "uniform", "group_dro_subgroup"),
     "hyperadapt_chexpert": ("inverse", "uniform", "erm"),
@@ -247,54 +240,6 @@ def test_hyperadapt_preset_matches_the_spatial_lora_training_protocol() -> None:
     assert cfg.model.optimizer.weight_decay == 1e-2
     assert cfg.model.scheduler is None
     assert cfg.trainer.max_epochs == 30
-
-
-def test_attribute_invariant_variants_compose_with_expected_objectives() -> None:
-    dann = _compose("experiment=resnet_chexpert_attribute_invariant_dann")
-    alfr = _compose("experiment=resnet_chexpert_attribute_invariant_alfr")
-
-    assert dann.model.loss_fn._target_.endswith("AttributeInvariantTaskLoss")
-    assert dann.model.loss_fn.attribute_adversary_weight == 1.0
-    assert dann.model.loss_fn.gradient_schedule.name == "dann"
-    assert alfr.model.loss_fn._target_.endswith("AlternatingAttributeInvariantTaskLoss")
-    assert alfr.model.adversary_optimizer._target_.endswith("AdamW")
-    assert instantiate(dann.model).automatic_optimization is True
-    assert instantiate(alfr.model).automatic_optimization is False
-
-
-def test_attribute_invariant_adversary_width_and_trunk_sharing_are_overridable() -> None:
-    default = _compose("experiment=resnet_chexpert_attribute_invariant_dann")
-    wide = _compose(
-        "experiment=resnet_chexpert_attribute_invariant_dann",
-        "model.loss_fn.hidden_dim=[1024,1024]",
-        "model.loss_fn.shared_trunk=false",
-    )
-
-    assert instantiate(default.model.loss_fn).attribute_adversary.trunk is not None
-    adversary = instantiate(wide.model.loss_fn).attribute_adversary
-    assert adversary.trunk is None
-    assert len(adversary.categorical_trunks) == 2
-    assert len(adversary.continuous_trunks) == 1
-    assert [layer.out_features for layer in adversary.categorical_trunks[0] if isinstance(layer, torch.nn.Linear)] == [1024, 1024]
-
-
-def test_attribute_invariant_stage1_and_its_stage2_preset_compose() -> None:
-    stage1 = _compose("experiment=resnet_chexpert_attribute_invariant")
-    stage2 = _compose("experiment=spatial_lora_chexpert_from_attribute_invariant")
-
-    assert stage1.model.loss_fn._target_.endswith("AttributeInvariantTaskLoss")
-    assert stage1.model.loss_fn.feature_dim == 2048
-    assert list(stage1.model.loss_fn.adversarial_attribute_names.categorical) == ["sex", "race"]
-    assert list(stage1.model.loss_fn.adversarial_attribute_names.continuous) == ["age"]
-    assert instantiate(stage1.model).loss_fn.requires_features is True
-    assert stage2.model.freeze_backbone is True
-
-
-def test_attribute_invariant_preset_rejects_group_dro_override() -> None:
-    config = _compose("experiment=resnet_chexpert_attribute_invariant", "training_strategy=group_dro_subgroup")
-
-    with pytest.raises(ValueError, match="training_strategy=erm"):
-        _validate_attribute_invariance(config)
 
 
 @pytest.mark.parametrize(
