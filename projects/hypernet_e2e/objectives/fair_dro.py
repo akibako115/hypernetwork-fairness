@@ -120,7 +120,7 @@ class FairDROTaskLoss(ConditionalObjective):
         if self.training:
             score = inputs.logits[:, 1].float() - inputs.logits[:, 0].float()
             rates = torch.stack([torch.stack([(score[m] > 0).float().mean() for m in row]) for row in cells])
-            # q は epoch 内で一定なので module が epoch 末に名前付きで記録する。
+            # q は epoch 内で一定なので FairDROEpochUpdate が epoch 末に名前付きで記録する。
             self._diagnostics = {"risk": risks.detach(), "rates": rates.detach(), "cell_count": torch.stack([m.sum() for row in cells for m in row])}
         return (q * risks).sum() / 2
 
@@ -178,6 +178,8 @@ class FairDROEpochUpdate(L.Callback):
     評価 transform・sampler なしの split を、net を eval にして推論する。DataModule が held-out を持てば held-out 全件、
     持たなければ原著どおり train 全件で測る。q と誤り率は `train/fair_dro/*` に記録し、更新ごとの値を
     `metrics/fair_dro_q.jsonl` に 1 行ずつ残す。
+    LitModule が目的関数の callback を先頭に並べるので、Trainer の callback の `on_train_epoch_end` は更新後の q を見る
+    （checkpoint は最後に回るので、last・best にも更新後の q が入る）。今の callback で epoch 末に q を読むものは無い。
     """
 
     def setup(self, trainer: L.Trainer, pl_module: L.LightningModule, stage: str) -> None:

@@ -140,7 +140,7 @@ UTKFace だけが多クラスで、そこでは DCA は EO と一致しない（
    B は 2G の倍数でなければならない。
 2. `FairDROTaskLoss.forward`：`_cells` で群 × クラスのマスクを作り、セルごとの平均 CE を [G, 2] で出す。
    これに q を掛けて足し、2（クラス数）で割る（式 9）。q は勾配を流さない。
-3. モデルを更新する。q はこの時点では変えない（`commit_update` は何もしない）。
+3. モデルを更新する。q はこの時点では変えない（step ごとの双対の確定 `StepDualUpdate` は付かない）。
 
 **epoch の終わり（`FairDROEpochUpdate.on_train_epoch_end`）。**
 

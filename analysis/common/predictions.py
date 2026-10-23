@@ -273,7 +273,7 @@ def load_network(run_dir: Path, device: torch.device, checkpoint: str = DEFAULT_
     """分類 network だけを checkpoint から復元する。
 
     予測は network の logits だけで決まるので、loss も training objective も復元しない
-    （属性不変 loss や GroupDRO は学習時だけのもの）。checkpoint の `net.` prefix を持つ
+    （GroupDRO の q などは学習時だけのもの）。checkpoint の `net.` prefix を持つ
     重みだけを読む。
 
     この `net.` prefix と `model.use_attributes` は run 契約ではなく、LightningModule の

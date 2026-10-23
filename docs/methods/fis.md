@@ -119,10 +119,10 @@ B^t_a の流れを作り、「次の B^t_a を推論して返す関数」を `FI
 
 **学習の各ステップ。**
 
-1. `FISTaskLoss.forward`：学習バッチ B^t の forward の後に呼ばれ、渡された関数で B^t_a を 1 つ受け取る。B^t_a は
-   モデルを train モードのまま勾配なしで forward する。全群の B^t_a を 1 回でまとめて流す。公式実装と同じく、
-   B^t の forward の後に B^t_a を流す順序なので、BatchNorm の running 統計は B^t、B^t_a の順に動く。
-2. 同じ forward で、B^t の標本ごとのクラス重み付き CE を出す（`_weighted_ce`）。
+1. `FISTaskLoss.forward`（学習バッチ B^t の forward の後に呼ばれる）：B^t の標本ごとのクラス重み付き CE を出す（`_weighted_ce`）。
+2. 渡された関数で B^t_a を 1 つ受け取る。B^t_a はモデルを train モードのまま勾配なしで forward する。全群の B^t_a を
+   1 回でまとめて流す。公式実装と同じく B^t の forward の後に B^t_a を流すので、BatchNorm の running 統計は B^t、
+   B^t_a の順に動く。
 3. 勾配なしで、B^t の損失と群 a の B^t_a の損失の `sinkhorn_divergence` を群ごとに計算し、群について softmax して s^G にする（式 5）。
 4. B^t の損失の softmax を s^I にする（式 4）。こちらは勾配を流す。
 5. `((1 − c) · s^I_i + c · s^G_{a_i}) · ℓ_i` のバッチ平均を返す（式 3）。

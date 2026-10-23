@@ -51,10 +51,10 @@ class _Reader(L.Callback):
 
 def _trainer(tmp_path, **kwargs) -> L.Trainer:
     kwargs.setdefault("max_epochs", 1)
+    kwargs.setdefault("enable_checkpointing", False)
     return L.Trainer(
         accelerator="cpu",
         logger=False,
-        enable_checkpointing=False,
         enable_model_summary=False,
         enable_progress_bar=False,
         num_sanity_val_steps=0,
@@ -83,6 +83,27 @@ def test_objective_callbacks_run_before_the_trainer_callbacks_and_are_not_duplic
     kinds = [type(callback) for callback in trainer.callbacks]
     assert kinds.count(StepDualUpdate) == 1 and kinds.count(_Reader) == 1
     assert len({id(callback) for callback in trainer.callbacks}) == len(trainer.callbacks)
+
+
+def test_parent_and_child_checkpoint_types_are_neither_duplicated_nor_dropped(tmp_path) -> None:
+    """HAM10000 の公平性 preset は LastEpochModelCheckpoint と、その親の ModelCheckpoint を両方持つ。"""
+    from lightning.pytorch.callbacks import ModelCheckpoint
+
+    from projects.hypernet_e2e.callbacks.checkpoint import LastEpochModelCheckpoint
+
+    reader = _Reader()
+    last = LastEpochModelCheckpoint(dirpath=tmp_path / "last", save_last=True)
+    worst = ModelCheckpoint(dirpath=tmp_path / "worst", filename="w{epoch}")
+    module = _module(MinimaxAUCTaskLoss(2, COUNTS))
+    trainer = _trainer(tmp_path, callbacks=[reader, last, worst], enable_checkpointing=True)
+    for _ in range(2):
+        trainer.fit(module, datamodule=_DM())
+        assert [id(callback) for callback in trainer.callbacks].count(id(last)) == 1
+        assert [id(callback) for callback in trainer.callbacks].count(id(worst)) == 1
+        assert len({id(callback) for callback in trainer.callbacks}) == len(trainer.callbacks)
+        assert isinstance(trainer.callbacks[0], RejectFitResume) and isinstance(trainer.callbacks[1], StepDualUpdate)
+        assert trainer.callbacks[-2:] == [last, worst]
+        trainer.fit_loop.max_epochs += 1
 
 
 def test_objective_without_callbacks_leaves_the_trainer_callbacks_alone(tmp_path) -> None:

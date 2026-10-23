@@ -174,7 +174,8 @@ TFCO の既定は論文と 2 点違う。M の初期値は目的関数側にほ�
    - 返り値 λ_1 · task + Σ λ_{i+1} · proxy_i で θ を更新する。違反と λ は `_pending` に保留する。
 2. Lightning の optimizer step で θ を更新する（AdamW）。
 3. `StepDualUpdate.on_train_batch_end`（θ の更新の後）：held-out があれば held-out の 1 バッチを流し、保留中の違反を
-   held-out で測った値に置き換える。測るのは更新後の θ で、`LitModule.eval_logits` が net を eval モードにする
+   held-out で測った値に置き換える。測るのは更新後の θ（θ(t+1)）で、ICML 2019 の Algorithm 3 が Δλ を θ(t) で取るのとは
+   1 歩ずれる。`LitModule.eval_logits` が net を eval モードにする
    （BatchNorm の統計を held-out で動かさないため）。LitModule はこの callback を Trainer の callback より先に並べるので、
    診断を記録する callback は確定の後の値を読む。
 4. `commit_update`：log M に η_λ · outer([0, 違反], λ) を足し、列ごとに正規化する（`log_softmax`）。

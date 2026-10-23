@@ -108,6 +108,8 @@ class RejectFitResume(L.Callback):
     """条件付き目的関数の fit を checkpoint から途中再開させない。
 
     保留中の双対の統計や held-out のバッチの流れは checkpoint に残らないので、再開すると原著の更新列から外れる。
+    Lightning は `callbacks` を持たない checkpoint（`save_weights_only`）では callback のこの hook を呼ばないが、
+    その checkpoint からの fit の再開は Lightning 自身が optimizer の状態が無いことで止める。
     """
 
     def on_load_checkpoint(self, trainer: L.Trainer, pl_module: L.LightningModule, checkpoint: dict[str, Any]) -> None:

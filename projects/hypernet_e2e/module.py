@@ -85,6 +85,8 @@ class LitModule(L.LightningModule):
         # 目的関数の callback が直近の step に held-out で測った診断値。ObjectiveDiagnosticsRecorder が学習バッチの値と
         # 分けて記録する。held-out を使わないときは空。
         self.held_out_diagnostics: dict[str, torch.Tensor] = {}
+        # configure_callbacks で Trainer に渡した目的関数の callback。setup で Trainer の callback の先頭へ移す。
+        self._objective_callbacks: list[L.Callback] = []
 
     @property
     def training_objective(self) -> Objective:
@@ -183,9 +185,7 @@ class LitModule(L.LightningModule):
         """
         if stage != "fit":
             return
-        # configure_callbacks の並べ直しは Lightning の型による置き換えに頼るので、重複が無いことをここで確かめる。
-        if self._trainer is not None and len({id(callback) for callback in self.trainer.callbacks}) != len(self.trainer.callbacks):
-            raise RuntimeError("configure_callbacks の並べ直しで callback が重複した")
+        self._put_objective_callbacks_first()
         if self.hparams.backbone_checkpoint_path is not None:
             result = self.load_backbone_checkpoint(self.hparams.backbone_checkpoint_path)
             self._require_loaded_backbone(result, self.hparams.backbone_checkpoint_path)
@@ -214,26 +214,30 @@ class LitModule(L.LightningModule):
             backbone.eval()
 
     def configure_callbacks(self) -> list[L.Callback]:
-        """目的関数が必要とする callback を、Trainer の callback より先に呼ばれる並びで返す。
+        """目的関数が必要とする callback を Trainer に渡す。
 
-        Lightning は、ここで返した callback を Trainer の callback の後ろに足し、同じ型の Trainer の callback を
-        置き換える。目的関数の callback は step の終わりに双対変数を確定し、診断を記録する callback
-        （`ObjectiveDiagnosticsRecorder` など）は確定の後の値を読む必要がある。そこで Trainer の callback も
-        同じ instance のまま返し、目的関数の callback の後ろへ並べ直す（checkpoint の callback は Lightning が
-        最後に回す）。前の fit で足した同じ型の callback は返さず、新しい instance に置き換える。
+        Lightning はここで返した callback を Trainer の callback の後ろに足し、前の fit で足した同じ型の callback を
+        置き換える。fit では `setup` が、これらを Trainer の callback の先頭へ移す。
 
         Args:
             なし
 
         Returns:
-            list[Callback]: 目的関数の callback と、その後ろに並べる Trainer の callback。目的関数が callback を
-                持たなければ空。
+            list[Callback]: 目的関数の `callbacks()`。持たなければ空。
         """
-        callbacks = self.training_objective.callbacks()
-        if not callbacks:
-            return []
-        own = {type(callback) for callback in callbacks}
-        return [*callbacks, *(callback for callback in self.trainer.callbacks if type(callback) not in own)]
+        self._objective_callbacks = self.training_objective.callbacks()
+        return list(self._objective_callbacks)
+
+    def _put_objective_callbacks_first(self) -> None:
+        # 目的関数の callback は step の終わりに双対変数を確定し、診断を記録する callback（ObjectiveDiagnosticsRecorder、
+        # ConditionalFairnessRecorder）はその後の値を読む。Lightning は model の callback を後ろに足すので、先頭へ移す。
+        # configure_callbacks で Trainer の callback を返し直して型による置き換えで並べ替えると、LastEpochModelCheckpoint
+        # と ModelCheckpoint のように親子の型が並ぶ構成で同じ instance が重複するため、list を直接並べ替える。
+        # callback の setup はすべて済んでいるので、ここで並べ替えても呼び漏れは出ない。checkpoint は元どおり最後に残る。
+        if self._trainer is None or not self._objective_callbacks:
+            return
+        own = {id(callback) for callback in self._objective_callbacks}
+        self.trainer.callbacks = [*self._objective_callbacks, *(callback for callback in self.trainer.callbacks if id(callback) not in own)]
 
     def on_train_start(self) -> None:
         """held-out を使わない目的関数に held-out を設定した run を止める。
