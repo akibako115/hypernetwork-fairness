@@ -1,25 +1,24 @@
 """群・クラス条件付き統計と、標本抽出補正を共有する。"""
 
 import math
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from typing import Any
 
+import lightning as L
 import torch
-from torch import nn
+from lightning.pytorch.trainer.states import TrainerFn
 from torch.nn import functional as F
 
+from .base import Objective
 from .input import ObjectiveInput
 
 
-class ConditionalObjective(nn.Module):
+class ConditionalObjective(Objective):
     """全セルが存在する二値分類バッチの母集団補正を保持する。
 
-    counts は train だけから求める [G,2]。セル均等抽出を前提とする。
-    ``dual_update`` は双対状態を更新する単位で、``"step"``（optimizer step ごとに commit_update）、
-    ``"epoch"``（epoch 末に update_from_errors）、None（更新しない対照）のいずれか。
-    module はこれを見て、held-out の統計をどこで測るかを決める。
+    counts は train だけから求める [G,2]。セル均等抽出を前提とする。双対状態を持つ子 class は、その更新を
+    `callbacks()` で返す callback に任せる（step 単位は `StepDualUpdate`、FairDRO の epoch 単位は `FairDROEpochUpdate`）。
     """
-
-    dual_update: str | None = None
 
     def __init__(self, num_groups: int, population_cell_counts: Sequence[Sequence[float]], group_key: str = "group_id", class_weight: Sequence[float] | None = None) -> None:
         """母集団確率と固定正規化定数を設定する。
@@ -76,6 +75,132 @@ class ConditionalObjective(nn.Module):
             dict: detached Tensor の辞書。
         """
         return self._diagnostics
+
+    def callbacks(self) -> list[L.Callback]:
+        """fit の途中再開を拒否する callback を返す。双対状態を持つ子 class はこれに足す。
+
+        Args:
+            なし
+
+        Returns:
+            list[Callback]: `RejectFitResume` だけのリスト。
+        """
+        return [RejectFitResume()]
+
+
+def require_single_device(trainer: L.Trainer) -> None:
+    """双対状態を 1 プロセス・1 step 1 更新で進める前提を確かめる。
+
+    Args:
+        trainer: fit を始める Trainer。
+
+    Returns:
+        None
+
+    Raises:
+        ValueError: 複数 device か、勾配を累積する設定の場合。
+    """
+    if trainer.world_size != 1 or trainer.accumulate_grad_batches != 1:
+        raise ValueError("条件付き公平性 objective は single device / accumulation=1 が必要")
+
+
+class RejectFitResume(L.Callback):
+    """条件付き目的関数の fit を checkpoint から途中再開させない。
+
+    保留中の双対の統計や held-out のバッチの流れは checkpoint に残らないので、再開すると原著の更新列から外れる。
+    """
+
+    def on_load_checkpoint(self, trainer: L.Trainer, pl_module: L.LightningModule, checkpoint: dict[str, Any]) -> None:
+        """fit の再開なら止める。評価のための読み込みは通す。
+
+        Args:
+            trainer: checkpoint を読む Trainer。
+            pl_module: 学習 module。
+            checkpoint: 読み込む checkpoint。
+
+        Returns:
+            None
+
+        Raises:
+            ValueError: fit を checkpoint から再開しようとした場合。
+        """
+        if trainer.state.fn == TrainerFn.FITTING:
+            raise ValueError("条件付き公平性 objective の途中再開は未対応")
+
+
+class StepDualUpdate(L.Callback):
+    """optimizer の更新の後に、forward で保留した双対変数の更新を確定する（EO rate・Minimax AUC・Population AUC）。
+
+    目的関数が held-out を使い（`uses_held_out`）、DataModule が held-out を持つときは、確定の前に held-out の
+    セル均等バッチを 1 つ測り直し、保留中の統計をその値で置き換える。学習バッチで測ると、少数セルを記憶して
+    差が消えたように見え、重みが戻る（Cotter et al. 2019 の 2 データセット方式）。held-out は net を eval にして
+    推論し、BatchNorm の統計を動かさない。
+    held-out で測った診断値は `pl_module.held_out_diagnostics` に置き、目的関数の診断値は学習バッチのものに戻す。
+    診断を記録する callback がその後の値を読めるよう、LitModule はこの callback を Trainer の callback より先に並べる。
+    """
+
+    def __init__(self) -> None:
+        """held-out のバッチの流れを持たない状態で作る。
+
+        Args:
+            なし
+
+        Returns:
+            None
+        """
+        self._held_out: Iterator[Any] | None = None
+
+    def setup(self, trainer: L.Trainer, pl_module: L.LightningModule, stage: str) -> None:
+        """fit の前に、1 step 1 更新の前提を確かめる。
+
+        Args:
+            trainer: Trainer。
+            pl_module: 学習 module。
+            stage: Lightning の stage 名。
+
+        Returns:
+            None
+        """
+        if stage == "fit":
+            require_single_device(trainer)
+
+    def on_train_start(self, trainer: L.Trainer, pl_module: L.LightningModule) -> None:
+        """目的関数が held-out を使い、DataModule が持つときだけ、held-out のバッチの流れを作る。
+
+        Args:
+            trainer: Trainer。
+            pl_module: 学習 module。
+
+        Returns:
+            None
+        """
+        datamodule = trainer.datamodule
+        uses_held_out = pl_module.training_objective.uses_held_out and getattr(datamodule, "data_holdout", None) is not None
+        self._held_out = datamodule.held_out_batches() if uses_held_out else None
+
+    def on_train_batch_end(self, trainer: L.Trainer, pl_module: L.LightningModule, outputs: Any, batch: Any, batch_idx: int) -> None:
+        """held-out があれば測り直してから、保留中の双対の更新を確定する。
+
+        Args:
+            trainer: Trainer。
+            pl_module: 学習 module。
+            outputs: training_step の出力（使わない）。
+            batch: 学習バッチ（使わない）。
+            batch_idx: バッチ番号（使わない）。
+
+        Returns:
+            None
+        """
+        objective = pl_module.training_objective
+        if self._held_out is not None:
+            # held-out の forward は診断値も上書きするので、学習バッチの値と分けて残す。
+            train_diagnostics = dict(objective.batch_diagnostics())
+            image, attributes, target = pl_module.transfer_batch_to_device(next(self._held_out), pl_module.device, 0)
+            with torch.no_grad():
+                objective(ObjectiveInput(logits=pl_module.eval_logits(image, attributes), target=target.long(), attributes=attributes))
+            pl_module.held_out_diagnostics = dict(objective.batch_diagnostics())
+            objective._diagnostics = train_diagnostics
+        objective.commit_update()
 
 
 def _positive_step(value: float, name: str) -> float:

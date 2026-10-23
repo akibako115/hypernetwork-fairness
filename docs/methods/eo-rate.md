@@ -132,7 +132,7 @@ TFCO の既定は論文と 2 点違う。M の初期値は目的関数側にほ�
 | 損失（λ の更新を含む） | [objectives/equalized_odds.py](../../projects/hypernet_e2e/objectives/equalized_odds.py) の `EqualizedOddsRateTaskLoss`・`proxy_bounds`。親 class は [objectives/conditional.py](../../projects/hypernet_e2e/objectives/conditional.py) の `ConditionalObjective`（`_cells`・`_task`） |
 | strategy | [configs/training_strategy/equalized_odds_rate.yaml](../../projects/hypernet_e2e/configs/training_strategy/equalized_odds_rate.yaml) |
 | 起動時の準備 | [training.py](../../projects/hypernet_e2e/training.py) の `_resolve_conditional_population`・`_resolve_inverse_class_weights` |
-| λ の更新の時点と held-out | [module.py](../../projects/hypernet_e2e/module.py) の `optimizer_step`・`on_train_start`・`_measure_on_held_out` |
+| λ の更新の時点と held-out | [objectives/conditional.py](../../projects/hypernet_e2e/objectives/conditional.py) の `StepDualUpdate`・`RejectFitResume`（`callbacks()` が返す callback）と、[module.py](../../projects/hypernet_e2e/module.py) の `LitModule.eval_logits`・`configure_callbacks` |
 | セル均等抽出と held-out | [data/group_class_sampler.py](../../projects/hypernet_e2e/data/group_class_sampler.py) の `GroupClassImageDataModule`（`held_out_batches`）。split は [data_pipeline/chexpert_dual_holdout_splits.py](../../data_pipeline/chexpert_dual_holdout_splits.py)・[ham10000_dual_holdout_splits.py](../../data_pipeline/ham10000_dual_holdout_splits.py) |
 | 診断値の記録 | [callbacks/objective_diagnostics.py](../../projects/hypernet_e2e/callbacks/objective_diagnostics.py) の `ObjectiveDiagnosticsRecorder` |
 | 代表的な preset | `resnet_chexpert_age_race_eo_rate_dual_holdout`（全ペア・TPR と FPR）、`resnet_chexpert_age_race_eo_fpr_overall_dual_holdout`（原論文の形）、`resnet_ham10000_sex_age_eo_rate_dual_holdout` |
@@ -159,8 +159,8 @@ TFCO の既定は論文と 2 点違う。M の初期値は目的関数側にほ�
 - 損失の `__init__`：制約の一覧を作る。`pairwise` は |rates| × G(G−1) 本（8 群・両方の率で 112 本）、`overall` は
   |rates| × G 本。`overall` の「全体の率」は、train の群構成で重み付けした群の率の和として係数行列にしておく。
   M は全列を同じ分布（一様か `initial_task_weight`）にして log で持つ。その分布がそのまま初期の λ になる。
-- `on_train_start`：data に held-out があれば、held-out からセル均等のバッチを尽きずに返す流れを作る。
-- 途中からの再開は `on_load_checkpoint` が拒否する。
+- `StepDualUpdate.on_train_start`：data に held-out があれば、held-out からセル均等のバッチを尽きずに返す流れを作る。
+- 途中からの再開は `RejectFitResume.on_load_checkpoint` が拒否する。
 
 **学習の各ステップ。**
 
@@ -173,9 +173,10 @@ TFCO の既定は論文と 2 点違う。M の初期値は目的関数側にほ�
    - 目的関数 `_task` は、セル均等に引いたバッチを train の母集団の比率に重み付けし直した、クラス重みつきの CE。
    - 返り値 λ_1 · task + Σ λ_{i+1} · proxy_i で θ を更新する。違反と λ は `_pending` に保留する。
 2. Lightning の optimizer step で θ を更新する（AdamW）。
-3. `module.optimizer_step`：held-out があれば `_measure_on_held_out` で held-out の 1 バッチを流し、保留中の違反を
-   held-out で測った値に置き換える。測るのは更新後の θ で、net は eval モードにする（BatchNorm の統計を held-out で
-   動かさないため）。
+3. `StepDualUpdate.on_train_batch_end`（θ の更新の後）：held-out があれば held-out の 1 バッチを流し、保留中の違反を
+   held-out で測った値に置き換える。測るのは更新後の θ で、`LitModule.eval_logits` が net を eval モードにする
+   （BatchNorm の統計を held-out で動かさないため）。LitModule はこの callback を Trainer の callback より先に並べるので、
+   診断を記録する callback は確定の後の値を読む。
 4. `commit_update`：log M に η_λ · outer([0, 違反], λ) を足し、列ごとに正規化する（`log_softmax`）。
 
 先に forward で違反を保留し、θ の更新後に M を進めるのは、θ の 1 歩に古い λ を使う Algorithm 3 の同時更新に合わせるため。

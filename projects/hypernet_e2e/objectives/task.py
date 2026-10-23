@@ -3,9 +3,9 @@
 from collections.abc import Sequence
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 
+from .base import Objective
 from .input import ObjectiveInput
 
 
@@ -26,7 +26,7 @@ def _class_weight_tensor(class_weight: Sequence[float] | None) -> torch.Tensor |
     return weight
 
 
-class TaskLoss(nn.Module):
+class TaskLoss(Objective):
     """分類タスクの class weight 付き cross-entropy 学習目的を計算する。
 
     ``ObjectiveInput`` の logits と target を受け、スカラー loss を返す。class weight は

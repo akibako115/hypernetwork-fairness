@@ -113,7 +113,7 @@ UTKFace だけが多クラスで、そこでは DCA は EO と一致しない（
 | 損失・閉形式・q の更新 | [objectives/fair_dro.py](../../projects/hypernet_e2e/objectives/fair_dro.py) の `FairDROTaskLoss`、`chi_square_best_response`、`nonnegative_radius_limit` |
 | 共通の基底（セルの取り出し） | [objectives/conditional.py](../../projects/hypernet_e2e/objectives/conditional.py) の `ConditionalObjective` |
 | strategy | [configs/training_strategy/fair_dro.yaml](../../projects/hypernet_e2e/configs/training_strategy/fair_dro.yaml)（`radius: 0.5`、`max_epochs: ${trainer.max_epochs}`） |
-| epoch 末の誤り率と q の更新 | [module.py](../../projects/hypernet_e2e/module.py) の `LitModule.on_train_epoch_end`・`_split_errors` |
+| epoch 末の誤り率と q の更新 | 同じ file の `FairDROEpochUpdate`（`callbacks()` が返す callback）・`_split_errors`。推論は [module.py](../../projects/hypernet_e2e/module.py) の `LitModule.eval_logits` |
 | 起動時の検証と件数の注入 | [training.py](../../projects/hypernet_e2e/training.py) の `_resolve_conditional_population` |
 | セル均等抽出・held-out | [data/group_class_sampler.py](../../projects/hypernet_e2e/data/group_class_sampler.py) の `GroupClassBatchSampler`・`GroupClassImageDataModule` |
 | 群の定義 | data config（例 [chexpert_age_known_cells.yaml](../../projects/hypernet_e2e/configs/data/chexpert_age_known_cells.yaml)：65 歳未満/以上の 2 群、[ham10000_sex_age_cells.yaml](../../projects/hypernet_e2e/configs/data/ham10000_sex_age_cells.yaml)：性別 × 年齢の 4 群） |
@@ -132,7 +132,7 @@ UTKFace だけが多クラスで、そこでは DCA は EO と一致しない（
 - `FairDROTaskLoss.__init__`：q を buffer `q`（形 [2, G]、初期値 1/G）として持つ。ρ が
   `nonnegative_radius_limit` の 1/(2(G−1)) 以上なら、q* が負になり得ると警告する（止めはしない）。
   上限は G = 2 で 0.5、G = 4 で 0.167、G = 8 で 0.071 なので、既定の 0.5 ではどの preset でも警告が出る。
-- `LitModule.setup`・`on_load_checkpoint`：複数 GPU・勾配蓄積・途中再開を拒否する。
+- `FairDROEpochUpdate.setup`・`RejectFitResume.on_load_checkpoint`：複数 GPU・勾配蓄積・途中再開を拒否する。
 
 **学習の各ステップ。**
 
@@ -142,10 +142,10 @@ UTKFace だけが多クラスで、そこでは DCA は EO と一致しない（
    これに q を掛けて足し、2（クラス数）で割る（式 9）。q は勾配を流さない。
 3. モデルを更新する。q はこの時点では変えない（`commit_update` は何もしない）。
 
-**epoch の終わり（`LitModule.on_train_epoch_end`）。**
+**epoch の終わり（`FairDROEpochUpdate.on_train_epoch_end`）。**
 
 4. 誤り率を測る split を決める。DataModule が held-out を持てば held-out 全件、無ければ train 全件。
-5. `_split_errors`：eval モード・評価 transform・sampler なしで 1 周し、`z1 − z0 > 0` を陽性としたときの
+5. `_split_errors`：`LitModule.eval_logits`（eval モード）・評価 transform・sampler なしで 1 周し、`z1 − z0 > 0` を陽性としたときの
    群 × クラス別の誤り率を出す。行の欠けや空のセルがあれば止める。
 6. `update_from_errors`：t を更新回数、T を `max_epochs` として η = 1 − t/T。クラスごとに
    `chi_square_best_response` で q* を出し、`q ← (1 − η) q + η q*`。最初の更新は η = 1 なので q = q* になる。

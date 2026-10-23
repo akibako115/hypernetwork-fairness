@@ -1,13 +1,17 @@
 """Jung et al. (ICLR 2023) Algorithm 1 の classwise FairDRO。"""
 
+import json
 import math
 import warnings
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
+from pathlib import Path
+from typing import Any
 
+import lightning as L
 import torch
 from torch.nn import functional as F
 
-from .conditional import ConditionalObjective
+from .conditional import ConditionalObjective, require_single_device
 from .input import ObjectiveInput
 
 
@@ -56,12 +60,12 @@ class FairDROTaskLoss(ConditionalObjective):
     """クラスごとの群重み q^y で群別 CE を重み付けする。
 
     q は全件の 0-1 誤り率から epoch ごとに平滑化 IBR で更新する（式 10）。原著は train 全件で測る。
-    DataModule が held-out を持つとき、module は held-out 全件の誤り率を渡す（train の記憶で少数セルの
+    DataModule が held-out を持つとき、`FairDROEpochUpdate` は held-out 全件の誤り率を渡す（train の記憶で少数セルの
     誤りが消え、q が戻るのを避けるため。EO・Minimax AUC の held-out と同じ扱い）。
     バッチはセル均等抽出（Alg. 1 l.6）なので母集団補正と class weight は使わない。
     """
 
-    dual_update = "epoch"
+    uses_held_out = True
 
     def __init__(
         self,
@@ -120,9 +124,22 @@ class FairDROTaskLoss(ConditionalObjective):
             self._diagnostics = {"risk": risks.detach(), "rates": rates.detach(), "cell_count": torch.stack([m.sum() for row in cells for m in row])}
         return (q * risks).sum() / 2
 
+    def callbacks(self) -> list[L.Callback]:
+        """途中再開の拒否に、epoch 末の q の更新を足して返す。
+
+        Args:
+            なし
+
+        Returns:
+            list[Callback]: `RejectFitResume` と `FairDROEpochUpdate`。
+        """
+        return [*super().callbacks(), FairDROEpochUpdate()]
+
     @torch.no_grad()
     def commit_update(self) -> None:
         """q は epoch 単位で更新するので step ごとには何もしない。
+
+        `ConditionalFairnessRecorder` がこのメソッドの有無で双対を持つ目的関数を見分けるので残す。
 
         Args:
             なし
@@ -153,3 +170,73 @@ class FairDROTaskLoss(ConditionalObjective):
         self.q.copy_((1 - eta) * self.q + eta * q_star)
         self.update_count.add_(1)
         return {"q_star": q_star, "eta": torch.tensor(eta, dtype=torch.float64), "q": self.q.clone(), "q_min": self.q.min().clone()}
+
+
+class FairDROEpochUpdate(L.Callback):
+    """epoch 末に全件の群・クラス別 0-1 誤り率を測り、FairDRO の q を更新する（Alg. 1 l.10）。
+
+    評価 transform・sampler なしの split を、net を eval にして推論する。DataModule が held-out を持てば held-out 全件、
+    持たなければ原著どおり train 全件で測る。q と誤り率は `train/fair_dro/*` に記録し、更新ごとの値を
+    `metrics/fair_dro_q.jsonl` に 1 行ずつ残す。
+    """
+
+    def setup(self, trainer: L.Trainer, pl_module: L.LightningModule, stage: str) -> None:
+        """fit の前に、1 プロセスで q を進める前提を確かめる。
+
+        Args:
+            trainer: Trainer。
+            pl_module: 学習 module。
+            stage: Lightning の stage 名。
+
+        Returns:
+            None
+        """
+        if stage == "fit":
+            require_single_device(trainer)
+
+    def on_train_epoch_end(self, trainer: L.Trainer, pl_module: L.LightningModule) -> None:
+        """全件の誤り率で q を更新し、記録する。
+
+        Args:
+            trainer: Trainer。
+            pl_module: 学習 module。
+
+        Returns:
+            None
+        """
+        objective = pl_module.training_objective
+        datamodule = trainer.datamodule
+        if getattr(datamodule, "data_holdout", None) is not None:
+            source, loader = "holdout", datamodule.held_out_evaluation_dataloader()
+        else:
+            source, loader = "train", datamodule.evaluation_dataloader("train", persistent_workers=False)
+        errors, counts = _split_errors(pl_module, loader, objective.group_key, objective.num_groups)
+        update = objective.update_from_errors(errors)
+        for c in range(2):
+            for g in range(objective.num_groups):
+                pl_module.log(f"train/fair_dro/q/y{c}_g{g}", update["q"][c, g].float())
+                pl_module.log(f"train/fair_dro/error/g{g}_y{c}", errors[g, c].float())
+        pl_module.log("train/fair_dro/q_min", update["q_min"].float())
+        row = {"epoch": pl_module.current_epoch, "update": int(objective.update_count), "eta": float(update["eta"]), "source": source, "q_min": float(update["q_min"])}
+        row.update({key: update[key].tolist() for key in ("q_star", "q")}, error=errors.tolist(), count=counts.tolist())
+        path = Path(trainer.default_root_dir) / "metrics" / "fair_dro_q.jsonl"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a") as stream:
+            stream.write(json.dumps(row) + "\n")
+
+
+@torch.no_grad()
+def _split_errors(pl_module: L.LightningModule, loader: Iterable[Any], group_key: str, num_groups: int) -> tuple[torch.Tensor, torch.Tensor]:
+    """split 全件の群・クラス別 0-1 誤り率 `[G,2]` と件数を返す。"""
+    wrong = torch.zeros((num_groups, 2), dtype=torch.float64, device=pl_module.device)
+    counts = torch.zeros_like(wrong)
+    for batch in loader:
+        image, attributes, target = pl_module.transfer_batch_to_device(batch, pl_module.device, 0)
+        logits = pl_module.eval_logits(image, attributes)
+        index = attributes[group_key].long() * 2 + target.long()
+        miss = ((logits[:, 1] - logits[:, 0] > 0).long() != target.long()).double()
+        wrong.view(-1).index_add_(0, index, miss)
+        counts.view(-1).index_add_(0, index, torch.ones_like(miss))
+    if len(loader.dataset) != int(counts.sum()) or (counts == 0).any():
+        raise ValueError(f"全件の誤り集計に空セルか欠損がある: {counts.tolist()}")
+    return wrong / counts, counts

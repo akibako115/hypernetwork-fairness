@@ -100,7 +100,7 @@ Harvard-FairVision。疾患ごとに 10,000 人（1 人 1 件）で、train 6,00
 | 損失 | [objectives/cohort.py](../../projects/hypernet_e2e/objectives/cohort.py) の `FISTaskLoss`。OT は同じ file の `sinkhorn_divergence`（中身は `_entropic_ot`） |
 | strategy | [configs/training_strategy/fis.yaml](../../projects/hypernet_e2e/configs/training_strategy/fis.yaml)（`fusion` が c、`blur`、`group_sample_size` が B^t_a の件数） |
 | B^t_a の抽出 | [data/group_datamodule.py](../../projects/hypernet_e2e/data/group_datamodule.py) の `GroupSampleBatchSampler` と `GroupImageDataModule.group_sample_batches` |
-| B^t_a の forward | [module.py](../../projects/hypernet_e2e/module.py) の `LitModule.on_train_start`・`_group_sample_input` |
+| B^t_a の forward | [objectives/cohort.py](../../projects/hypernet_e2e/objectives/cohort.py) の `GroupSampleSource`（`FISTaskLoss.callbacks()` が返す callback。LitModule は `configure_callbacks` で Trainer に渡すだけ） |
 | クラス重み | [training.py](../../projects/hypernet_e2e/training.py) の `_resolve_inverse_class_weights` |
 | 診断値の記録 | [callbacks/objective_diagnostics.py](../../projects/hypernet_e2e/callbacks/objective_diagnostics.py) の `ObjectiveDiagnosticsRecorder` |
 | テスト | [tests/test_cohort_objectives.py](../../projects/hypernet_e2e/tests/test_cohort_objectives.py)（式 3〜5 との一致、勾配が s^I だけに流れること、B^t_a の件数） |
@@ -112,15 +112,17 @@ Harvard-FairVision。疾患ごとに 10,000 人（1 人 1 件）で、train 6,00
 train のラベルから全群共通のクラス重み（平均 1 に正規化した逆頻度）を計算し、`class_weight` に書き込む。
 B^t と B^t_a の両方の CE にこの重みが掛かる。
 
-**学習の開始時（`on_train_start`）。** 目的関数が `group_sample_size` を持つと、`group_sample_batches` が
-B^t_a の流れを作る。`GroupSampleBatchSampler` が各群から `group_sample_size` 件ずつ引いて 1 つのバッチに連結する。
+**学習の開始時（`GroupSampleSource.on_train_start`）。** `group_sample_batches(group_sample_size)` が
+B^t_a の流れを作り、「次の B^t_a を推論して返す関数」を `FISTaskLoss.set_group_sample_source` で目的関数に渡す。`GroupSampleBatchSampler` が各群から `group_sample_size` 件ずつ引いて 1 つのバッチに連結する。
 群の中は非復元で 1 周してから並べ直し、端数は次の周の先頭で埋めるので、常に同じ件数になる。transform は train と同じ。
 この loader は `num_workers` 本の worker を学習の間ずっと常駐させる。
 
 **学習の各ステップ。**
 
-1. `_group_sample_input`：B^t_a を、モデルを train モードのまま勾配なしで forward する。全群の B^t_a を 1 回でまとめて流す。
-2. `FISTaskLoss.forward`：B^t の標本ごとのクラス重み付き CE を出す（`_weighted_ce`）。
+1. `FISTaskLoss.forward`：学習バッチ B^t の forward の後に呼ばれ、渡された関数で B^t_a を 1 つ受け取る。B^t_a は
+   モデルを train モードのまま勾配なしで forward する。全群の B^t_a を 1 回でまとめて流す。公式実装と同じく、
+   B^t の forward の後に B^t_a を流す順序なので、BatchNorm の running 統計は B^t、B^t_a の順に動く。
+2. 同じ forward で、B^t の標本ごとのクラス重み付き CE を出す（`_weighted_ce`）。
 3. 勾配なしで、B^t の損失と群 a の B^t_a の損失の `sinkhorn_divergence` を群ごとに計算し、群について softmax して s^G にする（式 5）。
 4. B^t の損失の softmax を s^I にする（式 4）。こちらは勾配を流す。
 5. `((1 − c) · s^I_i + c · s^G_{a_i}) · ℓ_i` のバッチ平均を返す（式 3）。
@@ -148,7 +150,7 @@ B^t_a の流れを作る。`GroupSampleBatchSampler` が各群から `group_samp
 | s^G の正規化 | 論文は群について。公式実装はバッチの標本について | 群について（論文どおり） |
 | OT の相手 | 論文は B^t と B^t_a。公式実装は B^t_a と全群の B^t_a の連結 | B^t と B^t_a（論文どおり） |
 | B^t_a の forward | 群ごとに別々に | 全群の 64 × \|A\| 件を 1 回で。BatchNorm のバッチ統計と running stats の更新が公式と違う |
-| B^t_a の抽出 seed | DataLoader の shuffle（全体の seed に従う） | 42 に固定（`on_train_start` が seed を渡さず既定値になる）。run の seed を変えても同じ順に引く |
+| B^t_a の抽出 seed | DataLoader の shuffle（全体の seed に従う） | 42 に固定（`GroupSampleSource` が seed を渡さず既定値になる）。run の seed を変えても同じ順に引く |
 | B^t_a の端数 | 群の 1 周の終わりで 64 件未満になりうる | 常に 64 件 |
 | Sinkhorn | geomloss | 自前の実装（定義は同じ） |
 | 損失 | クラス重みなし（BCE か CE） | 逆頻度のクラス重み付き CE（2 出力） |

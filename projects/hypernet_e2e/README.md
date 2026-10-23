@@ -87,6 +87,11 @@ uv run python -m projects.hypernet_e2e.run \
 ためで、DataModule が Dataset 構築時に積と突き合わせ、group 属性の欠損・範囲外・train split に
 現れない group を拒否します。目的関数は group ID の範囲を step ごとには再検証しません。
 
+目的関数はどれも `objectives/base.py` の `Objective` を継ぐ。損失の計算の外の時点で状態を動かす手法
+（EO rate・Minimax AUC の毎 step の双対の確定と held-out、FairDRO の epoch 末の全件評価、FIS の群ごとのバッチ）は、
+その処理を目的関数の隣に Lightning callback として書き、`callbacks()` で返す。`LitModule` は `configure_callbacks` で
+それを Trainer の callback より先に並べて渡すだけで、手法ごとの処理を持たない。
+
 validation と test は学習条件によらず通常の cross-entropy を使うので、`val/auroc` は条件を
 またいで比較できます。段ごとに run が分かれているため、1 段目は ERM、2 段目だけ Group DRO と
 いう組み合わせは `experiment=spatial_lora_chexpert_from_resnet_group_dro` で指定できます。

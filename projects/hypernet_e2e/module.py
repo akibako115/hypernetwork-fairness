@@ -2,21 +2,18 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from collections.abc import Callable, Mapping, Sequence
-from pathlib import Path
 from typing import Any
 
 import lightning as L
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from lightning.pytorch.trainer.states import TrainerFn
 
 from projects.hypernet_e2e.loss import ObjectiveInput
 from projects.hypernet_e2e.models.utils import load_compatible_state_dict
-from projects.hypernet_e2e.objectives.conditional import ConditionalObjective
+from projects.hypernet_e2e.objectives.base import Objective
 
 log = logging.getLogger(__name__)
 
@@ -31,12 +28,14 @@ class LitModule(L.LightningModule):
     train は ``loss_fn``、validation/test は実験条件をまたいで比較できる通常の
     cross-entropy を用いる。``use_attributes=True`` のときだけ attributes を net に渡す。
     ``freeze_backbone=True`` は ``backbone_checkpoint_path`` を伴う必要がある。
+    損失の計算の外で目的関数が必要とする処理（双対変数の確定など）は、目的関数の ``callbacks()`` を
+    ``configure_callbacks`` で Trainer に渡すだけで、この module は手法ごとの処理を持たない。
     """
 
     def __init__(
         self,
         net: nn.Module,
-        loss_fn: nn.Module,
+        loss_fn: Objective,
         optimizer: Callable[..., torch.optim.Optimizer] | None,
         scheduler: Callable[..., Any] | None,
         compile: bool = False,
@@ -83,21 +82,19 @@ class LitModule(L.LightningModule):
         self.use_attributes = use_attributes
         self.attribute_names = attribute_names
         self.fairness_attribute_names = fairness_attribute_names
-        # 双対の更新に使う held-out のバッチの流れ。DataModule が held-out を持つときだけ on_train_start で作る。
-        self._held_out = None
-        self._group_samples = None
-        # 直近の step で held-out から測った objective の診断値。held-out を使わないときは空。
+        # 目的関数の callback が直近の step に held-out で測った診断値。ObjectiveDiagnosticsRecorder が学習バッチの値と
+        # 分けて記録する。held-out を使わないときは空。
         self.held_out_diagnostics: dict[str, torch.Tensor] = {}
 
     @property
-    def training_objective(self) -> nn.Module:
+    def training_objective(self) -> Objective:
         """train phase で最適化する注入済みの目的関数を返す。
 
         Args:
             なし
 
         Returns:
-            nn.Module: `ObjectiveInput` を受け取り scalar loss を返す目的関数
+            Objective: `ObjectiveInput` を受け取り scalar loss を返す目的関数
         """
         return self.loss_fn
 
@@ -136,7 +133,7 @@ class LitModule(L.LightningModule):
                 callback がこれを epoch 集計に使う。`loss` は backward 可能なまま返す
         """
         logits, preds, target, attributes = self._shared_step(batch)
-        inputs = ObjectiveInput(logits=logits, target=target, attributes=attributes, group_samples=self._group_sample_input())
+        inputs = ObjectiveInput(logits=logits, target=target, attributes=attributes)
         loss = self.training_objective(inputs)
         return self._step_output(loss, logits, preds, target, attributes, detach_loss=False)
 
@@ -186,9 +183,9 @@ class LitModule(L.LightningModule):
         """
         if stage != "fit":
             return
-        if hasattr(self.training_objective, "commit_update"):
-            if self.trainer.world_size != 1 or self.trainer.accumulate_grad_batches != 1:
-                raise ValueError("条件付き公平性 objective は single device / accumulation=1 が必要")
+        # configure_callbacks の並べ直しは Lightning の型による置き換えに頼るので、重複が無いことをここで確かめる。
+        if self._trainer is not None and len({id(callback) for callback in self.trainer.callbacks}) != len(self.trainer.callbacks):
+            raise RuntimeError("configure_callbacks の並べ直しで callback が重複した")
         if self.hparams.backbone_checkpoint_path is not None:
             result = self.load_backbone_checkpoint(self.hparams.backbone_checkpoint_path)
             self._require_loaded_backbone(result, self.hparams.backbone_checkpoint_path)
@@ -198,18 +195,6 @@ class LitModule(L.LightningModule):
             self.net.initialize_with_attributes(self.trainer.datamodule.train_attributes())
         if self.hparams.compile:
             self.net = torch.compile(self.net)
-
-    def on_load_checkpoint(self, checkpoint: dict[str, Any]) -> None:
-        """条件付き公平性のfit再開を、状態を復元する前に拒否する。
-
-        Args:
-            checkpoint: Lightningが復元しようとするcheckpoint。
-
-        Returns:
-            None
-        """
-        if self._trainer is not None and self.trainer.state.fn == TrainerFn.FITTING and isinstance(self.training_objective, ConditionalObjective):
-            raise ValueError("条件付き公平性 objective の途中再開は未対応")
 
     def on_train_epoch_start(self) -> None:
         """凍結した backbone の BatchNorm 等を eval 状態に保つ。
@@ -228,32 +213,30 @@ class LitModule(L.LightningModule):
         if self.hparams.freeze_backbone and (backbone := getattr(self.net, "backbone", None)) is not None:
             backbone.eval()
 
-    def optimizer_step(self, *args, **kwargs) -> None:
-        """モデル更新が完了した後に保留された双対更新を適用する。
+    def configure_callbacks(self) -> list[L.Callback]:
+        """目的関数が必要とする callback を、Trainer の callback より先に呼ばれる並びで返す。
+
+        Lightning は、ここで返した callback を Trainer の callback の後ろに足し、同じ型の Trainer の callback を
+        置き換える。目的関数の callback は step の終わりに双対変数を確定し、診断を記録する callback
+        （`ObjectiveDiagnosticsRecorder` など）は確定の後の値を読む必要がある。そこで Trainer の callback も
+        同じ instance のまま返し、目的関数の callback の後ろへ並べ直す（checkpoint の callback は Lightning が
+        最後に回す）。前の fit で足した同じ型の callback は返さず、新しい instance に置き換える。
 
         Args:
-            *args: Lightning の optimizer step 引数。
-            **kwargs: Lightning の optimizer step 引数。
+            なし
 
         Returns:
-            None
+            list[Callback]: 目的関数の callback と、その後ろに並べる Trainer の callback。目的関数が callback を
+                持たなければ空。
         """
-        super().optimizer_step(*args, **kwargs)
-        objective = self.training_objective
-        if hasattr(objective, "commit_update"):
-            if self._held_out is not None and getattr(objective, "dual_update", None) == "step":
-                # held-out の forward は診断値も上書きするので、学習バッチの値と分けて残す。
-                train_diagnostics = dict(objective.batch_diagnostics())
-                self._measure_on_held_out(next(self._held_out))
-                self.held_out_diagnostics = dict(objective.batch_diagnostics())
-                objective._diagnostics = train_diagnostics
-            objective.commit_update()
+        callbacks = self.training_objective.callbacks()
+        if not callbacks:
+            return []
+        own = {type(callback) for callback in callbacks}
+        return [*callbacks, *(callback for callback in self.trainer.callbacks if type(callback) not in own)]
 
     def on_train_start(self) -> None:
-        """DataModule が held-out を持てば、双対の更新に使うバッチの流れを用意する。
-
-        step 単位の objective には held-out のセル均等バッチを毎 step 流す。epoch 単位の objective
-        （FairDRO）は epoch 末に held-out 全件を測るので、ここでは流れを作らない。
+        """held-out を使わない目的関数に held-out を設定した run を止める。
 
         Args:
             なし
@@ -262,106 +245,35 @@ class LitModule(L.LightningModule):
             None
 
         Raises:
-            ValueError: 双対を更新しない objective に held-out を設定した場合。
+            ValueError: 目的関数が held-out を使わないのに DataModule が held-out を持つ場合。
         """
         datamodule = getattr(self.trainer, "datamodule", None)
-        uses_held_out = getattr(datamodule, "data_holdout", None) is not None
-        dual_update = getattr(self.training_objective, "dual_update", None)
-        if uses_held_out and dual_update not in ("step", "epoch"):
+        if getattr(datamodule, "data_holdout", None) is not None and not self.training_objective.uses_held_out:
             raise ValueError("held-out は双対変数を更新する条件付き objective でだけ使う")
-        self._held_out = datamodule.held_out_batches() if uses_held_out and dual_update == "step" else None
-        per_group = getattr(self.training_objective, "group_sample_size", None)
-        self._group_samples = datamodule.group_sample_batches(per_group) if per_group else None
 
     @torch.no_grad()
-    def _group_sample_input(self) -> ObjectiveInput | None:
-        """群ごとに別に引いたバッチを勾配なしで forward し、目的関数に渡す入力にする。
+    def eval_logits(self, image: torch.Tensor, attributes: Mapping[str, torch.Tensor]) -> torch.Tensor:
+        """学習の途中に、net を eval にして勾配なしで logits を測る。
 
-        FIS の公式実装（FairVision `train_*_fis.py`）と同じく、model は train モードのまま no_grad で forward する。
+        目的関数の callback が、学習に使わない画像（held-out や split 全件）で成績を測るときに使う。BatchNorm の
+        running 統計を動かさないよう net を eval にし、抜けるときに学習時の状態（凍結した backbone は eval のまま）へ戻す。
+        mixed precision の run でも学習時と同じ精度で推論する。
 
         Args:
-            なし
+            image: `[B, 3, H, W]` の画像 batch（device 上）。
+            attributes: 属性辞書（device 上）。
 
         Returns:
-            ObjectiveInput | None: 群ごとのバッチを使わない目的関数なら None。
+            torch.Tensor: float32 の `[B, num_classes]` logits。
         """
-        if self._group_samples is None:
-            return None
-        image, attributes, target = self.transfer_batch_to_device(next(self._group_samples), self.device, 0)
-        return ObjectiveInput(logits=self(image, attributes).float(), target=target.long(), attributes=attributes)
-
-    @torch.no_grad()
-    def _measure_on_held_out(self, batch: tuple[Any, Mapping[str, torch.Tensor], torch.Tensor]) -> None:
-        # 群の成績を学習に使わない画像で測り直し、保留中の双対の更新をその統計で置き換える。
-        # 学習バッチで測ると、少数セルを記憶して差が消えたように見え、重みが戻る（Cotter et al. 2019 の
-        # 2 データセット方式）。BatchNorm の統計を held-out で動かさないよう、net は eval で forward する。
-        image, attributes, target = self.transfer_batch_to_device(batch, self.device, 0)
         self.net.eval()
         try:
             with self.trainer.precision_plugin.forward_context():
-                logits = self(image, attributes).float()
+                return self(image, attributes).float()
         finally:
             self.net.train()
             if self.hparams.freeze_backbone and (backbone := getattr(self.net, "backbone", None)) is not None:
                 backbone.eval()
-        self.training_objective(ObjectiveInput(logits=logits, target=target.long(), attributes=attributes))
-
-    def on_train_epoch_end(self) -> None:
-        """epoch 単位で双対を更新する objective に全件の 0-1 誤り率を渡す。
-
-        FairDRO の Alg. 1 l.10。評価 transform・sampler なしの split を eval モードで推論する。
-        DataModule が held-out を持てば held-out 全件、持たなければ原著どおり train 全件で測る。
-
-        Args:
-            なし
-
-        Returns:
-            None
-        """
-        objective = self.training_objective
-        if not hasattr(objective, "update_from_errors"):
-            return
-        datamodule = self.trainer.datamodule
-        if getattr(datamodule, "data_holdout", None) is not None:
-            source, loader = "holdout", datamodule.held_out_evaluation_dataloader()
-        else:
-            source, loader = "train", datamodule.evaluation_dataloader("train", persistent_workers=False)
-        errors, counts = self._split_errors(loader, objective.group_key, objective.num_groups)
-        update = objective.update_from_errors(errors)
-        for c in range(2):
-            for g in range(objective.num_groups):
-                self.log(f"train/fair_dro/q/y{c}_g{g}", update["q"][c, g].float())
-                self.log(f"train/fair_dro/error/g{g}_y{c}", errors[g, c].float())
-        self.log("train/fair_dro/q_min", update["q_min"].float())
-        row = {"epoch": self.current_epoch, "update": int(objective.update_count), "eta": float(update["eta"]), "source": source, "q_min": float(update["q_min"])}
-        row.update({key: update[key].tolist() for key in ("q_star", "q")}, error=errors.tolist(), count=counts.tolist())
-        path = Path(self.trainer.default_root_dir) / "metrics" / "fair_dro_q.jsonl"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("a") as stream:
-            stream.write(json.dumps(row) + "\n")
-
-    @torch.no_grad()
-    def _split_errors(self, loader: Any, group_key: str, num_groups: int) -> tuple[torch.Tensor, torch.Tensor]:
-        wrong = torch.zeros((num_groups, 2), dtype=torch.float64, device=self.device)
-        counts = torch.zeros_like(wrong)
-        was_training = self.training
-        self.eval()
-        try:
-            for batch in loader:
-                image, attributes, target = self.transfer_batch_to_device(batch, self.device, 0)
-                with self.trainer.precision_plugin.forward_context():
-                    logits = self(image, attributes).float()
-                index = attributes[group_key].long() * 2 + target.long()
-                miss = ((logits[:, 1] - logits[:, 0] > 0).long() != target.long()).double()
-                wrong.view(-1).index_add_(0, index, miss)
-                counts.view(-1).index_add_(0, index, torch.ones_like(miss))
-        finally:
-            self.train(was_training)
-            if self.hparams.freeze_backbone and (backbone := getattr(self.net, "backbone", None)) is not None:
-                backbone.eval()
-        if len(loader.dataset) != int(counts.sum()) or (counts == 0).any():
-            raise ValueError(f"全件の誤り集計に空セルか欠損がある: {counts.tolist()}")
-        return wrong / counts, counts
 
     def load_backbone_checkpoint(self, checkpoint_path: str, load_fc: bool = True) -> dict[str, list[str]]:
         """checkpoint から backbone 相当の互換する重みだけを読み込む。

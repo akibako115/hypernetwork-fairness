@@ -4,9 +4,9 @@ import math
 from collections.abc import Sequence
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 
+from .base import Objective
 from .input import ObjectiveInput
 from .task import _class_weight_tensor
 
@@ -82,7 +82,7 @@ def _exponentiated_update(probs: torch.Tensor, group_losses: torch.Tensor, step_
     return updated / updated.sum()
 
 
-class UniformGroupTaskLoss(nn.Module):
+class UniformGroupTaskLoss(Objective):
     """観測された group ごとの平均 cross-entropy を等重みで最適化する。"""
 
     def __init__(self, num_groups: int, class_weight: Sequence[float] | Sequence[Sequence[float]] | None = None, group_key: str = "group_id"):
@@ -103,7 +103,7 @@ class UniformGroupTaskLoss(nn.Module):
         return group_losses[observed].mean()
 
 
-class _ClassWeightedGroupDROTaskLoss(nn.Module):
+class _ClassWeightedGroupDROTaskLoss(Objective):
     """q の更新に使う群損失の重みだけが異なる Group DRO 実装を共有する内部 module。
 
     モデルの更新には、常に全群共通の `[num_classes]` 重みを掛けた群損失を使う。`q_class_weight` が None なら

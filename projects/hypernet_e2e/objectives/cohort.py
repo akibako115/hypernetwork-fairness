@@ -6,12 +6,14 @@
 - `FaMITaskLoss`：Sadri et al. (MICCAI 2025) Eq. 1–3 の相互情報量の勾配罰則。LHCF の文献 [34] は FairDomain を指すが、名前と説明はこの論文のもの
 """
 
-from collections.abc import Sequence
+from collections.abc import Callable, Iterator, Sequence
+from typing import Any
 
+import lightning as L
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 
+from .base import Objective
 from .group import _group_losses
 from .input import ObjectiveInput
 from .task import _class_weight_tensor
@@ -44,7 +46,7 @@ class _DiagnosticsMixin:
         return self._batch_diagnostics
 
 
-class WorstCohortTaskLoss(_DiagnosticsMixin, nn.Module):
+class WorstCohortTaskLoss(_DiagnosticsMixin, Objective):
     """CE に、バッチ内で平均損失が最大の群の損失を λ 倍して足す（LHCF の ℓ_wst）。
 
     診断値（いずれも `[num_groups]`）：`group_loss` は群の平均損失（バッチに居ない群は 0）、`group_present` は
@@ -119,7 +121,7 @@ def sinkhorn_divergence(x: torch.Tensor, y: torch.Tensor, blur: float = 0.05, it
     return _entropic_ot(x, y, eps, iterations) - (_entropic_ot(x, x, eps, iterations) + _entropic_ot(y, y, eps, iterations)) / 2
 
 
-class FISTaskLoss(_DiagnosticsMixin, nn.Module):
+class FISTaskLoss(_DiagnosticsMixin, Objective):
     """Fair Identity Scaling：標本の重み s^I と群の重み s^G を c で混ぜて CE に掛ける（Luo et al. Eq. 3–5）。
 
     論文の式に従い、論文が書いていない所は公式実装（FairVision `src/modules.py` の `Fair_Loss_Scaler`、
@@ -140,6 +142,9 @@ class FISTaskLoss(_DiagnosticsMixin, nn.Module):
 
     診断値：`group_weight`・`group_distance`（`[num_groups]`、s^G と OT 距離）と、`group_term_share`（スカラー、
     標本の重みの総和のうち群の項 c·s^G が占める割合。c が実際にどれだけ群の項を効かせたかを読む）。
+
+    B^t_a は `set_group_sample_source` で渡された関数から forward のたびに 1 つ受け取る。学習中は `GroupSampleSource`
+    が DataModule の群ごとのバッチから用意する。
     """
 
     def __init__(
@@ -174,13 +179,36 @@ class FISTaskLoss(_DiagnosticsMixin, nn.Module):
         self.group_sample_size = int(group_sample_size)
         self.group_key = group_key
         self._batch_diagnostics = {}
+        self._group_sample_source: Callable[[], ObjectiveInput] | None = None
+
+    def set_group_sample_source(self, source: Callable[[], ObjectiveInput] | None) -> None:
+        """forward のたびに B^t_a（群ごとに別に引いたバッチの、勾配なしの出力）を返す関数を設定する。
+
+        Args:
+            source: 引数なしで次の B^t_a を返す関数。None で外す。
+
+        Returns:
+            None
+        """
+        self._group_sample_source = source
+
+    def callbacks(self) -> list[L.Callback]:
+        """学習中に B^t_a を用意する callback を返す。
+
+        Args:
+            なし
+
+        Returns:
+            list[Callback]: `GroupSampleSource` だけのリスト。
+        """
+        return [GroupSampleSource()]
 
     def forward(self, inputs: ObjectiveInput) -> torch.Tensor:
-        if inputs.group_samples is None:
-            raise ValueError("FIS には群ごとに別に引いたバッチ（ObjectiveInput.group_samples）が必要")
+        if self._group_sample_source is None:
+            raise ValueError("FIS には群ごとに別に引いたバッチ（set_group_sample_source）が必要")
         group_ids = inputs.attributes[self.group_key].long()
         losses = _weighted_ce(inputs.logits, inputs.target, self._class_weight)
-        samples = inputs.group_samples
+        samples = self._group_sample_source()
         sample_groups = samples.attributes[self.group_key].long()
         with torch.no_grad():
             sample_losses = _weighted_ce(samples.logits, samples.target, self._class_weight)
@@ -196,6 +224,60 @@ class FISTaskLoss(_DiagnosticsMixin, nn.Module):
             "group_term_share": (group_term.sum() / weight.sum()).detach(),
         }
         return (weight * losses).mean()
+
+
+class GroupSampleSource(L.Callback):
+    """FIS の B^t_a を、DataModule の群ごとのバッチから用意して目的関数に渡す。
+
+    バッチの流れは学習の開始時に `group_sample_batches(group_sample_size)` から作り、目的関数には「次の B^t_a を推論して
+    返す関数」を渡す。推論は目的関数の forward の中、つまり学習バッチの forward の後に起きる。FIS の公式実装
+    （FairVision `train_*_fis.py`）と同じく、model は train モードのまま no_grad で forward するので、BatchNorm の
+    running 統計は学習バッチ、B^t_a の順に動く。
+    """
+
+    def __init__(self) -> None:
+        """バッチの流れを持たない状態で作る。
+
+        Args:
+            なし
+
+        Returns:
+            None
+        """
+        self._batches: Iterator[Any] | None = None
+
+    def on_train_start(self, trainer: L.Trainer, pl_module: L.LightningModule) -> None:
+        """群ごとのバッチの流れを作り、推論する関数を目的関数に渡す。
+
+        Args:
+            trainer: Trainer。
+            pl_module: 学習 module。
+
+        Returns:
+            None
+        """
+        objective = pl_module.training_objective
+        self._batches = trainer.datamodule.group_sample_batches(objective.group_sample_size)
+
+        @torch.no_grad()
+        def draw() -> ObjectiveInput:
+            image, attributes, target = pl_module.transfer_batch_to_device(next(self._batches), pl_module.device, 0)
+            return ObjectiveInput(logits=pl_module(image, attributes).float(), target=target.long(), attributes=attributes)
+
+        objective.set_group_sample_source(draw)
+
+    def on_train_end(self, trainer: L.Trainer, pl_module: L.LightningModule) -> None:
+        """学習が終わったら、module を参照する関数を目的関数から外す。
+
+        Args:
+            trainer: Trainer。
+            pl_module: 学習 module。
+
+        Returns:
+            None
+        """
+        pl_module.training_objective.set_group_sample_source(None)
+        self._batches = None
 
 
 def _polynomial_basis(x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
@@ -241,7 +323,7 @@ def polynomial_log_density_gradient(x: torch.Tensor) -> torch.Tensor:
     return -(basis @ weight)
 
 
-class FaMITaskLoss(_DiagnosticsMixin, nn.Module):
+class FaMITaskLoss(_DiagnosticsMixin, Objective):
     """CE + μ·I(u; v)。I の勾配を score function difference で与える（Sadri et al. MICCAI 2025 Eq. 1–3、Alg. 1）。
 
     v はモデルの出力（logits、`[B, num_classes]`）、u は群。λ(u, v) = ∇_v ln p(u|v) = ∇_v ln p(v|u) − ∇_v ln p(v) を、

@@ -36,8 +36,10 @@ def test_sinkhorn_divergence_is_zero_for_identical_sets_and_grows_with_shift() -
     assert far == pytest.approx(0.5, rel=0.1)
 
 
-def _with_group_samples(inputs: ObjectiveInput, logits: torch.Tensor, target: list[int], groups: list[int]) -> ObjectiveInput:
-    return ObjectiveInput(logits=inputs.logits, target=inputs.target, attributes=inputs.attributes, group_samples=_inputs(logits, target, groups))
+def _with_group_samples(objective: FISTaskLoss, logits: torch.Tensor, target: list[int], groups: list[int]) -> FISTaskLoss:
+    samples = _inputs(logits, target, groups)
+    objective.set_group_sample_source(lambda: samples)
+    return objective
 
 
 def test_fis_matches_equations_three_to_five() -> None:
@@ -46,8 +48,8 @@ def test_fis_matches_equations_three_to_five() -> None:
     logits, sample_logits = torch.randn(8, 2), torch.randn(12, 2)
     target, groups = [0, 1] * 4, [0] * 6 + [1] * 2
     sample_target, sample_groups = [0, 1] * 6, [0] * 6 + [1] * 6
-    inputs = _with_group_samples(_inputs(logits, target, groups), sample_logits, sample_target, sample_groups)
-    loss = FISTaskLoss(2, fusion=0.5)(inputs)
+    inputs = _inputs(logits, target, groups)
+    loss = _with_group_samples(FISTaskLoss(2, fusion=0.5), sample_logits, sample_target, sample_groups)(inputs)
     losses = F.cross_entropy(logits, inputs.target, reduction="none")
     sample_losses = F.cross_entropy(sample_logits, torch.tensor(sample_target), reduction="none")
     sg = torch.tensor(sample_groups)
@@ -58,22 +60,22 @@ def test_fis_matches_equations_three_to_five() -> None:
 
 def test_fis_group_weights_sum_to_one_over_groups() -> None:
     torch.manual_seed(0)
-    inputs = _with_group_samples(_inputs(torch.randn(16, 2), [0, 1] * 8, [k % 4 for k in range(16)]), torch.randn(16, 2), [0, 1] * 8, [k // 4 for k in range(16)])
-    objective = FISTaskLoss(4, fusion=1.0)
+    inputs = _inputs(torch.randn(16, 2), [0, 1] * 8, [k % 4 for k in range(16)])
+    objective = _with_group_samples(FISTaskLoss(4, fusion=1.0), torch.randn(16, 2), [0, 1] * 8, [k // 4 for k in range(16)])
     objective(inputs)
     assert torch.isclose(objective._batch_diagnostics["group_weight"].sum(), torch.tensor(1.0))
 
 
 def test_fis_requires_group_samples() -> None:
-    with pytest.raises(ValueError, match="group_samples"):
+    with pytest.raises(ValueError, match="群ごとに別に引いたバッチ"):
         FISTaskLoss(2)(_inputs(torch.randn(4, 2), [0, 1, 0, 1], [0, 0, 1, 1]))
 
 
 def test_fis_gradient_flows_through_individual_weights_only() -> None:
     """s^I = softmax(ℓ) には勾配が流れる（公式実装は detach しない）。s^G は定数。"""
     logits = torch.randn(6, 2, requires_grad=True)
-    inputs = _with_group_samples(_inputs(logits, [0, 1, 0, 1, 0, 1], [0, 0, 0, 1, 1, 1]), torch.randn(6, 2), [0, 1] * 3, [0, 0, 0, 1, 1, 1])
-    FISTaskLoss(2, fusion=0.0)(inputs).backward()
+    inputs = _inputs(logits, [0, 1, 0, 1, 0, 1], [0, 0, 0, 1, 1, 1])
+    _with_group_samples(FISTaskLoss(2, fusion=0.0), torch.randn(6, 2), [0, 1] * 3, [0, 0, 0, 1, 1, 1])(inputs).backward()
     reference, logits.grad = logits.grad.clone(), None
     losses = F.cross_entropy(logits, inputs.target, reduction="none")
     (torch.softmax(losses, 0) * losses).mean().backward()
@@ -193,8 +195,11 @@ def test_lightning_passes_group_sample_batches_to_fis(tmp_path) -> None:
     with torch.no_grad():
         expected = FISTaskLoss(2)
         sx, sattributes, starget = sample_batch
-        expected(ObjectiveInput(net(x), target, attributes, group_samples=ObjectiveInput(net(sx), starget, sattributes)))
+        expected.set_group_sample_source(lambda: ObjectiveInput(net(sx), starget, sattributes))
+        expected(ObjectiveInput(net(x), target, attributes))
     assert requested == [3]
+    # 学習が終われば、module を参照する関数は目的関数から外れる。
+    assert objective._group_sample_source is None
     assert torch.allclose(objective._batch_diagnostics["group_weight"], expected._batch_diagnostics["group_weight"], atol=1e-6)
 
 
@@ -214,8 +219,8 @@ def test_fis_reports_the_share_of_the_group_term() -> None:
     torch.manual_seed(0)
     logits, sample_logits = torch.randn(8, 2), torch.randn(12, 2)
     groups = [0] * 6 + [1] * 2
-    inputs = _with_group_samples(_inputs(logits, [0, 1] * 4, groups), sample_logits, [0, 1] * 6, [0] * 6 + [1] * 6)
-    objective = FISTaskLoss(2, fusion=0.5)
+    inputs = _inputs(logits, [0, 1] * 4, groups)
+    objective = _with_group_samples(FISTaskLoss(2, fusion=0.5), sample_logits, [0, 1] * 6, [0] * 6 + [1] * 6)
     objective(inputs)
     diagnostics = objective.batch_diagnostics()
     group_term = 0.5 * diagnostics["group_weight"][torch.tensor(groups)]

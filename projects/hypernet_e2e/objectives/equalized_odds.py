@@ -2,9 +2,10 @@
 
 from collections.abc import Sequence
 
+import lightning as L
 import torch
 
-from .conditional import ConditionalObjective, _positive_step
+from .conditional import ConditionalObjective, StepDualUpdate, _positive_step
 from .input import ObjectiveInput
 
 CONSTRAINT_FORMS = ("pairwise", "overall")
@@ -48,7 +49,7 @@ class EqualizedOddsRateTaskLoss(ConditionalObjective):
     負の係数がかかる項は下界で置き換える。
     """
 
-    dual_update = "step"
+    uses_held_out = True
 
     def __init__(
         self,
@@ -180,6 +181,17 @@ class EqualizedOddsRateTaskLoss(ConditionalObjective):
                 "active_fraction": ((score.abs() < self.tau) & (score != 0)).float().mean().detach(),
             }
         return weights[0] * task + torch.dot(weights[1:], proxy)
+
+    def callbacks(self) -> list[L.Callback]:
+        """途中再開の拒否に、step ごとの双対の確定を足して返す。
+
+        Args:
+            なし
+
+        Returns:
+            list[Callback]: `RejectFitResume` と `StepDualUpdate`。
+        """
+        return [*super().callbacks(), StepDualUpdate()]
 
     @torch.no_grad()
     def commit_update(self) -> None:

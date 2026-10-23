@@ -100,7 +100,7 @@ min_θ  max_{λ ∈ 単体}  Σ_{g,h} λ_{g,h} · R_{g,h}(θ)
 | 損失・q の更新 | [objectives/minimax_auc.py](../../projects/hypernet_e2e/objectives/minimax_auc.py) の `MinimaxAUCTaskLoss`（q を毎 step 更新）と、その子 class `PopulationAUCTaskLoss`（q を固定） |
 | 共通の基底（セルの取り出し） | [objectives/conditional.py](../../projects/hypernet_e2e/objectives/conditional.py) の `ConditionalObjective` |
 | strategy | [configs/training_strategy/minimax_auc.yaml](../../projects/hypernet_e2e/configs/training_strategy/minimax_auc.yaml)、[population_auc.yaml](../../projects/hypernet_e2e/configs/training_strategy/population_auc.yaml)（どちらも `dual_step_size: 0.01`、`pair_scope: all`） |
-| q の更新の呼び出し・held-out | [module.py](../../projects/hypernet_e2e/module.py) の `LitModule.optimizer_step`・`on_train_start`・`_measure_on_held_out` |
+| q の更新の呼び出し・held-out | [objectives/conditional.py](../../projects/hypernet_e2e/objectives/conditional.py) の `StepDualUpdate`（`callbacks()` が返す callback）と、[module.py](../../projects/hypernet_e2e/module.py) の `LitModule.eval_logits`・`configure_callbacks` |
 | 起動時の検証と件数の注入 | [training.py](../../projects/hypernet_e2e/training.py) の `_resolve_conditional_population` |
 | セル均等抽出・held-out | [data/group_class_sampler.py](../../projects/hypernet_e2e/data/group_class_sampler.py) の `GroupClassBatchSampler`・`GroupClassImageDataModule.held_out_batches` |
 | 群の定義 | data config（例 [ham10000_sex_age_cells_dual_holdout.yaml](../../projects/hypernet_e2e/configs/data/ham10000_sex_age_cells_dual_holdout.yaml)：性別 × 年齢の 4 群、[chexpert_age_race_known_cells_dual_holdout.yaml](../../projects/hypernet_e2e/configs/data/chexpert_age_race_known_cells_dual_holdout.yaml)：年齢 × race の 8 群） |
@@ -118,8 +118,8 @@ min_θ  max_{λ ∈ 単体}  Σ_{g,h} λ_{g,h} · R_{g,h}(θ)
 - `MinimaxAUCTaskLoss.__init__`：ペアの一覧 `pairs = [(g, h)]`（g が陽性の群、h が陰性の群）を作る。`pair_scope: all` で
   G² 個、`intra` で群内の G 個。q の初期値 n_{g+} · n_{h−} / (n⁺ · n⁻) を正規化して、対数で buffer `log_q` に持つ
   （公式の `groupgroup_ratios` と同じ値）。
-- `LitModule.on_train_start`：DataModule が held-out を持てば、held-out からセル均等のバッチを流し続ける iterator を作る。
-  `PopulationAUCTaskLoss` は q を更新しないので、held-out を設定すると止める。
+- `StepDualUpdate.on_train_start`：DataModule が held-out を持てば、held-out からセル均等のバッチを流し続ける iterator を作る。
+  `PopulationAUCTaskLoss` は q を更新しない（`uses_held_out = False`）ので、held-out を設定すると `LitModule.on_train_start` が止める。
 
 **学習の各ステップ。**
 
@@ -128,8 +128,9 @@ min_θ  max_{λ ∈ 単体}  Σ_{g,h} λ_{g,h} · R_{g,h}(θ)
 2. `MinimaxAUCTaskLoss.forward`：スコアを s = z₁ − z₀ とし、各ペア (g, h) についてバッチ内の群 g の陽性と群 h の陰性を
    全部組にして `softplus(−(s⁺ − s⁻))` の平均を取る。これがペアの損失 R_{g,h}。更新前の q（勾配なし）との内積を返す。
    R は `_pending` に保留する。
-3. `LitModule.optimizer_step`：先にモデルを更新する。held-out があれば `_measure_on_held_out` で held-out のバッチを 1 つ、
-   eval モード・更新後のモデルで forward し、保留中の R を held-out の値に置き換える。
+3. `StepDualUpdate.on_train_batch_end`：モデルの更新の後に呼ばれる。held-out があれば held-out のバッチを 1 つ、
+   `LitModule.eval_logits`（eval モード・更新後のモデル）で forward し、保留中の R を held-out の値に置き換える。
+   LitModule はこの callback を Trainer の callback より先に並べるので、診断を記録する callback は確定の後の q を読む。
 4. `commit_update`：`log_q ← log_softmax(log_q + dual_step_size · R)`。q · exp(η · R) を正規化するのと同じ計算で、
    対数で持つのは損失が大きいときに exp が溢れないようにするため。`PopulationAUCTaskLoss` は R を捨てるだけ。
 

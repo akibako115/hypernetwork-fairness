@@ -2,21 +2,22 @@
 
 from collections.abc import Sequence
 
+import lightning as L
 import torch
 from torch.nn import functional as F
 
-from .conditional import ConditionalObjective, _positive_step
+from .conditional import ConditionalObjective, StepDualUpdate, _positive_step
 from .input import ObjectiveInput
 
 
 class MinimaxAUCTaskLoss(ConditionalObjective):
     """陽性群 g・陰性群 h の順位損失を指数勾配で最悪化する。
 
-    forward は旧 q を使い、commit_update はモデル更新後に一度だけ呼ぶ。
+    forward は旧 q を使い、commit_update はモデル更新後に一度だけ呼ぶ（`StepDualUpdate`）。
     q 初期値は母集団の陽性群分布と陰性群分布の積。
     """
 
-    dual_update = "step"
+    uses_held_out = True
 
     def __init__(
         self,
@@ -72,6 +73,17 @@ class MinimaxAUCTaskLoss(ConditionalObjective):
             self._diagnostics = {"risk": risks.detach(), "q_before": q, "cell_count": torch.stack([m.sum() for row in cells for m in row]), "pair_count": pair_counts}
         return torch.dot(q, risks)
 
+    def callbacks(self) -> list[L.Callback]:
+        """途中再開の拒否に、step ごとの双対の確定を足して返す。
+
+        Args:
+            なし
+
+        Returns:
+            list[Callback]: `RejectFitResume` と `StepDualUpdate`。
+        """
+        return [*super().callbacks(), StepDualUpdate()]
+
     @torch.no_grad()
     def commit_update(self) -> None:
         """モデル更新後、同じ forward の損失で q を更新する。
@@ -94,7 +106,7 @@ class MinimaxAUCTaskLoss(ConditionalObjective):
 class PopulationAUCTaskLoss(MinimaxAUCTaskLoss):
     """母集団由来 q を固定した AUCMax 対照条件。"""
 
-    dual_update = None
+    uses_held_out = False
 
     @torch.no_grad()
     def commit_update(self) -> None:
